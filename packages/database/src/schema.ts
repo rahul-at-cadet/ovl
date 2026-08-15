@@ -26,7 +26,7 @@ export const gooseDbVersion = pgTable("goose_db_version", {
 });
 
 export const vessels = pgTable("vessels", {
-	id: uuid("id").primaryKey().notNull(),
+	id: uuid("id").primaryKey().defaultRandom().notNull(),
 	imo: text("imo").notNull(),
 	name: text("name").notNull(),
 	type: text("type").notNull(),
@@ -83,7 +83,7 @@ export const regulatoryProfileAssignments = pgTable("regulatory_profile_assignme
 });
 
 export const users = pgTable("users", {
-	id: uuid("id").primaryKey().notNull(),
+	id: uuid("id").primaryKey().defaultRandom().notNull(),
 	username: text("username").notNull(),
 	passwordHash: text("password_hash").notNull(),
 	roles: jsonb("roles").notNull(),
@@ -99,7 +99,7 @@ export const users = pgTable("users", {
 });
 
 export const schemaVersions = pgTable("schema_versions", {
-	id: uuid("id").primaryKey().notNull(),
+	id: uuid("id").primaryKey().defaultRandom().notNull(),
 	schemaName: text("schema_name").notNull(),
 	version: text("version").notNull(),
 	source: text("source").notNull(),
@@ -160,7 +160,7 @@ export const ruleSeverityAssignments = pgTable("rule_severity_assignments", {
 });
 
 export const configBundles = pgTable("config_bundles", {
-	id: uuid("id").primaryKey().notNull(),
+	id: uuid("id").primaryKey().defaultRandom().notNull(),
 	label: text("label").default('').notNull(),
 	schemaVersions: jsonb("schema_versions").default([]).notNull(),
 	fieldPolicies: jsonb("field_policies").default([]).notNull(),
@@ -439,7 +439,7 @@ export const userCommands = pgTable("user_commands", {
 });
 
 export const apiKeys = pgTable("api_keys", {
-	id: uuid("id").primaryKey().notNull(),
+	id: uuid("id").primaryKey().defaultRandom().notNull(),
 	label: text("label").notNull(),
 	tokenHash: text("token_hash").notNull(),
 	tokenLookupHash: text("token_lookup_hash").notNull(),

@@ -1,0 +1,32 @@
+name: ovl-node
+
+# Development stack for the ovl-node monorepo.
+#
+# IMPORTANT: Postgres is already running via the ovl Go project's
+# docker-compose (on host port 5432). This file ONLY starts SuperTokens
+# Core — NestJS still runs on the HOST via `npm run dev`.
+#
+# Usage:
+#   docker compose up -d       — starts SuperTokens Core
+#   docker compose down        — stops SuperTokens Core
+#
+# To switch databases: edit DATABASE_URL in the root .env file.
+# Docker Compose automatically reads the root .env file.
+
+services:
+  supertokens:
+    image: registry.supertokens.io/supertokens/supertokens-postgresql:latest
+    restart: unless-stopped
+    ports:
+      - "3567:3567"
+    environment:
+      # Reads DATABASE_URL from the root .env automatically.
+      # host.docker.internal maps to your Mac's localhost from inside Docker.
+      # For a remote DB, just change DATABASE_URL in .env and restart.
+      POSTGRESQL_CONNECTION_URI: "${DATABASE_URL:-postgresql://ovl:ovl@host.docker.internal:5432/ovl_office}"
+    healthcheck:
+      test: >
+        bash -c 'exec 3<>/dev/tcp/127.0.0.1/3567 && echo -e "GET /hello HTTP/1.1\r\nhost: 127.0.0.1:3567\r\nConnection: close\r\n\r\n" >&3 && cat <&3 | grep "Hello"'
+      interval: 10s
+      timeout: 5s
+      retries: 5

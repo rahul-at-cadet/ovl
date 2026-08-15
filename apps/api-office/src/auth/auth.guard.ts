@@ -1,34 +1,42 @@
-import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 import { Error as STError } from 'supertokens-node';
 import { verifySession } from 'supertokens-node/recipe/session/framework/express';
+import { SupertokensService } from './supertokens.service';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
-    async canActivate(context: ExecutionContext): Promise<boolean> {
-        const ctx = context.switchToHttp();
+  constructor(private readonly supertokensService: SupertokensService) {}
 
-        let err = undefined;
-        const resp = ctx.getResponse();
-        
-        await verifySession()(
-            ctx.getRequest(),
-            resp,
-            (res) => {
-                err = res;
-            },
-        );
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const ctx = context.switchToHttp();
+    const req = ctx.getRequest();
+    const resp = ctx.getResponse();
 
-        if (resp.headersSent) {
-            throw new STError({
-                message: "RESPONSE_SENT",
-                type: "RESPONSE_SENT",
-            });
-        }
+    let err: unknown = undefined;
 
-        if (err) {
-            throw err;
-        }
+    // Verify the SuperTokens session and attach session to req.session
+    await verifySession()(req, resp, (res) => {
+      err = res;
+    });
 
-        return true;
+    if (resp.headersSent) {
+      throw new STError({ message: 'RESPONSE_SENT', type: 'RESPONSE_SENT' });
     }
+
+    if (err) {
+      throw err;
+    }
+
+    // Attach the full local Postgres user (with roles) to the request
+    const stUserId = req.session.getUserId();
+    const localUser = await this.supertokensService.getLocalUser(stUserId);
+
+    if (!localUser || !localUser.active) {
+      throw new UnauthorizedException('User not found or deactivated');
+    }
+
+    req.user = localUser;
+    return true;
+  }
 }
+

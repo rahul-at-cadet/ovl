@@ -1,0 +1,192 @@
+import { Injectable, Inject, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { eq } from 'drizzle-orm';
+import * as schema from '@ovl/database';
+import * as argon2 from 'argon2';
+import { DATABASE_CONNECTION } from '../database/database.module';
+import type { LocalUser } from '../auth/supertokens.service';
+import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateUserRolesDto } from './dto/update-user.dto';
+
+export type SafeUser = Omit<LocalUser, 'passwordHash'>;
+
+/** Strips the password hash before returning to the client */
+function toSafeUser(u: LocalUser): SafeUser {
+  const { passwordHash: _pw, ...rest } = u;
+  return rest;
+}
+
+/** Generates a cryptographically random temporary password */
+function randomPassword(length = 12): string {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$';
+  const bytes = require('crypto').randomBytes(length);
+  return Array.from(bytes as Buffer)
+    .map((b: number) => chars[b % chars.length])
+    .join('');
+}
+
+@Injectable()
+export class UsersService {
+  constructor(
+    @Inject(DATABASE_CONNECTION)
+    private readonly db: NodePgDatabase<typeof schema>,
+  ) {}
+
+  /** List all users (admin-only). Never returns password hashes. */
+  async listUsers(): Promise<SafeUser[]> {
+    const results = await this.db
+      .select()
+      .from(schema.users)
+      .orderBy(schema.users.createdAt);
+    return results.map(toSafeUser);
+  }
+
+  /** Get a single user by UUID. */
+  async getUser(id: string): Promise<SafeUser> {
+    const results = await this.db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.id, id))
+      .limit(1);
+    if (!results[0]) throw new NotFoundException(`User ${id} not found`);
+    return toSafeUser(results[0]);
+  }
+
+  /**
+   * Create a new user (admin-initiated).
+   * Generates a random temporary password and returns it ONCE — same
+   * "reveal once" contract as the Go implementation. The user must change
+   * it on first login (mustChangePassword = true).
+   */
+  async createUser(
+    dto: CreateUserDto,
+  ): Promise<{ user: SafeUser; temporaryPassword: string }> {
+    // Check for duplicate username
+    const existing = await this.db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(eq(schema.users.username, dto.username))
+      .limit(1);
+    if (existing.length > 0) {
+      throw new ConflictException(`Username "${dto.username}" already exists`);
+    }
+
+    const temporaryPassword = randomPassword(12);
+    const passwordHash = await argon2.hash(temporaryPassword, {
+      type: argon2.argon2id,
+    });
+
+    const now = new Date().toISOString();
+    const [created] = await this.db
+      .insert(schema.users)
+      .values({
+        username: dto.username,
+        passwordHash,
+        roles: dto.roles as unknown as string,
+        mustChangePassword: true,
+        createdAt: now,
+        updatedAt: now,
+        active: true,
+      })
+      .returning();
+
+    return { user: toSafeUser(created), temporaryPassword };
+  }
+
+  /** Update a user's roles (admin-only). */
+  async updateUserRoles(id: string, dto: UpdateUserRolesDto): Promise<SafeUser> {
+    const [updated] = await this.db
+      .update(schema.users)
+      .set({ roles: dto.roles as unknown as string, updatedAt: new Date().toISOString() })
+      .where(eq(schema.users.id, id))
+      .returning();
+    if (!updated) throw new NotFoundException(`User ${id} not found`);
+    return toSafeUser(updated);
+  }
+
+  /** Deactivate a user — prevents login without deleting the account. */
+  async deactivateUser(id: string): Promise<SafeUser> {
+    const [updated] = await this.db
+      .update(schema.users)
+      .set({ active: false, updatedAt: new Date().toISOString() })
+      .where(eq(schema.users.id, id))
+      .returning();
+    if (!updated) throw new NotFoundException(`User ${id} not found`);
+    return toSafeUser(updated);
+  }
+
+  /** Reactivate a previously deactivated user. */
+  async reactivateUser(id: string): Promise<SafeUser> {
+    const [updated] = await this.db
+      .update(schema.users)
+      .set({ active: true, updatedAt: new Date().toISOString() })
+      .where(eq(schema.users.id, id))
+      .returning();
+    if (!updated) throw new NotFoundException(`User ${id} not found`);
+    return toSafeUser(updated);
+  }
+
+  /**
+   * Admin-initiated password reset — generates and returns a new temporary
+   * password. Same "reveal once" contract as createUser.
+   */
+  async resetUserPassword(
+    id: string,
+  ): Promise<{ user: SafeUser; temporaryPassword: string }> {
+    const temporaryPassword = randomPassword(12);
+    const passwordHash = await argon2.hash(temporaryPassword, {
+      type: argon2.argon2id,
+    });
+
+    const [updated] = await this.db
+      .update(schema.users)
+      .set({
+        passwordHash,
+        mustChangePassword: true,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(schema.users.id, id))
+      .returning();
+    if (!updated) throw new NotFoundException(`User ${id} not found`);
+
+    return { user: toSafeUser(updated), temporaryPassword };
+  }
+
+  /**
+   * Self-service password change — verifies the current password before
+   * allowing the update. Sets mustChangePassword = false.
+   */
+  async changeOwnPassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<SafeUser> {
+    const results = await this.db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.id, userId))
+      .limit(1);
+    const user = results[0];
+    if (!user) throw new NotFoundException('User not found');
+
+    const match = await argon2.verify(user.passwordHash, currentPassword);
+    if (!match) throw new BadRequestException('Current password is incorrect');
+
+    if (newPassword.length < 8) {
+      throw new BadRequestException('New password must be at least 8 characters');
+    }
+
+    const newHash = await argon2.hash(newPassword, { type: argon2.argon2id });
+    const [updated] = await this.db
+      .update(schema.users)
+      .set({
+        passwordHash: newHash,
+        mustChangePassword: false,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(schema.users.id, userId))
+      .returning();
+
+    return toSafeUser(updated);
+  }
+}

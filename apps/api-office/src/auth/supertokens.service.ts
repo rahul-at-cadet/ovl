@@ -1,34 +1,109 @@
 import { Injectable, Inject } from '@nestjs/common';
-import supertokens from "supertokens-node";
-import Session from "supertokens-node/recipe/session";
-import EmailPassword from "supertokens-node/recipe/emailpassword";
+import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import supertokens from 'supertokens-node';
+import Session from 'supertokens-node/recipe/session';
+import EmailPassword from 'supertokens-node/recipe/emailpassword';
+import { eq } from 'drizzle-orm';
+import * as schema from '@ovl/database';
+import * as argon2 from 'argon2';
 
-export const ConfigInjectionToken = "ConfigInjectionToken";
+export const ConfigInjectionToken = 'ConfigInjectionToken';
+export const DB_CONNECTION = 'DATABASE_CONNECTION'; // maps to @Global DatabaseModule
+
 export interface AuthModuleConfig {
-    appInfo: {
-        appName: string;
-        apiDomain: string;
-        websiteDomain: string;
-        apiBasePath: string;
-        websiteBasePath: string;
-    };
-    connectionURI: string;
-    apiKey?: string;
+  appInfo: {
+    appName: string;
+    apiDomain: string;
+    websiteDomain: string;
+    apiBasePath: string;
+    websiteBasePath: string;
+  };
+  connectionURI: string;
+  apiKey?: string;
 }
+
+export type LocalUser = typeof schema.users.$inferSelect;
 
 @Injectable()
 export class SupertokensService {
-    constructor(@Inject(ConfigInjectionToken) private config: AuthModuleConfig) {
-        supertokens.init({
-            appInfo: config.appInfo,
-            supertokens: {
-                connectionURI: config.connectionURI,
-                apiKey: config.apiKey,
-            },
-            recipeList: [
-                EmailPassword.init(),
-                Session.init(),
-            ]
-        });
-    }
+  private db: NodePgDatabase<typeof schema>;
+
+  constructor(
+    @Inject(ConfigInjectionToken) private config: AuthModuleConfig,
+    @Inject('DATABASE_CONNECTION') db: NodePgDatabase<typeof schema>,
+  ) {
+    this.db = db;
+
+    supertokens.init({
+      appInfo: config.appInfo,
+      supertokens: {
+        connectionURI: config.connectionURI,
+        apiKey: config.apiKey,
+      },
+      recipeList: [
+        EmailPassword.init({
+          override: {
+            apis: (originalImplementation) => ({
+              ...originalImplementation,
+
+              // Intercept the signUp API to provision a local Postgres user.
+              // NOTE: SuperTokens already creates a session automatically
+              // after signup — we just need to insert the local user record.
+              signUpPOST: async (input) => {
+                const response = await originalImplementation.signUpPOST!(input);
+
+                if (response.status === 'OK') {
+                  const email = response.user.emails[0];
+
+                  const passwordHash = await argon2.hash(
+                    input.formFields.find((f) => f.id === 'password')!.value as string,
+                    { type: argon2.argon2id },
+                  );
+
+                  await db.insert(schema.users).values({
+                    username: email,
+                    passwordHash,
+                    roles: ['viewer'] as unknown as string,
+                    mustChangePassword: false,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                    active: true,
+                  }).onConflictDoNothing();
+                }
+
+                return response;
+              },
+            }),
+          },
+        }),
+        Session.init({
+          cookieSecure: false, // set true in production (HTTPS)
+          cookieSameSite: 'lax',
+          // Use headers for token transfer so both curl and browser SDKs work.
+          // The frontend SuperTokens SDK will automatically send st-access-token
+          // as a header on subsequent requests.
+          getTokenTransferMethod: () => 'header',
+        }),
+      ],
+    });
+  }
+
+  /**
+   * Looks up the local Postgres user record using the SuperTokens userId
+   * stored in the session's access token payload.
+   */
+  async getLocalUser(stUserId: string): Promise<LocalUser | null> {
+    // The SuperTokens userId maps to the email, which is the username in our DB
+    const stUser = await supertokens.getUser(stUserId);
+    if (!stUser) return null;
+
+    const email = stUser.emails[0];
+    const results = await this.db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.username, email))
+      .limit(1);
+
+    return results[0] ?? null;
+  }
 }
