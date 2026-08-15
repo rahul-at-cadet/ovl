@@ -1,0 +1,6 @@
+ovl
+node_modules
+.env
+dist
+.turbo
+
