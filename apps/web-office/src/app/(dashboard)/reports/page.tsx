@@ -9,17 +9,19 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Search, Filter, FileText, ChevronRight, Download } from 'lucide-react';
+import { trpc } from '@/lib/trpc';
 
 export default function GlobalReportsPage() {
   const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
 
-  // Mock global data
-  const reports = [
-    { id: 'f17976f1', vessel: 'Seawise Giant', imo: '7381154', type: 'Bunker Report', status: 'pending_review', date: '2026-08-15', by: 'vessel-admin' },
-    { id: '36582434', vessel: 'Emma Maersk', imo: '9321483', type: 'EDN Report', status: 'approved', date: '2026-08-15', by: 'captain-john' },
-    { id: 'b8281dfd', vessel: 'TI Europe', imo: '9235268', type: 'Log Abstract', status: 'approved', date: '2026-08-14', by: 'vessel-admin' },
-    { id: 'c9392eec', vessel: 'Batillus', imo: '7360148', type: 'Cargo Nomination', status: 'rejected', date: '2026-08-13', by: 'chief-mate' },
-  ];
+  const { data: reports = [], isLoading } = trpc.reports.list.useQuery();
+
+  const filteredReports = reports.filter((report: any) => {
+    const matchesSearch = report.vessel.toLowerCase().includes(searchQuery.toLowerCase()) || report.imo.includes(searchQuery);
+    const matchesStatus = statusFilter === 'all' || report.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -48,7 +50,7 @@ export default function GlobalReportsPage() {
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </div>
-              <Select defaultValue="all">
+              <Select value={statusFilter} onValueChange={(val) => setStatusFilter(val || 'all')}>
                 <SelectTrigger className="w-[140px] h-9 bg-slate-950/50 border-slate-800 text-slate-200">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
@@ -66,8 +68,9 @@ export default function GlobalReportsPage() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          <Table>
-            <TableHeader className="bg-slate-950/30">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader className="bg-slate-950/30">
               <TableRow className="border-slate-800 hover:bg-transparent">
                 <TableHead className="text-slate-400 font-medium">Report ID</TableHead>
                 <TableHead className="text-slate-400 font-medium">Vessel / IMO</TableHead>
@@ -78,8 +81,15 @@ export default function GlobalReportsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {reports.map((report) => (
-                <TableRow key={report.id} className="border-slate-800 hover:bg-slate-800/30 transition-colors group">
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-12 text-slate-500">
+                    Loading reports...
+                  </TableCell>
+                </TableRow>
+              ) : filteredReports.length > 0 ? (
+                filteredReports.map((report: any) => (
+                  <TableRow key={report.id} className="border-slate-800 hover:bg-slate-800/30 transition-colors group">
                   <TableCell className="font-medium text-slate-300 font-mono text-sm">
                     {report.id}
                   </TableCell>
@@ -108,15 +118,23 @@ export default function GlobalReportsPage() {
                   <TableCell className="text-slate-400">{report.date}</TableCell>
                   <TableCell className="text-right">
                     <Link href={`/reports/${report.id}`}>
-                      <Button variant="ghost" size="sm" className="text-slate-400 hover:text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button variant="ghost" size="sm" className="text-slate-400 hover:text-indigo-400 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                         Audit <ChevronRight className="w-4 h-4 ml-1" />
                       </Button>
                     </Link>
                   </TableCell>
                 </TableRow>
-              ))}
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-12 text-slate-500">
+                    No reports found matching your criteria.
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
     </div>

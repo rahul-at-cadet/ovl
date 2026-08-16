@@ -5,15 +5,32 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Settings, Globe, Shield, Key, Bell, KeyRound, Copy, CheckCircle2 } from 'lucide-react';
+import { Settings, Globe, Shield, Key, Bell, KeyRound, Copy, CheckCircle2, Trash2 } from 'lucide-react';
 import { useState } from 'react';
+import { trpc } from '@/lib/trpc';
 
 export default function SettingsPage() {
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
+  const [newRawToken, setNewRawToken] = useState<string | null>(null);
 
-  const handleCopy = () => {
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const utils = trpc.useUtils();
+  const { data: apiKeys = [], isLoading } = trpc.apiKeys.list.useQuery();
+  
+  const createMutation = trpc.apiKeys.create.useMutation({
+    onSuccess: (data) => {
+      utils.apiKeys.list.invalidate();
+      setNewRawToken(data.rawToken);
+    }
+  });
+
+  const handleCopy = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(id);
+    setTimeout(() => setCopied(null), 2000);
+  };
+
+  const handleGenerateKey = () => {
+    createMutation.mutate({ label: 'Production Sync Key' });
   };
 
   return (
@@ -25,7 +42,7 @@ export default function SettingsPage() {
 
       <Tabs defaultValue="general" orientation="vertical" className="w-full">
         <div className="flex flex-col md:flex-row gap-8">
-          <TabsList className="flex flex-col h-auto bg-transparent gap-2 w-full md:w-64 shrink-0">
+          <TabsList className="flex flex-col h-auto bg-transparent gap-2 w-64 shrink-0">
             <TabsTrigger 
               value="general" 
               className="w-full justify-start px-4 py-2.5 text-sm font-medium data-[state=active]:bg-zinc-800/50 data-[state=active]:text-zinc-100 text-zinc-400 hover:bg-zinc-900/50 transition-all rounded-md"
@@ -110,29 +127,47 @@ export default function SettingsPage() {
                     <CardTitle className="text-sm font-semibold tracking-tight text-zinc-200">API Credentials</CardTitle>
                     <CardDescription className="text-xs text-zinc-500 mt-1">Manage keys for edge-node synchronization.</CardDescription>
                   </div>
-                  <Button className="bg-zinc-100 hover:bg-white text-zinc-950 rounded-md h-8 text-xs font-semibold shadow-sm transition-all px-3">
-                    Generate New Key
+                  <Button onClick={handleGenerateKey} disabled={createMutation.isPending} className="bg-zinc-100 hover:bg-white text-zinc-950 rounded-md h-8 text-xs font-semibold shadow-sm transition-all px-3">
+                    {createMutation.isPending ? 'Generating...' : 'Generate New Key'}
                   </Button>
                 </CardHeader>
-                <CardContent className="pt-6">
-                  <div className="space-y-2">
-                    <Label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">Production Sync Key</Label>
-                    <div className="flex gap-2">
-                      <div className="relative flex-1">
-                        <KeyRound className="absolute left-3 top-2.5 h-4 w-4 text-zinc-500" />
-                        <Input 
-                          readOnly 
-                          type="password"
-                          defaultValue="ovl_prod_xxxxxxxxxxxxxxxxxxxxxxxx" 
-                          className="pl-9 bg-zinc-950/80 border-zinc-800/80 text-zinc-400 text-sm h-10 font-mono tracking-widest" 
-                        />
+                <CardContent className="pt-6 space-y-6">
+                  {newRawToken && (
+                    <div className="bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-md space-y-2 mb-6">
+                      <p className="text-sm text-emerald-400 font-medium">New API Key Generated</p>
+                      <p className="text-xs text-emerald-500/80">Please copy this token now. You won't be able to see it again.</p>
+                      <div className="flex gap-2 mt-2">
+                        <Input readOnly value={newRawToken} className="bg-zinc-950/80 border-emerald-500/30 text-emerald-400 font-mono tracking-widest text-sm" />
+                        <Button variant="outline" onClick={() => handleCopy(newRawToken, 'new')} className="border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 h-10 w-10 p-0 shrink-0">
+                          {copied === 'new' ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                        </Button>
                       </div>
-                      <Button variant="outline" onClick={handleCopy} className="border-zinc-800 bg-zinc-950 hover:bg-zinc-900 text-zinc-300 h-10 w-10 p-0 shrink-0">
-                        {copied ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                      </Button>
                     </div>
-                    <p className="text-[11px] text-zinc-500 mt-2">Last used: 2 minutes ago</p>
-                  </div>
+                  )}
+
+                  {isLoading ? (
+                    <div className="text-center text-zinc-500 py-4 text-sm">Loading API keys...</div>
+                  ) : apiKeys.length > 0 ? (
+                    apiKeys.map((key) => (
+                      <div key={key.id} className="space-y-2 pb-4 border-b border-zinc-800/40 last:border-0">
+                        <Label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">{key.label || 'API Key'}</Label>
+                        <div className="flex gap-2">
+                          <div className="relative flex-1">
+                            <KeyRound className="absolute left-3 top-2.5 h-4 w-4 text-zinc-500" />
+                            <Input 
+                              readOnly 
+                              type="password"
+                              defaultValue="ovl_prod_xxxxxxxxxxxxxxxxxxxxxxxx" 
+                              className="pl-9 bg-zinc-950/80 border-zinc-800/80 text-zinc-400 text-sm h-10 font-mono tracking-widest" 
+                            />
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-zinc-500 mt-2">Created: {new Date(key.createdAt).toLocaleString()}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center text-zinc-500 py-4 text-sm">No active API keys.</div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>

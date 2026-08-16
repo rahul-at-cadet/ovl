@@ -22,6 +22,7 @@ async function bootstrap() {
     '/trpc',
     trpcExpress.createExpressMiddleware({
       router: trpc.appRouter,
+      createContext: require('./rpc/trpc.router').createContext,
     }),
   );
 

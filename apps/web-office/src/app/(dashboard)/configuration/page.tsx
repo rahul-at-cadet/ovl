@@ -1,0 +1,302 @@
+"use client";
+
+import { useState } from "react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Upload, Plus, FileJson, Layers, Link as LinkIcon } from "lucide-react";
+import { trpc } from "@/lib/trpc";
+
+export default function ConfigurationPage() {
+  const [activeTab, setActiveTab] = useState("schemas");
+
+  return (
+    <div className="p-8">
+      <div className="flex justify-between items-center mb-8">
+        <div>
+          <h1 className="text-3xl font-heading font-bold text-slate-100">Fleet Configuration</h1>
+          <p className="text-slate-400 mt-2">Manage dynamic schemas and push config bundles to edge nodes.</p>
+        </div>
+      </div>
+
+      <Tabs value={activeTab} onValueChange={setActiveTab} orientation="horizontal" className="w-full">
+        <TabsList className="mb-6">
+          <TabsTrigger value="schemas" className="flex items-center gap-2">
+            <FileJson className="w-4 h-4" />
+            Schemas
+          </TabsTrigger>
+          <TabsTrigger value="bundles" className="flex items-center gap-2">
+            <Layers className="w-4 h-4" />
+            Config Bundles
+          </TabsTrigger>
+          <TabsTrigger value="assignments" className="flex items-center gap-2">
+            <LinkIcon className="w-4 h-4" />
+            Assignments
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="schemas">
+          <SchemasTab />
+        </TabsContent>
+
+        <TabsContent value="bundles">
+          <BundlesTab />
+        </TabsContent>
+
+        <TabsContent value="assignments">
+          <AssignmentsTab />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+function SchemasTab() {
+  const { data: schemas, isLoading, refetch } = trpc.schemas.list.useQuery();
+  const publishSchema = trpc.schemas.publish.useMutation({
+    onSuccess: () => refetch(),
+  });
+
+  const [schemaName, setSchemaName] = useState("");
+  const [version, setVersion] = useState("");
+  const [content, setContent] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const handleUpload = async () => {
+    setError(null);
+    if (!schemaName || !version || !content) {
+      setError("Please fill in all fields");
+      return;
+    }
+
+    try {
+      await publishSchema.mutateAsync({
+        schemaName,
+        version,
+        source: "companyEdited",
+        content,
+      });
+      setSchemaName("");
+      setVersion("");
+      setContent("");
+    } catch (err: any) {
+      setError(err.message || "Failed to publish schema");
+    }
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="lg:col-span-2 space-y-6">
+        <Card className="bg-slate-900 border-slate-800">
+          <CardHeader>
+            <CardTitle className="text-slate-100">Published Schemas</CardTitle>
+            <CardDescription>Immutable versions of data models available for config bundles.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <p className="text-slate-400">Loading schemas...</p>
+            ) : schemas?.length === 0 ? (
+              <div className="text-center py-12 text-slate-500 border border-dashed border-slate-800 rounded-lg">
+                <FileJson className="w-8 h-8 mx-auto mb-3 opacity-50" />
+                <p>No schemas published yet</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-slate-800 hover:bg-transparent">
+                      <TableHead>Schema Name</TableHead>
+                      <TableHead>Version</TableHead>
+                      <TableHead>Source</TableHead>
+                      <TableHead>Published</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {schemas?.map((s) => (
+                      <TableRow key={s.id} className="border-slate-800 hover:bg-slate-800/50">
+                        <TableCell className="font-medium text-slate-200">{s.schemaName}</TableCell>
+                        <TableCell><span className="bg-blue-900/30 text-blue-400 px-2 py-0.5 rounded text-xs font-mono">{s.version}</span></TableCell>
+                        <TableCell className="text-slate-400 capitalize">{s.source}</TableCell>
+                        <TableCell className="text-slate-400">{new Date(s.publishedAt).toLocaleDateString()}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div>
+        <Card className="bg-slate-900 border-slate-800">
+          <CardHeader>
+            <CardTitle className="text-slate-100">Upload New Version</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Schema Name</Label>
+              <Input 
+                placeholder="e.g. log-abstract" 
+                value={schemaName}
+                onChange={e => setSchemaName(e.target.value)}
+                className="bg-slate-950 border-slate-800 text-slate-200" 
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Version Tag</Label>
+              <Input 
+                placeholder="e.g. 1.0.0" 
+                value={version}
+                onChange={e => setVersion(e.target.value)}
+                className="bg-slate-950 border-slate-800 text-slate-200" 
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>JSON Content</Label>
+              <textarea 
+                placeholder="{ ... }" 
+                rows={10} 
+                value={content}
+                onChange={e => setContent(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 text-slate-200 font-mono text-sm rounded-md p-3 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent" 
+              />
+            </div>
+            
+            {error && <p className="text-red-400 text-sm">{error}</p>}
+            
+            <Button onClick={handleUpload} disabled={publishSchema.isPending} className="w-full bg-blue-600 hover:bg-blue-700 text-white">
+              <Upload className="w-4 h-4 mr-2" />
+              {publishSchema.isPending ? "Publishing..." : "Publish Immutable Version"}
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function BundlesTab() {
+  const { data: bundles, isLoading, refetch } = trpc.configBundles.list.useQuery();
+  const publishBundle = trpc.configBundles.publish.useMutation({
+    onSuccess: () => refetch(),
+  });
+
+  const [label, setLabel] = useState("");
+
+  const handleCompose = async () => {
+    // In a real app, this would open a composer modal to select schemas
+    await publishBundle.mutateAsync({
+      label: label || "New Config Bundle",
+      schemaVersions: [],
+    });
+    setLabel("");
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-heading font-medium text-slate-200">Config Bundles</h2>
+        <div className="flex gap-2">
+          <Input 
+            placeholder="Bundle Label" 
+            value={label}
+            onChange={e => setLabel(e.target.value)}
+            className="w-48 bg-slate-900 border-slate-800 text-slate-200"
+          />
+          <Button onClick={handleCompose} disabled={publishBundle.isPending} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+            <Plus className="w-4 h-4 mr-2" />
+            Compose New
+          </Button>
+        </div>
+      </div>
+
+      <Card className="bg-slate-900 border-slate-800">
+        <CardContent className="p-0">
+          {isLoading ? (
+             <div className="p-6 text-slate-400">Loading bundles...</div>
+          ) : bundles?.length === 0 ? (
+            <div className="text-center py-12 text-slate-500 border-dashed border-slate-800 rounded-lg">
+              <Layers className="w-8 h-8 mx-auto mb-3 opacity-50" />
+              <p>No config bundles published yet</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow className="border-slate-800 hover:bg-transparent">
+                  <TableHead>Label</TableHead>
+                  <TableHead>ID</TableHead>
+                  <TableHead>Schemas Included</TableHead>
+                  <TableHead>Published At</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {bundles?.map((b) => (
+                  <TableRow key={b.id} className="border-slate-800 hover:bg-slate-800/50">
+                    <TableCell className="font-medium text-slate-200">{b.label}</TableCell>
+                    <TableCell className="text-slate-500 font-mono text-xs">{b.id}</TableCell>
+                    <TableCell className="text-slate-400">{(b.schemaVersions as any[]).length}</TableCell>
+                    <TableCell className="text-slate-400">{new Date(b.publishedAt).toLocaleDateString()}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function AssignmentsTab() {
+  const { data: assignments, isLoading } = trpc.configBundles.listAssignments.useQuery();
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-heading font-medium text-slate-200">Bundle Assignments</h2>
+        <Button className="bg-blue-600 hover:bg-blue-700 text-white">
+          <LinkIcon className="w-4 h-4 mr-2" />
+          Assign Bundle
+        </Button>
+      </div>
+
+      <Card className="bg-slate-900 border-slate-800">
+        <CardContent className="p-0">
+          {isLoading ? (
+             <div className="p-6 text-slate-400">Loading assignments...</div>
+          ) : assignments?.length === 0 ? (
+            <div className="text-center py-12 text-slate-500 border-dashed border-slate-800 rounded-lg">
+              <LinkIcon className="w-8 h-8 mx-auto mb-3 opacity-50" />
+              <p>No bundles assigned to any scopes</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow className="border-slate-800 hover:bg-transparent">
+                  <TableHead>Scope</TableHead>
+                  <TableHead>Target</TableHead>
+                  <TableHead>Bundle ID</TableHead>
+                  <TableHead>Assigned At</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {assignments?.map((a, i) => (
+                  <TableRow key={i} className="border-slate-800 hover:bg-slate-800/50">
+                    <TableCell className="capitalize text-slate-200">{a.scopeType}</TableCell>
+                    <TableCell className="text-slate-400">{a.vesselId || a.groupTag || 'Fleet Wide'}</TableCell>
+                    <TableCell className="text-slate-500 font-mono text-xs">{a.bundleId}</TableCell>
+                    <TableCell className="text-slate-400">{new Date(a.assignedAt).toLocaleDateString()}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

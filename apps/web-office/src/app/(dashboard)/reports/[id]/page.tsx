@@ -6,29 +6,18 @@ import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, CheckCircle, XCircle, Clock, FileText, User, Ship } from 'lucide-react';
 import Link from 'next/link';
 
+import { trpc } from '@/lib/trpc';
+
 export default function ReportDetailPage({ params }: { params: { id: string } }) {
-  // Mock data representing a fetched report
-  const report = {
-    id: params.id || 'f17976f1',
-    type: 'Bunker Report',
-    vessel: 'Seawise Giant',
-    imo: '7381154',
-    status: 'pending_review',
-    submittedAt: '2026-08-15T12:30:00Z',
-    author: 'vessel-admin',
-    fields: {
-      "IMO": 7381154,
-      "BDN_Number": "BDN-00192",
-      "Used_By_BDN": "B-2",
-      "Coming_From_BDN": "B-0",
-      "Bunker_Delivery_Date": "2026-08-15",
-      "Bunker_Delivery_Time": "10:00",
-      "Fuel_Type": "HFO",
-      "Mass": 1500.5,
-      "Sulphur_Content": 0.5,
-      "Density_At_15C": 991.0
-    }
-  };
+  const { data: report, isLoading, error } = trpc.reports.get.useQuery({ reportId: params.id });
+
+  if (isLoading) {
+    return <div className="p-8 text-center text-slate-400">Loading report details...</div>;
+  }
+
+  if (error || !report) {
+    return <div className="p-8 text-center text-red-400">Error loading report: {error?.message || 'Not found'}</div>;
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-5xl mx-auto">

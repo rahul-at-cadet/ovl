@@ -39,7 +39,7 @@ export class SyncService {
       this.logger.debug('Sync Cycle Complete');
       this.lastSuccess = new Date().toISOString();
       this.lastError = null;
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Sync cycle failed: ${error.message}`);
       this.lastError = error.message;
     } finally {
@@ -78,8 +78,11 @@ export class SyncService {
 
     try {
       // 1. Send to Office API via tRPC
+      const status = await this.getStatus();
+      const vesselId = (await this.db.select().from(schema.configStore).where(eq(schema.configStore.key, 'vessel_id')))[0]?.value || 'vessel-123';
+      
       const response =
-        await this.trpc.client.sync.pushEvents.mutate(pendingEvents);
+        await this.trpc.client.sync.pushEvents.mutate({ vesselId, events: pendingEvents });
 
       if (response.success) {
         this.logger.log(
@@ -95,7 +98,7 @@ export class SyncService {
             .where(eq(schema.syncOutbox.id, event.id));
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       this.logger.error(`Failed to push outbox events: ${err.message}`);
     }
   }
@@ -132,7 +135,7 @@ export class SyncService {
         }
         this.logger.log(`Successfully merged downstream configurations.`);
       }
-    } catch (err) {
+    } catch (err: any) {
       this.logger.error(`Failed to pull configuration: ${err.message}`);
     }
   }

@@ -9,12 +9,13 @@ import { trpc } from '@/lib/trpc';
 export default function OfficeDashboardPage() {
   const pingQuery = trpc.ping.useQuery({ vesselId: 'office-dashboard' });
   const configQuery = trpc.sync.pullConfig.useQuery({});
+  const { data: dashboard, isLoading: isDashboardLoading } = trpc.dashboard.getOverview.useQuery();
 
   const kpis = [
-    { label: 'Active Vessels', value: '42', icon: Ship, color: 'text-zinc-400' },
-    { label: 'Incoming Reports (24h)', value: '156', icon: Database, color: 'text-zinc-400' },
-    { label: 'Sync Warnings', value: configQuery.isError ? '1' : '0', icon: AlertCircle, color: configQuery.isError ? 'text-red-400' : 'text-zinc-400' },
-    { label: 'Network Uptime', value: pingQuery.isSuccess ? '99.9%' : '...', icon: Activity, color: pingQuery.isSuccess ? 'text-green-400' : 'text-zinc-400' },
+    { label: 'Active Vessels', value: dashboard?.activeVessels ?? '...', icon: Ship, color: 'text-zinc-400' },
+    { label: 'Incoming Reports (24h)', value: dashboard?.incomingReports ?? '...', icon: Database, color: 'text-zinc-400' },
+    { label: 'Sync Warnings', value: dashboard?.syncWarnings ?? (configQuery.isError ? '1' : '0'), icon: AlertCircle, color: (dashboard?.syncWarnings || configQuery.isError) ? 'text-red-400' : 'text-zinc-400' },
+    { label: 'Network Uptime', value: dashboard ? `${dashboard.networkUptime}%` : '...', icon: Activity, color: pingQuery.isSuccess ? 'text-green-400' : 'text-zinc-400' },
   ];
 
   return (
@@ -61,24 +62,25 @@ export default function OfficeDashboardPage() {
             <CardDescription>Incoming events from the edge network</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
-              {[
-                { vessel: 'Seawise Giant', event: 'Bunker Report Received', time: 'Just now' },
-                { vessel: 'Emma Maersk', event: 'Log Abstract Synced', time: '5 mins ago' },
-                { vessel: 'TI Europe', event: 'EDN Report Received', time: '12 mins ago' },
-                { vessel: 'Batillus', event: 'Sync Timeout Detected', time: '1 hr ago' },
-              ].map((activity, i) => (
-                <div key={i} className="flex items-center gap-4 p-3 rounded-md bg-zinc-950/30 border border-zinc-800/50 hover:bg-zinc-800/30 transition-colors">
-                  <div className="p-2 rounded-sm border bg-zinc-900 border-zinc-800 text-zinc-400">
-                    <Database className="w-4 h-4" />
+            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
+              {isDashboardLoading ? (
+                <p className="text-sm text-slate-500 text-center py-4">Loading stream...</p>
+              ) : dashboard?.liveStream && dashboard.liveStream.length > 0 ? (
+                dashboard.liveStream.map((activity: any, i: number) => (
+                  <div key={i} className="flex items-center gap-4 p-3 rounded-md bg-zinc-950/30 border border-zinc-800/50 hover:bg-zinc-800/30 transition-colors">
+                    <div className="p-2 rounded-sm border bg-zinc-900 border-zinc-800 text-zinc-400">
+                      <Database className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="text-sm font-medium text-zinc-200">{activity.event}</h4>
+                      <p className="text-xs text-zinc-500">Vessel: {activity.vessel}</p>
+                    </div>
+                    <span className="text-xs text-zinc-600">{activity.time}</span>
                   </div>
-                  <div className="flex-1">
-                    <h4 className="text-sm font-medium text-zinc-200">{activity.event}</h4>
-                    <p className="text-xs text-zinc-500">Vessel: {activity.vessel}</p>
-                  </div>
-                  <span className="text-xs text-zinc-600">{activity.time}</span>
-                </div>
-              ))}
+                ))
+              ) : (
+                <p className="text-sm text-slate-500 text-center py-4">No recent activity.</p>
+              )}
             </div>
           </CardContent>
         </Card>

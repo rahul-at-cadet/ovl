@@ -129,9 +129,12 @@ const SyncStatusSchema = Type.Object({
 });
 const SyncStatusCompiler = TypeCompiler.Compile(SyncStatusSchema);
 
+import { TrpcService } from './trpc.service';
+
 @Injectable()
 export class TrpcRouter {
   constructor(
+    private readonly trpcService: TrpcService,
     private readonly reportsService: ReportsService,
     private readonly schemaRegistryService: SchemaRegistryService,
     private readonly sensorsService: SensorsService,
@@ -353,25 +356,32 @@ export class TrpcRouter {
     }),
     setup: router({
       status: publicProcedure.query(async () => {
-        // Check if device is configured by looking for vessel_id in configStore
-        const result = await this.db.select().from(schema.configStore).where(eq(schema.configStore.key, 'vessel_id'));
-        // If we don't have a vessel_id, the edge node is not configured yet
-        const isConfigured = result.length > 0;
-        return { isConfigured, vesselId: isConfigured ? result[0].value : null };
+        const configs = await this.db.select().from(schema.configStore);
+        const configMap = configs.reduce((acc, c) => ({ ...acc, [c.key]: c.value }), {} as Record<string, string>);
+        
+        const isConfigured = !!configMap['vessel_id'];
+        return { 
+          isConfigured, 
+          vesselId: configMap['vessel_id'] || null,
+          vesselName: configMap['vessel_name'] || '',
+          imoNumber: configMap['imo_number'] || configMap['imoNumber'] || '', // Fallback in case of old key
+          shoreUrl: configMap['shore_url'] || 'https://api.ovl.com',
+          apiKey: configMap['api_key'] || ''
+        };
       }),
       enroll: publicProcedure
         .input((val: unknown) => {
-          // manually checking due to missing schema compiler in scope, or use inline
-          const v = val as { vesselName: string; imoNumber: string; shoreUrl: string };
-          if (!v.vesselName || !v.imoNumber || !v.shoreUrl) throw new Error('Invalid input');
+          const v = val as { vesselName: string; imoNumber: string; shoreUrl: string; apiKey: string };
+          if (!v.vesselName || !v.imoNumber || !v.shoreUrl || !v.apiKey) throw new Error('Invalid input');
           return v;
         })
         .mutation(async ({ input }) => {
-          // Save identity to configStore
+          // 1. Save preliminary identity (including API Key)
           const configs = [
-            { key: 'vessel_id', value: input.imoNumber },
             { key: 'vessel_name', value: input.vesselName },
-            { key: 'shore_url', value: input.shoreUrl }
+            { key: 'imo_number', value: input.imoNumber },
+            { key: 'shore_url', value: input.shoreUrl },
+            { key: 'api_key', value: input.apiKey }
           ];
           
           for (const c of configs) {
@@ -379,7 +389,26 @@ export class TrpcRouter {
               .values({ key: c.key, value: c.value, updatedAt: new Date().toISOString() })
               .onConflictDoUpdate({ target: schema.configStore.key, set: { value: c.value, updatedAt: new Date().toISOString() } });
           }
-          return { success: true };
+
+          // 2. Call Office API to enroll and get true UUID
+          // At this point, the TrpcService client will use the 'api_key' we just saved above!
+          try {
+            const response = await this.trpcService.client.edge.enroll.mutate({
+              vesselName: input.vesselName,
+              imoNumber: input.imoNumber
+            });
+
+            // Save the true UUID to configStore
+            await this.db.insert(schema.configStore)
+              .values({ key: 'vessel_id', value: response.vesselId, updatedAt: new Date().toISOString() })
+              .onConflictDoUpdate({ target: schema.configStore.key, set: { value: response.vesselId, updatedAt: new Date().toISOString() } });
+              
+            return { success: true };
+          } catch (e: any) {
+            // Revert on failure
+            await this.db.delete(schema.configStore).where(eq(schema.configStore.key, 'api_key'));
+            throw new Error(`Failed to authenticate with Office API: ${e.message}`);
+          }
         }),
     }),
     system: router({

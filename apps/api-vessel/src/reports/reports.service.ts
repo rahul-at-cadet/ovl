@@ -193,7 +193,7 @@ export class ReportsService {
         .values({
           id: randomUUID(),
           eventType: 'report_submitted',
-          payload: JSON.stringify({ reportId, versionNo: report.versionNo }),
+          payload: JSON.stringify({ ...report, submittedBy: username, submittedAt: now, eventType: 'ReportSubmitted' }),
           createdAt: now,
         })
         .run();

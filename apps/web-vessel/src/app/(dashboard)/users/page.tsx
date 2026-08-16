@@ -8,7 +8,7 @@ import { Shield, UserPlus, Search, MoreHorizontal, UserCheck, ShieldAlert, Arrow
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { trpc } from '@/lib/trpc';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuGroup } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 
@@ -220,26 +220,28 @@ export default function UsersPage() {
                             <MoreHorizontal className="w-4 h-4" />
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="bg-zinc-950 border-zinc-800 text-zinc-300">
-                            <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                            <DropdownMenuItem 
-                              className="focus:bg-zinc-900 focus:text-zinc-100 cursor-pointer"
-                              onClick={() => { setSelectedUserForRole(user); setEditRoleValue(user.role); }}
-                            >
-                              Edit Profile / Role
-                            </DropdownMenuItem>
-                            <DropdownMenuItem 
-                              className="focus:bg-zinc-900 focus:text-zinc-100 cursor-pointer"
-                              onClick={() => { setSelectedUserForPassword(user); setResetPasswordGenerated(''); }}
-                            >
-                              Reset Password
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator className="bg-zinc-800" />
-                            <DropdownMenuItem 
-                              className="focus:bg-zinc-900 focus:text-zinc-100 cursor-pointer text-red-400 focus:text-red-300"
-                              onClick={() => updateStatus.mutate({ id: user.id, active: !user.active })}
-                            >
-                              {user.active ? 'Deactivate Account' : 'Activate Account'}
-                            </DropdownMenuItem>
+                            <DropdownMenuGroup>
+                              <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                              <DropdownMenuItem 
+                                className="focus:bg-zinc-900 focus:text-zinc-100 cursor-pointer"
+                                onClick={() => { setSelectedUserForRole(user); setEditRoleValue(user.role); }}
+                              >
+                                Edit Profile / Role
+                              </DropdownMenuItem>
+                              <DropdownMenuItem 
+                                className="focus:bg-zinc-900 focus:text-zinc-100 cursor-pointer"
+                                onClick={() => { setSelectedUserForPassword(user); setResetPasswordGenerated(''); }}
+                              >
+                                Reset Password
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator className="bg-zinc-800" />
+                              <DropdownMenuItem 
+                                className="focus:bg-zinc-900 focus:text-zinc-100 cursor-pointer text-red-400 focus:text-red-300"
+                                onClick={() => updateStatus.mutate({ id: user.id, active: !user.active })}
+                              >
+                                {user.active ? 'Deactivate User' : 'Reactivate User'}
+                              </DropdownMenuItem>
+                            </DropdownMenuGroup>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </td>

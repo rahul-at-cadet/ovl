@@ -57,6 +57,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://ovl:ovl@host.docker.internal:5432/ovl_office
       - PORT=3003
+      - OFFICE_API_URL=http://api-office:3001/trpc
     volumes:
       - .:/app
       - /app/node_modules

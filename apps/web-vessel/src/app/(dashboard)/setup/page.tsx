@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,7 +20,22 @@ export default function SetupPage() {
   const [vesselName, setVesselName] = useState('');
   const [imoNumber, setImoNumber] = useState('');
   const [shoreUrl, setShoreUrl] = useState('https://api.ovl.com');
-  
+  const [apiKey, setApiKey] = useState('');
+
+  // Prefill when status is fetched
+  useEffect(() => {
+    if (setupStatus) {
+      if (setupStatus.vesselName) setVesselName(setupStatus.vesselName);
+      if (setupStatus.imoNumber) setImoNumber(setupStatus.imoNumber);
+      if (setupStatus.shoreUrl) setShoreUrl(setupStatus.shoreUrl);
+      if (setupStatus.apiKey) setApiKey(setupStatus.apiKey);
+      
+      if (setupStatus.isConfigured && step === 'intro') {
+        setStep('identity');
+      }
+    }
+  }, [setupStatus]);
+
   // Admin form state
   const [username, setUsername] = useState('master');
   
@@ -29,7 +44,7 @@ export default function SetupPage() {
 
   const handleEnroll = async () => {
     try {
-      await enrollMutation.mutateAsync({ vesselName, imoNumber, shoreUrl });
+      await enrollMutation.mutateAsync({ vesselName, imoNumber, shoreUrl, apiKey });
       await refetch();
       setStep('admin');
     } catch (e) {
@@ -115,19 +130,25 @@ export default function SetupPage() {
                 <Label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">Vessel Name</Label>
                 <div className="relative">
                   <Ship className="absolute left-3 top-2.5 h-4 w-4 text-zinc-500" />
-                  <Input value={vesselName} onChange={e => setVesselName(e.target.value)} placeholder="e.g. Seawise Giant" className="pl-9 bg-zinc-950/80 border-zinc-800/80 focus-visible:ring-zinc-700 text-zinc-100 text-sm h-10" />
+                  <Input disabled={setupStatus?.isConfigured} value={vesselName} onChange={e => setVesselName(e.target.value)} placeholder="e.g. Seawise Giant" className="pl-9 bg-zinc-950/80 border-zinc-800/80 focus-visible:ring-zinc-700 text-zinc-100 text-sm h-10 disabled:opacity-70" />
                 </div>
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">IMO Number</Label>
-                <Input value={imoNumber} onChange={e => setImoNumber(e.target.value)} placeholder="e.g. 7381154" className="bg-zinc-950/80 border-zinc-800/80 focus-visible:ring-zinc-700 text-zinc-100 text-sm h-10 font-mono tracking-wider" />
+                <Input disabled={setupStatus?.isConfigured} value={imoNumber} onChange={e => setImoNumber(e.target.value)} placeholder="e.g. 7381154" className="bg-zinc-950/80 border-zinc-800/80 focus-visible:ring-zinc-700 text-zinc-100 text-sm h-10 font-mono tracking-wider disabled:opacity-70" />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">Shore Uplink URL</Label>
-              <div className="relative">
-                <Globe className="absolute left-3 top-2.5 h-4 w-4 text-zinc-500" />
-                <Input value={shoreUrl} onChange={e => setShoreUrl(e.target.value)} className="pl-9 bg-zinc-950/80 border-zinc-800/80 focus-visible:ring-zinc-700 text-zinc-100 text-sm h-10 font-mono" />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">Shore Uplink URL</Label>
+                <div className="relative">
+                  <Globe className="absolute left-3 top-2.5 h-4 w-4 text-zinc-500" />
+                  <Input disabled={setupStatus?.isConfigured} value={shoreUrl} onChange={e => setShoreUrl(e.target.value)} className="pl-9 bg-zinc-950/80 border-zinc-800/80 focus-visible:ring-zinc-700 text-zinc-100 text-sm h-10 font-mono disabled:opacity-70" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">Office API Key</Label>
+                <Input disabled={setupStatus?.isConfigured} type="password" placeholder="ovl_prod_..." value={apiKey} onChange={e => setApiKey(e.target.value)} className="bg-zinc-950/80 border-zinc-800/80 focus-visible:ring-zinc-700 text-zinc-100 text-sm h-10 font-mono disabled:opacity-70" />
               </div>
             </div>
           </CardContent>
@@ -138,9 +159,9 @@ export default function SetupPage() {
                 {setupStatus?.isConfigured ? 'Configured' : 'Pending Setup'}
               </span>
             </p>
-            <Button onClick={handleEnroll} disabled={!vesselName || !imoNumber || enrollMutation.isPending} className="bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20 rounded-md h-9 text-sm font-semibold transition-all">
+            <Button onClick={() => setupStatus?.isConfigured ? router.push('/') : handleEnroll()} disabled={(!vesselName || !imoNumber || !apiKey) && !setupStatus?.isConfigured || enrollMutation.isPending} className="bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20 rounded-md h-9 text-sm font-semibold transition-all">
               <Save className="w-4 h-4 mr-2" />
-              {enrollMutation.isPending ? 'Enrolling...' : 'Enroll & Continue'}
+              {enrollMutation.isPending ? 'Enrolling...' : setupStatus?.isConfigured ? 'Go to Dashboard' : 'Enroll & Continue'}
             </Button>
           </CardFooter>
         </Card>
