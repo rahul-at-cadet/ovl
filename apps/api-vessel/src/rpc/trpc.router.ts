@@ -66,6 +66,9 @@ const GetSchemaInputSchema = Type.Object({
 });
 const GetSchemaCompiler = TypeCompiler.Compile(GetSchemaInputSchema);
 
+const UpdateSettingsSchema = Type.Record(Type.String(), Type.String());
+const UpdateSettingsCompiler = TypeCompiler.Compile(UpdateSettingsSchema);
+
 @Injectable()
 export class TrpcRouter {
   constructor(
@@ -204,6 +207,30 @@ export class TrpcRouter {
         });
         return settings;
       }),
+      update: publicProcedure
+        .input((val: unknown) => {
+          if (!UpdateSettingsCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof UpdateSettingsSchema>;
+        })
+        .mutation(async ({ input }) => {
+          for (const [key, value] of Object.entries(input)) {
+            await this.db
+              .insert(schema.configStore)
+              .values({
+                key,
+                value,
+                updatedAt: new Date().toISOString(),
+              })
+              .onConflictDoUpdate({
+                target: schema.configStore.key,
+                set: {
+                  value,
+                  updatedAt: new Date().toISOString(),
+                },
+              });
+          }
+          return { success: true };
+        }),
     }),
   });
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,7 +10,39 @@ import { Satellite, Database, Activity, RefreshCw } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 
 export default function SettingsPage() {
-  trpc.settings.get.useQuery();
+  const { data: settings, isLoading } = trpc.settings.get.useQuery();
+  const updateSettingsMutation = trpc.settings.update.useMutation();
+
+  const [syncInterval, setSyncInterval] = useState('15');
+  const [maxBandwidth, setMaxBandwidth] = useState('256');
+  const [pauseSyncing, setPauseSyncing] = useState(false);
+
+  useEffect(() => {
+    if (settings) {
+      if (settings.sync_interval) setSyncInterval(settings.sync_interval);
+      if (settings.max_bandwidth) setMaxBandwidth(settings.max_bandwidth);
+      if (settings.pause_syncing) setPauseSyncing(settings.pause_syncing === 'true');
+    }
+  }, [settings]);
+
+  const handleApplyNetworkSettings = () => {
+    updateSettingsMutation.mutate({
+      sync_interval: syncInterval,
+      max_bandwidth: maxBandwidth,
+      pause_syncing: pauseSyncing ? 'true' : 'false',
+    }, {
+      onSuccess: () => alert('Network settings applied successfully!'),
+      onError: (err) => alert('Failed to apply settings: ' + err.message)
+    });
+  };
+
+  const handleForceSync = () => {
+    alert('Sync triggered (running in background).');
+  };
+
+  if (isLoading) {
+    return <div className="p-8 text-zinc-400">Loading settings...</div>;
+  }
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 max-w-6xl">
@@ -52,7 +85,7 @@ export default function SettingsPage() {
                     <CardTitle className="text-sm font-semibold tracking-tight text-zinc-200">Satellite Uplink</CardTitle>
                     <CardDescription className="text-xs text-zinc-500 mt-1">Configure sync intervals and bandwidth limits.</CardDescription>
                   </div>
-                  <Button variant="outline" className="h-8 border-zinc-800 bg-zinc-950 text-zinc-300">
+                  <Button variant="outline" onClick={handleForceSync} className="h-8 border-zinc-800 bg-zinc-950 text-zinc-300">
                     <RefreshCw className="w-3 h-3 mr-2" />
                     Force Sync Now
                   </Button>
@@ -61,11 +94,11 @@ export default function SettingsPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div className="space-y-2">
                       <Label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">Sync Interval (Minutes)</Label>
-                      <Input type="number" defaultValue="15" className="bg-zinc-950/80 border-zinc-800/80 focus-visible:ring-zinc-700 text-zinc-100 text-sm h-10" />
+                      <Input type="number" value={syncInterval} onChange={e => setSyncInterval(e.target.value)} className="bg-zinc-950/80 border-zinc-800/80 focus-visible:ring-zinc-700 text-zinc-100 text-sm h-10" />
                     </div>
                     <div className="space-y-2">
                       <Label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">Max Bandwidth (Kbps)</Label>
-                      <Input type="number" defaultValue="256" className="bg-zinc-950/80 border-zinc-800/80 focus-visible:ring-zinc-700 text-zinc-100 text-sm h-10" />
+                      <Input type="number" value={maxBandwidth} onChange={e => setMaxBandwidth(e.target.value)} className="bg-zinc-950/80 border-zinc-800/80 focus-visible:ring-zinc-700 text-zinc-100 text-sm h-10" />
                     </div>
                   </div>
                   <div className="flex items-center justify-between p-4 rounded-lg bg-zinc-950/50 border border-zinc-800/60 mt-4">
@@ -73,14 +106,14 @@ export default function SettingsPage() {
                       <p className="text-sm font-semibold text-zinc-200">Pause Syncing (Port Mode)</p>
                       <p className="text-xs text-zinc-500">Temporarily halt all shore-side telemetry and reports syncing.</p>
                     </div>
-                    <div className="h-5 w-9 rounded-full bg-zinc-800 flex items-center p-0.5 cursor-pointer border border-zinc-700 relative">
-                       <div className="h-4 w-4 rounded-full bg-zinc-400 absolute left-0.5 shadow-sm" />
+                    <div onClick={() => setPauseSyncing(!pauseSyncing)} className="h-5 w-9 rounded-full bg-zinc-800 flex items-center p-0.5 cursor-pointer border border-zinc-700 relative">
+                       <div className={`h-4 w-4 rounded-full bg-zinc-400 absolute shadow-sm transition-all ${pauseSyncing ? 'left-4 bg-blue-500' : 'left-0.5'}`} />
                     </div>
                   </div>
                 </CardContent>
                 <CardFooter className="bg-zinc-950/40 border-t border-zinc-800/60 p-4 flex justify-end">
-                  <Button className="bg-blue-600 hover:bg-blue-500 text-white rounded-md h-9 text-sm font-semibold shadow-sm transition-all">
-                    Apply Network Settings
+                  <Button onClick={handleApplyNetworkSettings} disabled={updateSettingsMutation.isPending} className="bg-blue-600 hover:bg-blue-500 text-white rounded-md h-9 text-sm font-semibold shadow-sm transition-all">
+                    {updateSettingsMutation.isPending ? 'Applying...' : 'Apply Network Settings'}
                   </Button>
                 </CardFooter>
               </Card>
