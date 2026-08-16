@@ -1,12 +1,24 @@
 import { sqliteTable, text, integer, primaryKey } from 'drizzle-orm/sqlite-core';
 
-// Example outbox table for syncing events upstream to shore
 export const syncOutbox = sqliteTable('sync_outbox', {
   id: text('id').primaryKey(), // uuid
   eventType: text('event_type').notNull(),
   payload: text('payload').notNull(), // JSON string
   createdAt: text('created_at').notNull(), // ISO string
   processedAt: text('processed_at'), // null if not yet pushed to shore
+});
+
+// Users table for local edge node authentication (offline-first)
+export const users = sqliteTable('users', {
+  id: text('id').primaryKey(),
+  username: text('username').notNull().unique(),
+  passwordHash: text('password_hash').notNull(),
+  role: text('role').notNull(),
+  canSubmit: integer('can_submit', { mode: 'boolean' }).notNull().default(false),
+  mustChangePassword: integer('must_change_password', { mode: 'boolean' }).notNull().default(true),
+  active: integer('active', { mode: 'boolean' }).notNull().default(true),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
 });
 
 // Basic key-value configuration store that syncs from shore

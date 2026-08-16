@@ -69,6 +69,19 @@ const GetSchemaCompiler = TypeCompiler.Compile(GetSchemaInputSchema);
 const UpdateSettingsSchema = Type.Record(Type.String(), Type.String());
 const UpdateSettingsCompiler = TypeCompiler.Compile(UpdateSettingsSchema);
 
+const CreateUserSchema = Type.Object({
+  username: Type.String(),
+  role: Type.String(),
+  canSubmit: Type.Boolean(),
+});
+const CreateUserCompiler = TypeCompiler.Compile(CreateUserSchema);
+
+const UpdateUserStatusSchema = Type.Object({
+  id: Type.String(),
+  active: Type.Boolean(),
+});
+const UpdateUserStatusCompiler = TypeCompiler.Compile(UpdateUserStatusSchema);
+
 @Injectable()
 export class TrpcRouter {
   constructor(
@@ -171,14 +184,51 @@ export class TrpcRouter {
         }),
     }),
     users: router({
-      list: publicProcedure.query(() => {
-        // Edge node currently has no complex auth/roles DB, return default admin users
-        return [
-          { id: '1', username: 'vessel-admin', role: 'Master', active: true },
-          { id: '2', username: 'chief-engineer', role: 'Chief Engineer', active: true },
-          { id: '3', username: 'second-officer', role: 'Second Officer', active: true }
-        ];
+      list: publicProcedure.query(async () => {
+        const usersList = await this.db.select().from(schema.users);
+        return usersList;
       }),
+      create: publicProcedure
+        .input((val: unknown) => {
+          if (!CreateUserCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof CreateUserSchema>;
+        })
+        .mutation(async ({ input }) => {
+          const argon2 = await import('argon2');
+          const crypto = await import('crypto');
+          
+          const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$';
+          const bytes = crypto.randomBytes(12);
+          const temporaryPassword = Array.from(bytes).map((b: number) => chars[b % chars.length]).join('');
+          
+          const passwordHash = await argon2.hash(temporaryPassword);
+          const id = crypto.randomUUID();
+          
+          await this.db.insert(schema.users).values({
+            id,
+            username: input.username,
+            passwordHash,
+            role: input.role,
+            canSubmit: input.canSubmit,
+            mustChangePassword: true,
+            active: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          });
+          
+          return { id, temporaryPassword };
+        }),
+      updateStatus: publicProcedure
+        .input((val: unknown) => {
+          if (!UpdateUserStatusCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof UpdateUserStatusSchema>;
+        })
+        .mutation(async ({ input }) => {
+          await this.db.update(schema.users)
+            .set({ active: input.active, updatedAt: new Date().toISOString() })
+            .where(eq(schema.users.id, input.id));
+          return { success: true };
+        }),
     }),
     setup: router({
       status: publicProcedure.query(async () => {
