@@ -2,8 +2,9 @@
 
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { buttonVariants } from '@/components/ui/button';
 import { ArrowRight, Anchor, Fuel, ClipboardList, TrendingUp } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 const availableReports = [
   { id: 'bunker-report.json', title: 'Bunker Report', description: 'Log fuel intake and quality metrics.', icon: Fuel, color: 'text-orange-400', bg: 'bg-orange-500/10 border-orange-500/20' },
@@ -37,12 +38,13 @@ export default function NewReportPage() {
               </div>
             </CardHeader>
             <CardContent className="flex justify-end pt-4 border-t border-zinc-800/50 mt-2 relative z-10">
-              <Button variant="ghost" className="text-zinc-300 hover:text-white hover:bg-zinc-800 w-full sm:w-auto" asChild>
-                <Link href={`/reports/draft?schema=${report.id}`}>
-                  Start Draft
-                  <ArrowRight className="w-4 h-4 ml-2 shrink-0" />
-                </Link>
-              </Button>
+              <Link 
+                href={`/reports/draft?schema=${report.id}`}
+                className={cn(buttonVariants({ variant: 'secondary' }), "w-full sm:w-auto bg-zinc-800 hover:bg-zinc-700 text-zinc-100")}
+              >
+                Start Draft
+                <ArrowRight className="w-4 h-4 ml-2 shrink-0" />
+              </Link>
             </CardContent>
           </Card>
         ))}
