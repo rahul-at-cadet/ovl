@@ -22,10 +22,10 @@ export default function NewReportPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {availableReports.map((report) => (
-          <Card key={report.id} className="bg-zinc-900/50 border-zinc-800 hover:border-zinc-700 transition-all group overflow-hidden relative">
-            <div className={`absolute top-0 right-0 w-32 h-32 blur-3xl opacity-20 group-hover:opacity-40 transition-opacity ${report.bg.split(' ')[0]}`} />
+          <Card key={report.id} className="bg-zinc-900/50 border-zinc-800 hover:border-zinc-700 transition-all group overflow-hidden relative flex flex-col h-full">
+            <div className={`absolute top-0 right-0 w-32 h-32 blur-3xl opacity-20 group-hover:opacity-40 transition-opacity pointer-events-none ${report.bg.split(' ')[0]}`} />
             
-            <CardHeader className="flex flex-row items-start gap-4">
+            <CardHeader className="flex flex-row items-start gap-4 flex-1">
               <div className={`p-3 rounded-xl border ${report.bg} shrink-0`}>
                 <report.icon className={`w-6 h-6 ${report.color}`} />
               </div>
@@ -36,11 +36,11 @@ export default function NewReportPage() {
                 </CardDescription>
               </div>
             </CardHeader>
-            <CardContent className="flex justify-end pt-4 border-t border-zinc-800/50 mt-2">
-              <Button variant="ghost" className="text-zinc-300 hover:text-white hover:bg-zinc-800" asChild>
+            <CardContent className="flex justify-end pt-4 border-t border-zinc-800/50 mt-2 relative z-10">
+              <Button variant="ghost" className="text-zinc-300 hover:text-white hover:bg-zinc-800 w-full sm:w-auto" asChild>
                 <Link href={`/reports/draft?schema=${report.id}`}>
                   Start Draft
-                  <ArrowRight className="w-4 h-4 ml-2" />
+                  <ArrowRight className="w-4 h-4 ml-2 shrink-0" />
                 </Link>
               </Button>
             </CardContent>
