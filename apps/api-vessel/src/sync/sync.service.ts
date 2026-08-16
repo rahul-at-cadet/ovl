@@ -1,0 +1,118 @@
+import { Injectable, Inject, Logger } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { TrpcService } from '../rpc/trpc.service';
+import { DATABASE_CONNECTION } from '../database/database.module';
+import { isNull, eq } from 'drizzle-orm';
+import * as schema from '@ovl/vessel-database';
+
+@Injectable()
+export class SyncService {
+  private readonly logger = new Logger(SyncService.name);
+  private isSyncing = false;
+
+  constructor(
+    private readonly trpc: TrpcService,
+    @Inject(DATABASE_CONNECTION)
+    private readonly db: any, // type as NodePgDatabase/BetterSQLite3Database if configured
+  ) {}
+
+  /**
+   * The Sync Engine Loop
+   * Runs every 30 seconds to push local changes to shore and pull new configs from shore.
+   */
+  @Cron(CronExpression.EVERY_30_SECONDS)
+  async handleCron() {
+    if (this.isSyncing) return;
+    this.isSyncing = true;
+
+    try {
+      this.logger.debug('Starting Sync Cycle...');
+
+      // 1. Upstream Sync (Ship -> Shore)
+      await this.pushOutboxEvents();
+
+      // 2. Downstream Sync (Shore -> Ship)
+      await this.pullConfiguration();
+
+      this.logger.debug('Sync Cycle Complete');
+    } catch (error) {
+      this.logger.error(`Sync cycle failed: ${error.message}`);
+    } finally {
+      this.isSyncing = false;
+    }
+  }
+
+  private async pushOutboxEvents() {
+    // Find all events in the local SQLite db that haven't been processed
+    const pendingEvents = await this.db
+      .select()
+      .from(schema.syncOutbox)
+      .where(isNull(schema.syncOutbox.processedAt));
+
+    if (pendingEvents.length === 0) return;
+
+    this.logger.log(
+      `Found ${pendingEvents.length} pending events in outbox. Pushing to shore...`,
+    );
+
+    try {
+      // 1. Send to Office API via tRPC
+      const response =
+        await this.trpc.client.sync.pushEvents.mutate(pendingEvents);
+
+      if (response.success) {
+        this.logger.log(
+          `Successfully pushed ${response.processedCount} events. Marking locally as processed.`,
+        );
+
+        // 2. Mark as processed locally so they aren't sent again
+        const now = new Date().toISOString();
+        for (const event of pendingEvents) {
+          await this.db
+            .update(schema.syncOutbox)
+            .set({ processedAt: now })
+            .where(eq(schema.syncOutbox.id, event.id));
+        }
+      }
+    } catch (err) {
+      this.logger.error(`Failed to push outbox events: ${err.message}`);
+    }
+  }
+
+  private async pullConfiguration() {
+    try {
+      this.logger.log('Requesting downstream config sync from shore...');
+
+      // In a robust implementation, we would query our local SQLite for the max(updatedAt)
+      // to pass as the lastSyncAt cursor. For this MVP, we just fetch all/recent.
+      const response = await this.trpc.client.sync.pullConfig.query({});
+
+      if (response.configs.length > 0) {
+        this.logger.log(
+          `Received ${response.configs.length} updated config keys. Merging locally...`,
+        );
+
+        for (const config of response.configs) {
+          // SQLite UPSERT pattern via Drizzle
+          await this.db
+            .insert(schema.configStore)
+            .values({
+              key: config.key,
+              value: config.value,
+              updatedAt: config.updatedAt,
+            })
+            .onConflictDoUpdate({
+              target: schema.configStore.key,
+              set: {
+                value: config.value,
+                updatedAt: config.updatedAt,
+              },
+            });
+        }
+        this.logger.log(`Successfully merged downstream configurations.`);
+      }
+    } catch (err) {
+      this.logger.error(`Failed to pull configuration: ${err.message}`);
+    }
+  }
+}

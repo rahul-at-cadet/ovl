@@ -1,0 +1,20 @@
+FROM node:22-bookworm-slim
+
+# Install procps for better process management and python/make for native modules
+RUN apt-get update && apt-get install -y procps python3 make g++ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy the entire monorepo to install dependencies.
+# We do this because npm workspaces require all package.json files to be present.
+COPY . .
+
+# Install dependencies (this will compile better-sqlite3 for Linux)
+RUN npm install
+
+# Build database packages so their dist folders are available for TRPC/API
+RUN npm run build --workspace=@ovl/database
+RUN npm run build --workspace=@ovl/vessel-database
+
+# The command will be overridden in docker-compose.yml based on the service
+CMD ["npm", "run", "dev"]

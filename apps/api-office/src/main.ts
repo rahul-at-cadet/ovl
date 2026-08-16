@@ -2,6 +2,8 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { SupertokensExceptionFilter } from './auth/auth.filter';
 import supertokens from 'supertokens-node';
+import * as trpcExpress from '@trpc/server/adapters/express';
+import { TrpcRouter } from './rpc/trpc.router';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -15,9 +17,16 @@ async function bootstrap() {
     credentials: true,
   });
 
+  const trpc = app.get(TrpcRouter);
+  app.use(
+    '/trpc',
+    trpcExpress.createExpressMiddleware({
+      router: trpc.appRouter,
+    }),
+  );
 
   app.useGlobalFilters(new SupertokensExceptionFilter());
 
-  await app.listen(process.env.PORT ?? 3000);
+  await app.listen(process.env.PORT ?? 3000, '0.0.0.0');
 }
 bootstrap();

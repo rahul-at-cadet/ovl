@@ -1,5 +1,5 @@
 import { pgTable, integer, bigint, boolean, timestamp, index, unique, uuid, text, jsonb, uniqueIndex, foreignKey, doublePrecision, bigserial, primaryKey, customType } from "drizzle-orm/pg-core"
-  import { sql } from "drizzle-orm"
+import { sql } from "drizzle-orm"
 
 
 const bytea = customType<{ data: Buffer; driverData: string }>({
