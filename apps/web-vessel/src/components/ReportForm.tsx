@@ -164,15 +164,17 @@ export function ReportForm({ schemaName }: ReportFormProps) {
             </Button>
           </div>
           <Tabs defaultValue={sections[0]} className="w-full">
-            <CardHeader className="border-b border-zinc-800 pb-0 pt-4 px-4">
-              <TabsList className="bg-zinc-950/50 border border-zinc-800 w-full justify-start h-auto p-1 overflow-x-auto">
-                {sections.map(section => (
-                  <TabsTrigger key={section} value={section} className="data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100 px-6 py-2 capitalize">
-                    {section.replace(/([A-Z])/g, ' $1').trim()}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </CardHeader>
+            {sections.length > 1 && (
+              <CardHeader className="border-b border-zinc-800 pb-0 pt-4 px-4">
+                <TabsList className="bg-zinc-950/50 border border-zinc-800 w-full justify-start h-auto p-1 overflow-x-auto">
+                  {sections.map(section => (
+                    <TabsTrigger key={section} value={section} className="data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100 px-6 py-2 capitalize">
+                      {section.replace(/([A-Z])/g, ' $1').trim()}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </CardHeader>
+            )}
 
             <CardContent className="pt-6">
               <form onSubmit={(e) => e.preventDefault()}>
