@@ -24,11 +24,21 @@ const PullConfigInputSchema = Type.Object({
 });
 const PullConfigInputCompiler = TypeCompiler.Compile(PullConfigInputSchema);
 
+import { Inject } from '@nestjs/common';
+import { DATABASE_CONNECTION } from '../database/database.module';
+import { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import * as schema from '@ovl/database';
+
 export const publicProcedure = t.procedure;
 export const router = t.router;
 
 @Injectable()
 export class TrpcRouter {
+  constructor(
+    @Inject(DATABASE_CONNECTION)
+    private readonly db: NodePgDatabase<typeof schema>,
+  ) {}
+
   appRouter = router({
     ping: publicProcedure
       .input((val: unknown) => {
@@ -84,6 +94,21 @@ export class TrpcRouter {
             syncedAt: new Date().toISOString(),
           };
         }),
+    }),
+    vessels: router({
+      list: publicProcedure.query(async () => {
+        const vessels = await this.db.select().from(schema.vessels);
+        // Map data to match the UI expectations (with mock edgeStatus/lastSync for now since those are dynamic sync states)
+        return vessels.map(v => ({
+          id: v.id,
+          name: v.name,
+          imo: v.imo,
+          type: v.type,
+          status: 'At Sea', // Mocked operational status for now
+          edgeStatus: 'Online', // Mocked edge node status
+          lastSync: 'Just now',
+        }));
+      }),
     }),
   });
 }

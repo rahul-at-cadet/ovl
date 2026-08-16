@@ -23,7 +23,7 @@ export default function SettingsPage() {
         <p className="text-zinc-400 mt-1.5 text-sm font-medium">Configure shore-side system preferences, security policies, and edge integrations.</p>
       </div>
 
-      <Tabs defaultValue="general" className="w-full">
+      <Tabs defaultValue="general" orientation="vertical" className="w-full">
         <div className="flex flex-col md:flex-row gap-8">
           <TabsList className="flex flex-col h-auto bg-transparent gap-2 w-full md:w-64 shrink-0">
             <TabsTrigger 

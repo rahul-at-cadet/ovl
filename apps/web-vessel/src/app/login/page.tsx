@@ -10,15 +10,41 @@ import { Button } from '@/components/ui/button';
 
 export default function LoginPage() {
   const router = useRouter();
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    // Simulate login delay
-    setTimeout(() => {
-      router.push('/');
-    }, 1000);
+    setError('');
+    
+    try {
+      const res = await fetch('http://localhost:3003/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ username, password })
+      });
+      
+      if (!res.ok) {
+        throw new Error('Invalid credentials');
+      }
+      
+      const data = await res.json();
+      
+      if (data.mustChangePassword) {
+        router.push('/account/force-password-change');
+      } else {
+        // Full page reload or router.push
+        window.location.href = '/';
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -48,7 +74,9 @@ export default function LoginPage() {
                   <User className="absolute left-3 top-2.5 h-4 w-4 text-zinc-500" />
                   <Input 
                     id="id" 
-                    placeholder="V-00192" 
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder="e.g. master" 
                     className="pl-9 bg-zinc-950/50 border-zinc-800 focus-visible:ring-zinc-600 text-zinc-100 rounded-sm h-9 text-sm"
                     required
                   />
@@ -63,12 +91,19 @@ export default function LoginPage() {
                   <Input 
                     id="password" 
                     type="password" 
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••" 
                     className="pl-9 bg-zinc-950/50 border-zinc-800 focus-visible:ring-zinc-600 text-zinc-100 rounded-sm h-9 text-sm"
                     required
                   />
                 </div>
               </div>
+              {error && (
+                <div className="text-red-400 text-xs font-medium bg-red-400/10 p-2 rounded-sm border border-red-400/20">
+                  {error}
+                </div>
+              )}
               <Button 
                 type="submit" 
                 className="w-full bg-zinc-100 hover:bg-white text-zinc-950 transition-all rounded-sm h-9 text-sm font-medium mt-4"

@@ -8,6 +8,7 @@ import { Loader2, ArrowLeft, Send, MessageSquare, History, FileText, Pencil } fr
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import Link from 'next/link';
 import { useState } from 'react';
+import { ReportForm } from '@/components/ReportForm';
 
 export default function ReportDetailPage() {
   const router = useRouter();
@@ -57,6 +58,10 @@ export default function ReportDetailPage() {
     );
   }
 
+  if (report.state === 'draft') {
+    return <ReportForm reportId={id} />;
+  }
+
   const handleStartCorrection = () => {
     // In a real implementation, this would call an API to clone the report into a new draft
     alert('Started correction workflow. A new draft has been created.');
@@ -89,17 +94,6 @@ export default function ReportDetailPage() {
           </div>
           <p className="text-zinc-400 mt-1 text-sm font-mono">{report.reportId} • {report.schemaName}</p>
         </div>
-        
-        {report.state === 'draft' && (
-          <Button 
-            onClick={handleSubmit}
-            disabled={isSubmitting || submitMutation.isPending}
-            className="bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20"
-          >
-            <Send className="w-4 h-4 mr-2" />
-            Submit Final
-          </Button>
-        )}
         
         {report.state !== 'draft' && (
           <Button 

@@ -2,22 +2,51 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { FileText, Plus, CloudOff, CheckCircle, Wifi } from 'lucide-react';
+import { FileText, Plus, CloudOff, CheckCircle, Wifi, AlertTriangle, ArrowRight, Loader2, Ship } from 'lucide-react';
 import Link from 'next/link';
 import { trpc } from '@/lib/trpc';
+import { useRouter } from 'next/navigation';
 
 export default function DashboardPage() {
   const pingQuery = trpc.ping.useQuery();
+  const router = useRouter();
+  
+  const { data: reports = [], isLoading: reportsLoading } = trpc.reports.listReports.useQuery({ schemaName: '' });
+  const { data: voyage } = trpc.system.getActiveVoyage.useQuery();
+  const { data: setupStatus } = trpc.setup.status.useQuery();
+  const { data: syncStatus } = trpc.sync.status.useQuery();
+  const { data: settings } = trpc.settings.get.useQuery();
+  const { data: suggestions } = trpc.reports.listEventSuggestions.useQuery({ schemaName: 'log-abstract' });
+  const syncNowMutation = trpc.sync.now.useMutation();
+
+  const inProgress = reports.filter(r => r.state === 'draft').slice(0, 4);
+  const allInProgress = reports.filter(r => r.state === 'draft');
+  const recent = reports.filter(r => r.state !== 'draft').slice(0, 5);
+
+  let isOverdue = false;
+  let overdueByStr = '';
+  
+  if (recent.length > 0 && settings?.reportingIntervalHours) {
+    const lastReportTime = new Date(recent[0].createdAt).getTime();
+    const now = Date.now();
+    const hoursSince = (now - lastReportTime) / (1000 * 60 * 60);
+    const maxGapHours = Number(settings.reportingIntervalHours) + 2; // Allow 2 hours grace period
+    if (hoursSince > maxGapHours) {
+      isOverdue = true;
+      const overdueHours = Math.floor(hoursSince - maxGapHours);
+      overdueByStr = `${overdueHours}h ${Math.floor((hoursSince - maxGapHours - overdueHours) * 60)}m`;
+    }
+  }
 
   const kpis = [
-    { label: 'Unsynced Drafts', value: '2', icon: FileText, color: 'text-zinc-400' },
+    { label: 'Unsynced Drafts', value: inProgress.length.toString(), icon: FileText, color: 'text-amber-400' },
     { label: 'Pending Sync', value: '1', icon: CloudOff, color: 'text-zinc-400' },
     { label: 'System Health', value: pingQuery.isSuccess ? 'Good' : 'Error', icon: CheckCircle, color: pingQuery.isSuccess ? 'text-green-400' : 'text-zinc-400' },
     { label: 'Network', value: pingQuery.isSuccess ? 'Online' : 'Offline', icon: Wifi, color: pingQuery.isSuccess ? 'text-green-400' : 'text-zinc-400' },
   ];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-zinc-800 pb-6 mb-6">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-100">Terminal Dashboard</h1>
@@ -31,67 +60,289 @@ export default function DashboardPage() {
         </Link>
       </div>
 
+      {setupStatus && !setupStatus.isConfigured && (
+        <div className="bg-amber-500/10 border border-amber-500/20 rounded-md p-4 flex items-start gap-3 text-amber-400">
+          <AlertTriangle className="w-5 h-5 shrink-0" />
+          <div>
+            <h3 className="text-sm font-semibold">Not Enrolled</h3>
+            <p className="text-xs text-amber-400/80 mt-1">This vessel isn't connected to an office yet. Enroll any time from Settings.</p>
+          </div>
+        </div>
+      )}
+
+      {isOverdue && (
+        <div className="bg-red-500/10 border border-red-500/20 rounded-md p-4 flex items-start gap-3 text-red-400">
+          <AlertTriangle className="w-5 h-5 shrink-0" />
+          <div>
+            <h3 className="text-sm font-semibold">Report Overdue</h3>
+            <p className="text-xs text-red-400/80 mt-1">Overdue by {overdueByStr}</p>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         {kpis.map((stat) => (
           <Card key={stat.label} className="bg-zinc-900/50 border-zinc-800 rounded-md">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-xs font-medium text-zinc-400">
                 {stat.label}
               </CardTitle>
-              <stat.icon className={`w-3 h-3 ${stat.color}`} />
+              <stat.icon className={`w-4 h-4 ${stat.color}`} />
             </CardHeader>
             <CardContent>
-              <div className="text-xl font-bold text-zinc-100">{stat.value}</div>
+              <div className="text-2xl font-bold text-zinc-100">{stat.value}</div>
             </CardContent>
           </Card>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="bg-zinc-900/50 border-zinc-800 rounded-md">
-          <CardHeader>
-            <CardTitle className="text-sm font-medium">Recent Activity</CardTitle>
-            <CardDescription>Local persistence logs</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {[
-                { title: 'Bunker Report', status: 'Draft', time: '10 mins ago' },
-                { title: 'EDN Report', status: 'Pending Sync', time: '1 hour ago' },
-                { title: 'Cargo Nomination', status: 'Synced', time: 'Yesterday' },
-              ].map((activity, i) => (
-                <div key={i} className="flex items-center gap-4 p-3 rounded-md bg-zinc-950/30 border border-zinc-800/50 hover:bg-zinc-800/30 transition-colors">
-                  <div className="p-2 rounded-sm border bg-zinc-900 border-zinc-800 text-zinc-400">
-                    <FileText className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1">
-                    <h4 className="text-sm font-medium text-zinc-200">{activity.title}</h4>
-                    <p className="text-xs text-zinc-500">{activity.status}</p>
-                  </div>
-                  <span className="text-xs text-zinc-600">{activity.time}</span>
+      {/* Main Grid */}
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-6">
+        
+        {/* Main Content Area */}
+        <div className="space-y-6">
+          
+          {/* Suggested Next Report moved into main column */}
+          {suggestions && suggestions.length > 0 && (
+            <Card className="bg-gradient-to-r from-blue-900/20 to-zinc-900/50 border-blue-800/50 rounded-xl">
+              <CardHeader className="pb-2 pt-4 px-5">
+                <CardTitle className="text-[11px] font-semibold text-blue-400 uppercase tracking-widest">Suggested Next Report</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-row justify-between items-center px-5 pb-4">
+                <div>
+                  <div className="text-xl font-bold text-blue-100">{suggestions[0]}</div>
+                  {isOverdue && <p className="text-[11px] text-red-400 font-semibold mt-0.5">Report overdue by {overdueByStr}</p>}
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+                <Button size="sm" onClick={() => router.push('/reports/new')} className="bg-blue-600 hover:bg-blue-500 text-white rounded-lg h-8 px-4 text-xs font-medium">
+                  Open
+                </Button>
+              </CardContent>
+            </Card>
+          )}
 
-        <Card className="bg-zinc-900/50 border-zinc-800 rounded-md">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-sm font-medium">Sync Queue</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs">
-                <span className="text-zinc-400">Local API Connection</span>
-                <span className="text-zinc-100">{pingQuery.isLoading ? 'Connecting...' : pingQuery.isSuccess ? 'Connected' : 'Disconnected'}</span>
-              </div>
-              <div className="h-1 bg-zinc-800 rounded-full overflow-hidden">
-                <div className={`h-full ${pingQuery.isSuccess ? 'bg-green-500 w-full' : pingQuery.isLoading ? 'bg-zinc-600 w-1/2 animate-pulse' : 'bg-red-500 w-full'}`} />
-              </div>
-              <p className="text-xs text-zinc-500 mt-2">{pingQuery.isSuccess ? pingQuery.data.message : 'Awaiting connection to Local API.'}</p>
+          <div className="flex items-center justify-between border-b border-zinc-800/50 pb-3">
+            <h2 className="text-lg font-semibold text-zinc-200 tracking-tight">In Progress</h2>
+            <Button 
+              size="sm"
+              variant="outline"
+              className="bg-zinc-900/50 border-zinc-800 text-zinc-300 hover:text-zinc-100 hover:bg-zinc-800 h-7 px-3 text-xs"
+              onClick={() => router.push('/reports')}
+            >
+              View all
+            </Button>
+          </div>
+
+          {reportsLoading ? (
+            <Card className="bg-zinc-950/40 border-zinc-800/60 backdrop-blur-sm rounded-2xl">
+              <CardContent className="p-12 flex flex-col items-center justify-center space-y-4">
+                <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+                <p className="text-sm font-medium text-zinc-400">Loading your drafts...</p>
+              </CardContent>
+            </Card>
+          ) : inProgress.length === 0 ? (
+            <Card className="bg-zinc-950/40 border-zinc-800/60 backdrop-blur-sm rounded-2xl border-dashed">
+              <CardContent className="p-16 flex flex-col items-center justify-center text-center">
+                <div className="w-16 h-16 rounded-full bg-zinc-900 flex items-center justify-center border border-zinc-800 mb-6 shadow-inner">
+                  <FileText className="w-8 h-8 text-zinc-600" />
+                </div>
+                <h3 className="text-lg font-medium text-zinc-200 mb-2">No active drafts</h3>
+                <p className="text-sm text-zinc-500 max-w-sm">Start a new report to see it here. Your progress will be automatically saved.</p>
+                <Button className="mt-8 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl shadow-[0_0_20px_rgba(79,70,229,0.3)]">
+                  Start New Report
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              <Card className="bg-zinc-950/40 border-zinc-800/60 backdrop-blur-sm rounded-xl overflow-hidden shadow-xl">
+                <div className="divide-y divide-zinc-800/50">
+                  {inProgress.map(report => (
+                    <div 
+                      key={report.reportId} 
+                      className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 hover:bg-zinc-900/80 transition-all cursor-pointer group"
+                      onClick={() => router.push(`/reports/${report.reportId}`)}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="p-2 rounded-md border bg-zinc-900 border-zinc-800 text-zinc-500 shadow-inner group-hover:text-zinc-300 transition-colors shrink-0">
+                          <FileText className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <h4 className="text-[13px] font-semibold tracking-wide text-zinc-300 truncate group-hover:text-zinc-100 transition-colors">{report.schemaName || 'Unnamed Report'}</h4>
+                          <p className="text-[11px] font-medium text-zinc-500 truncate mt-0.5">Started {new Date(report.createdAt).toLocaleDateString()}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
+                        <span className="text-[9px] px-2 py-0.5 rounded uppercase font-bold tracking-widest bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                          Draft
+                        </span>
+                        <span className="text-[11px] font-semibold text-indigo-400 flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                          Resume <ArrowRight className="w-3 h-3 ml-1" />
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+              {allInProgress.length > 4 && (
+                <Button 
+                  variant="ghost" 
+                  className="w-full text-zinc-400 hover:text-indigo-400 bg-zinc-900/30 hover:bg-zinc-900/80 border border-zinc-800/50 rounded-xl h-11" 
+                  onClick={() => router.push('/reports')}
+                >
+                  View all {allInProgress.length} active drafts <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+              )}
             </div>
-          </CardContent>
-        </Card>
+          )}
+
+          <div className="flex items-center justify-between border-b border-zinc-800/50 pb-3 mt-8">
+            <h2 className="text-lg font-semibold text-zinc-200 tracking-tight">Recent Reports</h2>
+            <Button 
+              size="sm"
+              variant="outline"
+              className="bg-zinc-900/50 border-zinc-800 text-zinc-300 hover:text-zinc-100 hover:bg-zinc-800 h-7 px-3 text-xs"
+              onClick={() => router.push('/reports')}
+            >
+              View all
+            </Button>
+          </div>
+
+          {reportsLoading ? (
+            <Card className="bg-zinc-950/40 border-zinc-800/60 backdrop-blur-sm rounded-xl">
+              <CardContent className="p-8 flex flex-col items-center justify-center space-y-3">
+                <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
+                <p className="text-xs font-medium text-zinc-400">Loading recent reports...</p>
+              </CardContent>
+            </Card>
+          ) : recent.length === 0 ? (
+            <Card className="bg-zinc-950/40 border-zinc-800/60 backdrop-blur-sm rounded-xl border-dashed">
+              <CardContent className="p-8 flex flex-col items-center justify-center text-center">
+                 <p className="text-xs font-medium text-zinc-500">No reports have been submitted yet.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="bg-zinc-950/40 border-zinc-800/60 backdrop-blur-sm rounded-xl overflow-hidden">
+              <div className="divide-y divide-zinc-800/50">
+                {recent.map((report) => (
+                  <div 
+                    key={report.reportId} 
+                    className="flex items-center gap-3 p-4 hover:bg-zinc-900/80 transition-all cursor-pointer group"
+                    onClick={() => router.push(`/reports/${report.reportId}`)}
+                  >
+                    <div className="p-2 rounded-md border bg-zinc-900 border-zinc-800 text-zinc-500 shadow-inner group-hover:text-zinc-300 transition-colors shrink-0">
+                      <FileText className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-[13px] font-semibold tracking-wide text-zinc-300 truncate group-hover:text-zinc-100 transition-colors">{report.schemaName}</h4>
+                      <p className="text-[11px] font-medium text-zinc-500 truncate mt-0.5">{report.createdBy}</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1.5 shrink-0">
+                      <span className={`text-[9px] px-2 py-0.5 rounded font-bold uppercase tracking-widest border ${
+                        report.state === 'submitted' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-[inset_0_1px_0_rgba(16,185,129,0.1)]' :
+                        report.state === 'draft' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                        'bg-zinc-500/10 text-zinc-400 border-zinc-500/20'
+                      }`}>
+                        {report.state}
+                      </span>
+                      <span className="text-[10px] text-zinc-500 font-mono font-medium">{new Date(report.createdAt).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+        </div>
+
+        {/* Sidebar Widgets */}
+        <div className="space-y-6">
+          <Card className="bg-zinc-950/40 border-zinc-800/60 backdrop-blur-sm rounded-xl shadow-lg relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/10 rounded-full blur-[30px] pointer-events-none" />
+            <CardHeader className="pb-3 pt-4 border-b border-zinc-800/30 bg-zinc-950/20">
+              <CardTitle className="text-[13px] font-semibold tracking-wide text-zinc-300 flex items-center gap-2">
+                <Ship className="w-3.5 h-3.5 text-indigo-400" />
+                Active Voyage
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-4 pb-4">
+              {voyage ? (
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold mb-1">Voyage Number</p>
+                    <p className="text-lg font-semibold tracking-tight text-zinc-100">{voyage.voyageNumber}</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 relative">
+                    <div className="absolute top-4 left-3 right-3 h-[1px] bg-zinc-800 border-t border-dashed border-zinc-700/50" />
+                    <div className="relative z-10 bg-zinc-950/80 p-1.5 rounded-md border border-zinc-800/60 shadow-sm">
+                      <p className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold mb-0.5 text-center">Departure</p>
+                      <p className="text-[11px] font-medium text-zinc-300 text-center truncate">{voyage.departurePort}</p>
+                    </div>
+                    <div className="relative z-10 bg-zinc-950/80 p-1.5 rounded-md border border-zinc-800/60 shadow-sm">
+                      <p className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold mb-0.5 text-center">Arrival</p>
+                      <p className="text-[11px] font-medium text-zinc-300 text-center truncate">{voyage.arrivalPort}</p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-4 text-center">
+                  <div className="w-8 h-8 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center mb-2">
+                    <Ship className="w-3.5 h-3.5 text-zinc-600" />
+                  </div>
+                  <p className="text-xs text-zinc-500">No active voyage detected.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="bg-zinc-950/40 border-zinc-800/60 backdrop-blur-sm rounded-xl shadow-lg relative overflow-hidden">
+            <div className="absolute bottom-0 right-0 w-24 h-24 bg-emerald-500/10 rounded-full blur-[30px] pointer-events-none" />
+            <CardHeader className="pb-3 pt-4 border-b border-zinc-800/30 bg-zinc-950/20">
+              <CardTitle className="text-[13px] font-semibold tracking-wide text-zinc-300 flex items-center justify-between">
+                Sync Status
+                {syncStatus?.enrolled && pingQuery.isSuccess && (
+                  <span className="flex h-2 w-2 relative">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 pt-4 pb-4">
+              <div className="space-y-2.5 text-xs font-medium">
+                <div className="flex justify-between items-center bg-zinc-900/50 p-1.5 px-2 rounded-md border border-zinc-800/50">
+                  <span className="text-zinc-500">Local API</span>
+                  <span className={pingQuery.isSuccess ? 'text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded border border-emerald-500/20 text-[10px]' : 'text-red-400 bg-red-400/10 px-1.5 py-0.5 rounded border border-red-500/20 text-[10px]'}>
+                    {pingQuery.isSuccess ? 'Connected' : 'Disconnected'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center bg-zinc-900/50 p-1.5 px-2 rounded-md border border-zinc-800/50">
+                  <span className="text-zinc-500">Enrolled</span>
+                  <span className={syncStatus?.enrolled ? 'text-indigo-400 text-[11px]' : 'text-zinc-500 text-[11px]'}>{syncStatus?.enrolled ? 'Yes' : 'No'}</span>
+                </div>
+                <div className="flex flex-col gap-1 pt-2">
+                  <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold">Last Success</span>
+                  <span className="text-zinc-300 font-mono text-[10px] bg-zinc-900 px-2 py-1 rounded border border-zinc-800">
+                    {syncStatus?.lastSuccess ? new Date(syncStatus.lastSuccess).toLocaleString() : 'Never'}
+                  </span>
+                </div>
+                {syncStatus?.lastError && (
+                  <div className="text-[10px] text-red-400 mt-1.5 bg-red-500/10 p-1.5 rounded border border-red-500/20 break-words">
+                    {syncStatus.lastError}
+                  </div>
+                )}
+                
+                <Button 
+                  size="sm"
+                  onClick={() => syncNowMutation.mutate()} 
+                  disabled={syncNowMutation.isPending || !syncStatus?.enrolled}
+                  className="w-full mt-4 bg-zinc-100 hover:bg-white text-zinc-950 font-semibold rounded-lg h-8 text-xs shadow-[0_0_10px_rgba(255,255,255,0.1)] transition-all disabled:bg-zinc-800 disabled:text-zinc-500"
+                >
+                  <CloudOff className="w-3.5 h-3.5 mr-1.5" />
+                  {syncNowMutation.isPending ? 'Syncing...' : 'Sync Now'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );

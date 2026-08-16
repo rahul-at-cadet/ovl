@@ -12,10 +12,15 @@ async function bootstrap() {
   });
 
   const trpc = app.get(TrpcRouter);
+  
+  const cookieParser = require('cookie-parser');
+  app.use(cookieParser());
+
   app.use(
     '/trpc',
     trpcExpress.createExpressMiddleware({
       router: trpc.appRouter,
+      createContext: ({ req, res }) => ({ req, res }),
     }),
   );
 

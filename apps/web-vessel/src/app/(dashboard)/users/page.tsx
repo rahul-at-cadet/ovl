@@ -8,14 +8,10 @@ import { Shield, UserPlus, Search, MoreHorizontal, UserCheck, ShieldAlert, Arrow
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { trpc } from '@/lib/trpc';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 
-const MOCK_USERS = [
-  { id: 1, name: 'Captain John', email: 'john@ovl.com', role: 'Vessel Captain', status: 'Active', avatar: 'CJ' },
-  { id: 2, name: 'Marcus Johnson', email: 'marcus.j@ovl.com', role: 'Chief Engineer', status: 'Active', avatar: 'MJ' },
-  { id: 3, name: 'Vessel Admin', email: 'admin@ovl.com', role: 'System Admin', status: 'Active', avatar: 'VA' },
-];
 
 export default function UsersPage() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -54,6 +50,26 @@ export default function UsersPage() {
     setIsCreateOpen(open);
   };
 
+  const [selectedUserForRole, setSelectedUserForRole] = useState<any>(null);
+  const [selectedUserForPassword, setSelectedUserForPassword] = useState<any>(null);
+  const [editRoleValue, setEditRoleValue] = useState('');
+  const [resetPasswordGenerated, setResetPasswordGenerated] = useState('');
+
+  const updateRole = trpc.users.updateRole.useMutation({
+    onSuccess: () => {
+      utils.users.list.invalidate();
+      setSelectedUserForRole(null);
+    },
+    onError: (err) => alert('Failed to update role: ' + err.message)
+  });
+
+  const adminResetPassword = trpc.users.adminResetPassword.useMutation({
+    onSuccess: (data) => {
+      setResetPasswordGenerated(data.temporaryPassword);
+    },
+    onError: (err) => alert('Failed to reset password: ' + err.message)
+  });
+
   const filteredUsers = users.filter((user: any) => 
     user.username.toLowerCase().includes(searchQuery.toLowerCase()) || 
     user.role.toLowerCase().includes(searchQuery.toLowerCase())
@@ -81,11 +97,9 @@ export default function UsersPage() {
             Filter
           </Button>
           <Dialog open={isCreateOpen} onOpenChange={handleCloseCreate}>
-            <DialogTrigger asChild>
-              <Button className="bg-zinc-100 hover:bg-white text-zinc-950 rounded-md h-9 text-sm font-semibold shadow-sm shrink-0 transition-all">
-                <UserPlus className="w-4 h-4 mr-2" />
-                Onboard Crew
-              </Button>
+            <DialogTrigger className="inline-flex items-center justify-center bg-zinc-100 hover:bg-white text-zinc-950 rounded-md h-9 px-4 py-2 text-sm font-semibold shadow-sm shrink-0 transition-all">
+              <UserPlus className="w-4 h-4 mr-2" />
+              Onboard Crew
             </DialogTrigger>
             <DialogContent className="sm:max-w-[425px] bg-zinc-950 border-zinc-800 text-zinc-100">
               <DialogHeader>
@@ -103,7 +117,7 @@ export default function UsersPage() {
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="role" className="text-zinc-300">Role</Label>
-                    <Select value={newRole} onValueChange={setNewRole}>
+                    <Select value={newRole} onValueChange={(val) => setNewRole(val || 'Able Seaman')}>
                       <SelectTrigger className="bg-zinc-900 border-zinc-800 focus-visible:ring-zinc-700">
                         <SelectValue placeholder="Select a role" />
                       </SelectTrigger>
@@ -201,9 +215,33 @@ export default function UsersPage() {
                         </div>
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 rounded-md transition-colors">
-                          <MoreHorizontal className="w-4 h-4" />
-                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-zinc-800 hover:text-zinc-200 h-8 w-8 text-zinc-500">
+                            <MoreHorizontal className="w-4 h-4" />
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="bg-zinc-950 border-zinc-800 text-zinc-300">
+                            <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                            <DropdownMenuItem 
+                              className="focus:bg-zinc-900 focus:text-zinc-100 cursor-pointer"
+                              onClick={() => { setSelectedUserForRole(user); setEditRoleValue(user.role); }}
+                            >
+                              Edit Profile / Role
+                            </DropdownMenuItem>
+                            <DropdownMenuItem 
+                              className="focus:bg-zinc-900 focus:text-zinc-100 cursor-pointer"
+                              onClick={() => { setSelectedUserForPassword(user); setResetPasswordGenerated(''); }}
+                            >
+                              Reset Password
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator className="bg-zinc-800" />
+                            <DropdownMenuItem 
+                              className="focus:bg-zinc-900 focus:text-zinc-100 cursor-pointer text-red-400 focus:text-red-300"
+                              onClick={() => updateStatus.mutate({ id: user.id, active: !user.active })}
+                            >
+                              {user.active ? 'Deactivate Account' : 'Activate Account'}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </td>
                     </tr>
                   ))
@@ -219,6 +257,94 @@ export default function UsersPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Edit Role Dialog */}
+      <Dialog open={!!selectedUserForRole} onOpenChange={(open) => !open && setSelectedUserForRole(null)}>
+        <DialogContent className="sm:max-w-[425px] bg-zinc-950 border-zinc-800 text-zinc-100">
+          <DialogHeader>
+            <DialogTitle>Edit User Profile</DialogTitle>
+            <DialogDescription className="text-zinc-400">
+              Change the security role for {selectedUserForRole?.username}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="edit-role" className="text-zinc-300">Security Role</Label>
+              <Select value={editRoleValue} onValueChange={(val) => val && setEditRoleValue(val)}>
+                <SelectTrigger className="bg-zinc-900 border-zinc-800 focus-visible:ring-zinc-700">
+                  <SelectValue placeholder="Select a role" />
+                </SelectTrigger>
+                <SelectContent className="bg-zinc-900 border-zinc-800">
+                  <SelectItem value="Master" className="focus:bg-zinc-800 focus:text-zinc-100 cursor-pointer">Master</SelectItem>
+                  <SelectItem value="Chief Engineer" className="focus:bg-zinc-800 focus:text-zinc-100 cursor-pointer">Chief Engineer</SelectItem>
+                  <SelectItem value="Second Officer" className="focus:bg-zinc-800 focus:text-zinc-100 cursor-pointer">Second Officer</SelectItem>
+                  <SelectItem value="Able Seaman" className="focus:bg-zinc-800 focus:text-zinc-100 cursor-pointer">Able Seaman</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSelectedUserForRole(null)} className="border-zinc-800 bg-zinc-950 text-zinc-300 hover:bg-zinc-900 hover:text-white">Cancel</Button>
+            <Button 
+              onClick={() => updateRole.mutate({ id: selectedUserForRole.id, role: editRoleValue })}
+              disabled={updateRole.isPending}
+              className="bg-indigo-600 hover:bg-indigo-500 text-white"
+            >
+              {updateRole.isPending ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reset Password Dialog */}
+      <Dialog open={!!selectedUserForPassword} onOpenChange={(open) => {
+        if (!open) {
+          setSelectedUserForPassword(null);
+          setResetPasswordGenerated('');
+        }
+      }}>
+        <DialogContent className="sm:max-w-[425px] bg-zinc-950 border-zinc-800 text-zinc-100">
+          <DialogHeader>
+            <DialogTitle>Reset Password</DialogTitle>
+            <DialogDescription className="text-zinc-400">
+              Generate a new temporary password for {selectedUserForPassword?.username}.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {!resetPasswordGenerated ? (
+            <div className="py-4">
+              <p className="text-sm text-zinc-300 mb-4">
+                This will immediately invalidate their current password. They will be required to change this temporary password upon their next login.
+              </p>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setSelectedUserForPassword(null)} className="border-zinc-800 bg-zinc-950 text-zinc-300 hover:bg-zinc-900 hover:text-white">Cancel</Button>
+                <Button 
+                  onClick={() => adminResetPassword.mutate({ id: selectedUserForPassword.id })}
+                  disabled={adminResetPassword.isPending}
+                  className="bg-red-600 hover:bg-red-500 text-white"
+                >
+                  {adminResetPassword.isPending ? 'Resetting...' : 'Confirm Reset'}
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <div className="py-4">
+              <div className="bg-zinc-900 border border-zinc-800 rounded-md p-4 mt-2">
+                <p className="text-sm text-zinc-400 mb-1 font-medium uppercase tracking-wider text-[10px]">New Temporary Password</p>
+                <div className="flex items-center justify-between">
+                  <code className="text-xl font-mono text-emerald-400">{resetPasswordGenerated}</code>
+                </div>
+              </div>
+              <p className="text-xs text-zinc-500 mt-4">
+                Please provide this password to the crew member. It will only be shown once.
+              </p>
+              <DialogFooter className="mt-6">
+                <Button onClick={() => setSelectedUserForPassword(null)} className="bg-zinc-100 hover:bg-white text-zinc-950">Done</Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -9,6 +9,8 @@ import * as schema from '@ovl/vessel-database';
 export class SyncService {
   private readonly logger = new Logger(SyncService.name);
   private isSyncing = false;
+  private lastSuccess: string | null = null;
+  private lastError: string | null = null;
 
   constructor(
     private readonly trpc: TrpcService,
@@ -35,11 +37,30 @@ export class SyncService {
       await this.pullConfiguration();
 
       this.logger.debug('Sync Cycle Complete');
+      this.lastSuccess = new Date().toISOString();
+      this.lastError = null;
     } catch (error) {
       this.logger.error(`Sync cycle failed: ${error.message}`);
+      this.lastError = error.message;
     } finally {
       this.isSyncing = false;
     }
+  }
+
+  async getStatus() {
+    const result = await this.db.select().from(schema.configStore).where(eq(schema.configStore.key, 'vessel_id'));
+    const enrolled = result.length > 0;
+    
+    return {
+      enrolled,
+      lastSuccess: this.lastSuccess,
+      lastError: this.lastError
+    };
+  }
+
+  async syncNow() {
+    await this.handleCron();
+    return this.getStatus();
   }
 
   private async pushOutboxEvents() {

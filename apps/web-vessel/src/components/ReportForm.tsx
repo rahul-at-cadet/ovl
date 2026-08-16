@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useForm, Controller } from 'react-hook-form';
+import { useState, useEffect, useMemo } from 'react';
+import { useForm, Controller, useWatch } from 'react-hook-form';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,33 +12,82 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { trpc } from '@/lib/trpc';
 import { useRouter } from 'next/navigation';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { AttachmentsSection } from './AttachmentsSection';
 
 interface ReportFormProps {
-  schemaName: string;
+  reportId: string;
 }
 
-export function ReportForm({ schemaName }: ReportFormProps) {
+export function ReportForm({ reportId }: ReportFormProps) {
   const router = useRouter();
   const [serverErrors, setServerErrors] = useState<string[]>([]);
-  
-  // 1. Fetch Dynamic Schema
+
+  // 1. Fetch Report Draft
+  const { data: report, isLoading: isReportLoading, error: reportError } = trpc.reports.getReport.useQuery({
+    id: reportId
+  });
+
+  // 2. Fetch Dynamic Schema
   const { data: schema, isLoading: isSchemaLoading, error: schemaError } = trpc.reports.getSchema.useQuery({
-    schemaName
+    schemaName: report?.schemaName || ''
+  }, {
+    enabled: !!report?.schemaName
   });
 
   const { data: telemetry, isLoading: telemetryLoading } = trpc.system.getTelemetry.useQuery(undefined, {
     enabled: !!schema,
   });
-  
-  const submitReportMutation = trpc.reports.submitReport.useMutation();
-  const createReportMutation = trpc.reports.createReport.useMutation();
 
-  const { control, handleSubmit, reset, setValue } = useForm();
+  const submitReportMutation = trpc.reports.submitReport.useMutation();
+  const saveSectionMutation = trpc.reports.saveSection.useMutation();
+  const trpcUtils = trpc.useUtils();
+
+  const defaultValues = useMemo(() => {
+    if (!schema || !report) return undefined;
+
+    let parsedFields: Record<string, any> = {};
+    if (typeof report.fields === 'string') {
+      try {
+        parsedFields = JSON.parse(report.fields);
+      } catch (e) {
+        console.error("Failed to parse report fields JSON", e);
+      }
+    } else if (report.fields) {
+      parsedFields = report.fields as Record<string, any>;
+    }
+
+    const vals: Record<string, any> = {};
+    schema.fields.forEach(f => {
+      const existingVal = parsedFields[f.name];
+      vals[f.name] = existingVal !== undefined ? existingVal : '';
+    });
+    return vals;
+  }, [schema, report]);
+
+  const { control, handleSubmit, reset, setValue, getValues } = useForm({
+    values: defaultValues,
+    resetOptions: {
+      keepDirtyValues: true // Prevent background updates from wiping out user typing
+    }
+  });
+
+  const formValues = useWatch({ control });
+
+  // Auto-save debounced effect
+  useEffect(() => {
+    if (!report || !schema || Object.keys(formValues).length === 0) return;
+
+    const timer = setTimeout(() => {
+      handleAction(formValues as Record<string, unknown>, 'draft', true);
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [formValues, report, schema]);
 
   const handlePrefillSensors = () => {
     if (telemetry && schema) {
       const updates: Record<string, any> = {};
-      
+
       schema.fields.forEach(f => {
         if (f.name.toLowerCase().includes('lat')) updates[f.name] = telemetry.gps.lat.toFixed(4);
         if (f.name.toLowerCase().includes('lon') || f.name.toLowerCase().includes('lng')) updates[f.name] = telemetry.gps.lng.toFixed(4);
@@ -47,51 +96,45 @@ export function ReportForm({ schemaName }: ReportFormProps) {
         if (f.name.toLowerCase().includes('temp')) updates[f.name] = telemetry.engine.temperatureCelsius.toFixed(1);
         if (f.name.toLowerCase().includes('wind')) updates[f.name] = telemetry.environment.windSpeedKnots.toFixed(1);
       });
-      
+
       Object.entries(updates).forEach(([key, value]) => {
         setValue(key, value, { shouldValidate: true, shouldDirty: true });
       });
     }
   };
 
-  // Reset form when schema changes to inject default values if needed
-  useEffect(() => {
-    if (schema) {
-      const defaultValues: Record<string, string | number | boolean> = {};
-      schema.fields.forEach(f => {
-        defaultValues[f.name] = '';
-      });
-      reset(defaultValues);
-    }
-  }, [schema, reset]);
-
-  if (isSchemaLoading) {
+  if (isReportLoading || isSchemaLoading) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-zinc-500">
         <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-4" />
-        <p>Loading schema definition...</p>
+        <p>Loading draft...</p>
       </div>
     );
   }
 
-  if (schemaError || !schema) {
+  if (reportError || !report || schemaError || !schema) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-red-400">
         <AlertCircle className="w-8 h-8 mb-4" />
-        <p>Failed to load schema: {schemaError?.message}</p>
+        <p>Failed to load draft: {reportError?.message || schemaError?.message}</p>
       </div>
     );
   }
 
-  const handleAction = (data: Record<string, unknown>, action: 'draft' | 'submit') => {
+  const handleAction = (data: Record<string, unknown>, action: 'draft' | 'submit', isAutoSave = false) => {
     setServerErrors([]);
-    
+
     // Convert numeric fields based on schema definition
     const parsedFields: Record<string, unknown> = {};
     schema.fields.forEach(field => {
       const val = data[field.name];
-      if (val === undefined || val === '') return;
-      
+      if (val === undefined) return; // Untouched field, leave it
+
+      if (val === '') {
+        parsedFields[field.name] = ''; // Explicit clear
+        return;
+      }
+
       if (field.type === 'wholeNumber' || field.type === 'decimal') {
         parsedFields[field.name] = Number(val);
       } else if (field.type === 'boolean') {
@@ -101,28 +144,37 @@ export function ReportForm({ schemaName }: ReportFormProps) {
       }
     });
 
-    createReportMutation.mutate({
-      schemaName,
-      eventType: schemaName.replace('.json', ''),
-      eventTime: new Date().toISOString(),
-      fields: parsedFields
-    }, {
-      onSuccess: (res) => {
-        if (action === 'submit') {
-          submitReportMutation.mutate({ id: res.reportId }, {
-            onSuccess: () => {
-              alert('Report Submitted to Shore!');
-              router.push(`/reports/${res.reportId}`);
-            },
-            onError: (err) => setServerErrors([err.message])
-          });
-        } else {
-          alert('Draft Saved!');
-          router.push(`/reports/${res.reportId}`);
+    if (action === 'submit') {
+      submitReportMutation.mutate({ id: reportId }, {
+        onSuccess: () => {
+          trpcUtils.reports.getReport.invalidate({ id: reportId });
+          trpcUtils.reports.listReports.invalidate();
+          alert('Report Submitted to Shore!');
+          window.location.reload();
+        },
+        onError: (err) => setServerErrors([err.message])
+      });
+    } else {
+      // Find current active section based on the DOM, or just save all as 'General'
+      // In a robust implementation, we would track the active tab state
+      saveSectionMutation.mutate({
+        id: reportId,
+        section: sections[0], // Only saving first section for MVP
+        changes: parsedFields
+      }, {
+        onSuccess: () => {
+          if (!isAutoSave) {
+            trpcUtils.reports.getReport.invalidate({ id: reportId });
+          }
+          trpcUtils.reports.listReports.invalidate();
+        },
+        onError: (err) => {
+          if (!isAutoSave) {
+            setServerErrors([err.message]);
+          }
         }
-      },
-      onError: (err) => setServerErrors([err.message])
-    });
+      });
+    }
   };
 
   const sections = schema.sections || ['General'];
@@ -134,16 +186,15 @@ export function ReportForm({ schemaName }: ReportFormProps) {
         <div className="flex justify-between items-center bg-zinc-900/50 p-4 rounded-xl border border-zinc-800 backdrop-blur-sm">
           <div>
             <h2 className="text-xl font-bold tracking-tight text-zinc-100">Drafting: {schema.schemaName}</h2>
-            <p className="text-zinc-400 text-sm">Dynamic Form Renderer</p>
           </div>
           <div className="flex gap-2">
-            <Button type="button" onClick={handleSubmit((d) => handleAction(d, 'draft'))} variant="outline" className="border-zinc-700 bg-zinc-950/50 text-zinc-300 hover:text-white" disabled={createReportMutation.isPending || submitReportMutation.isPending}>
+            <Button type="button" onClick={() => handleAction(getValues(), 'draft')} variant="outline" className="border-zinc-700 bg-zinc-950/50 text-zinc-300 hover:text-white" disabled={saveSectionMutation.isPending || submitReportMutation.isPending}>
               <Save className="w-4 h-4 mr-2" />
-              Save Draft
+              {saveSectionMutation.isPending ? 'Saving...' : 'Save Draft'}
             </Button>
-            <Button type="button" onClick={handleSubmit((d) => handleAction(d, 'submit'))} className="bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20" disabled={createReportMutation.isPending || submitReportMutation.isPending}>
+            <Button type="button" onClick={handleSubmit((d) => handleAction(d, 'submit'))} className="bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20" disabled={saveSectionMutation.isPending || submitReportMutation.isPending}>
               <Send className="w-4 h-4 mr-2" />
-              {(createReportMutation.isPending || submitReportMutation.isPending) ? 'Processing...' : 'Submit to Shore'}
+              {submitReportMutation.isPending ? 'Processing...' : 'Submit to Shore'}
             </Button>
           </div>
         </div>
@@ -151,10 +202,10 @@ export function ReportForm({ schemaName }: ReportFormProps) {
         <Card className="bg-zinc-900/50 border-zinc-800">
           <div className="p-4 border-b border-zinc-800 flex justify-between items-center">
             <h3 className="text-sm font-medium text-zinc-400">Form Details</h3>
-            <Button 
-              type="button" 
-              variant="outline" 
-              size="sm" 
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
               className="text-xs bg-zinc-950 border-zinc-800 text-blue-400 hover:text-blue-300 hover:bg-zinc-800"
               onClick={handlePrefillSensors}
               disabled={telemetryLoading || !telemetry}
@@ -177,7 +228,7 @@ export function ReportForm({ schemaName }: ReportFormProps) {
             )}
 
             <CardContent className="pt-6">
-              <form onSubmit={(e) => e.preventDefault()}>
+              <form onSubmit={(e) => e.preventDefault()} noValidate>
                 {sections.map(section => (
                   <TabsContent key={section} value={section} className="space-y-6 mt-0">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -209,11 +260,15 @@ export function ReportForm({ schemaName }: ReportFormProps) {
                                   </Select>
                                 );
                               }
-                              
+
                               if (field.type === 'date' || field.type === 'dateTime') {
                                 return (
-                                  <Input 
-                                    {...controllerField}
+                                  <Input
+                                    name={controllerField.name}
+                                    onBlur={controllerField.onBlur}
+                                    ref={controllerField.ref}
+                                    value={controllerField.value ?? ''}
+                                    onChange={(e) => controllerField.onChange(e.target.value)}
                                     type="datetime-local"
                                     className="bg-zinc-950/50 border-zinc-800 focus-visible:ring-blue-500 text-zinc-100"
                                   />
@@ -221,8 +276,12 @@ export function ReportForm({ schemaName }: ReportFormProps) {
                               }
 
                               return (
-                                <Input 
-                                  {...controllerField}
+                                <Input
+                                  name={controllerField.name}
+                                  onBlur={controllerField.onBlur}
+                                  ref={controllerField.ref}
+                                  value={controllerField.value ?? ''}
+                                  onChange={(e) => controllerField.onChange(e.target.value)}
                                   type={field.type === 'wholeNumber' || field.type === 'decimal' ? 'number' : 'text'}
                                   className="bg-zinc-950/50 border-zinc-800 focus-visible:ring-blue-500 text-zinc-100"
                                 />
@@ -234,29 +293,21 @@ export function ReportForm({ schemaName }: ReportFormProps) {
                     </div>
                   </TabsContent>
                 ))}
-
-                {/* Attachments UI */}
-                <div className="mt-8 pt-6 border-t border-zinc-800">
-                  <h3 className="text-lg font-medium text-zinc-100 mb-4">Attachments</h3>
-                  <div className="space-y-4">
-                    <Label className="text-zinc-300">Upload supporting documents (PDF, JPG, PNG)</Label>
-                    <div className="flex items-center justify-center w-full">
-                      <label htmlFor="dropzone-file" className="flex flex-col items-center justify-center w-full h-32 border-2 border-zinc-800 border-dashed rounded-lg cursor-pointer bg-zinc-950/50 hover:bg-zinc-900/50 transition-colors">
-                        <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                          <svg className="w-8 h-8 mb-4 text-zinc-500" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 16">
-                            <path stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 13h3a3 3 0 0 0 0-6h-.025A5.56 5.56 0 0 0 16 6.5 5.5 5.5 0 0 0 5.207 5.021C5.137 5.017 5.071 5 5 5a4 4 0 0 0 0 8h2.167M10 15V6m0 0L8 8m2-2 2 2"/>
-                          </svg>
-                          <p className="mb-2 text-sm text-zinc-400"><span className="font-semibold text-blue-400">Click to upload</span> or drag and drop</p>
-                          <p className="text-xs text-zinc-500">MAX 50MB per file</p>
-                        </div>
-                        <input id="dropzone-file" type="file" className="hidden" multiple />
-                      </label>
-                    </div>
-                  </div>
-                </div>
               </form>
             </CardContent>
           </Tabs>
+        </Card>
+
+        <AttachmentsSection reportId={reportId} />
+        <Card className="bg-zinc-900/50 border-zinc-800 mt-6">
+          <CardHeader>
+            <CardTitle className="text-sm text-zinc-400">Debug: Form Values</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <pre className="text-xs text-zinc-300 overflow-auto max-h-60">
+              {JSON.stringify(formValues, null, 2)}
+            </pre>
+          </CardContent>
         </Card>
       </div>
 

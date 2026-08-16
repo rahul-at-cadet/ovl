@@ -8,6 +8,8 @@ import { SyncModule } from './sync/sync.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ReportsModule } from './reports/reports.module';
 import { SensorsModule } from './sensors/sensors.module';
+import { AuthModule } from './auth/auth.module';
+import { SystemModule } from './system/system.module';
 
 @Module({
   imports: [
@@ -18,6 +20,8 @@ import { SensorsModule } from './sensors/sensors.module';
     SyncModule,
     ReportsModule,
     SensorsModule,
+    AuthModule,
+    SystemModule,
   ],
   controllers: [AppController],
   providers: [AppService],

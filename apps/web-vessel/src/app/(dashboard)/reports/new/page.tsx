@@ -2,9 +2,12 @@
 
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { buttonVariants } from '@/components/ui/button';
-import { ArrowRight, Anchor, Fuel, ClipboardList, TrendingUp } from 'lucide-react';
+import { buttonVariants, Button } from '@/components/ui/button';
+import { ArrowRight, Anchor, Fuel, ClipboardList, TrendingUp, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { trpc } from '@/lib/trpc';
+import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 
 const availableReports = [
   { id: 'bunker-report.json', title: 'Bunker Report', description: 'Log fuel intake and quality metrics.', icon: Fuel, color: 'text-orange-400', bg: 'bg-orange-500/10 border-orange-500/20' },
@@ -14,6 +17,29 @@ const availableReports = [
 ];
 
 export default function NewReportPage() {
+  const router = useRouter();
+  const [startingSchema, setStartingSchema] = useState<string | null>(null);
+  
+  const createReportMutation = trpc.reports.createReport.useMutation({
+    onSuccess: (res) => {
+      router.push(`/reports/${res.reportId}`);
+    },
+    onError: (err) => {
+      alert(`Failed to start draft: ${err.message}`);
+      setStartingSchema(null);
+    }
+  });
+
+  const handleStartDraft = (schemaId: string) => {
+    setStartingSchema(schemaId);
+    createReportMutation.mutate({
+      schemaName: schemaId,
+      eventType: schemaId.replace('.json', ''),
+      eventTime: new Date().toISOString(),
+      fields: {}
+    });
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div>
@@ -38,13 +64,14 @@ export default function NewReportPage() {
               </div>
             </CardHeader>
             <CardContent className="flex justify-end pt-4 border-t border-zinc-800/50 mt-2 relative z-10">
-              <Link 
-                href={`/reports/draft?schema=${report.id}`}
+              <Button 
+                onClick={() => handleStartDraft(report.id)}
+                disabled={startingSchema === report.id}
                 className={cn(buttonVariants({ variant: 'secondary' }), "w-full sm:w-auto bg-zinc-800 hover:bg-zinc-700 text-zinc-100")}
               >
-                Start Draft
-                <ArrowRight className="w-4 h-4 ml-2 shrink-0" />
-              </Link>
+                {startingSchema === report.id ? 'Starting...' : 'Start Draft'}
+                {startingSchema === report.id ? <Loader2 className="w-4 h-4 ml-2 shrink-0 animate-spin" /> : <ArrowRight className="w-4 h-4 ml-2 shrink-0" />}
+              </Button>
             </CardContent>
           </Card>
         ))}

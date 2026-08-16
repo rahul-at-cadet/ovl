@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Satellite, Database, Activity, RefreshCw } from 'lucide-react';
+import { Satellite, Database, Activity, RefreshCw, Save, Cpu } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 
 export default function SettingsPage() {
@@ -69,6 +69,13 @@ export default function SettingsPage() {
               Local Storage
             </TabsTrigger>
             <TabsTrigger 
+              value="sensors" 
+              className="w-full justify-start px-4 py-2.5 text-sm font-medium data-[state=active]:bg-zinc-800/50 data-[state=active]:text-zinc-100 text-zinc-400 hover:bg-zinc-900/50 transition-all rounded-md"
+            >
+              <Cpu className="w-4 h-4 mr-3" />
+              Hardware Sensors
+            </TabsTrigger>
+            <TabsTrigger 
               value="diagnostics" 
               className="w-full justify-start px-4 py-2.5 text-sm font-medium data-[state=active]:bg-zinc-800/50 data-[state=active]:text-zinc-100 text-zinc-400 hover:bg-zinc-900/50 transition-all rounded-md"
             >
@@ -125,11 +132,36 @@ export default function SettingsPage() {
                   <CardTitle className="text-sm font-semibold tracking-tight text-zinc-200">Data Retention</CardTitle>
                   <CardDescription className="text-xs text-zinc-500">Manage local SQLite database pruning.</CardDescription>
                 </CardHeader>
-                <CardContent className="pt-12 pb-12 flex flex-col items-center justify-center text-center">
-                  <Database className="w-8 h-8 text-zinc-600 mb-3" />
+                <CardContent className="pt-12 pb-12 flex flex-col items-center justify-center text-center space-y-4">
+                  <Database className="w-8 h-8 text-zinc-600 mb-2" />
                   <p className="text-sm font-medium text-zinc-400">Database using 14.2 MB of space.</p>
-                  <Button variant="outline" className="mt-4 border-zinc-800 bg-zinc-950 hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30 text-zinc-300">
-                    Clear Synced Records
+                  
+                  <div className="flex gap-4 mt-6">
+                    <Button variant="outline" className="border-zinc-800 bg-zinc-950 hover:bg-zinc-900 text-zinc-300" onClick={() => window.open('http://localhost:3003/system/backup/download')}>
+                      <Save className="w-4 h-4 mr-2" />
+                      Download Full Backup
+                    </Button>
+                    <Button variant="outline" className="border-zinc-800 bg-zinc-950 hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30 text-zinc-300">
+                      Clear Synced Records
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="sensors" className="mt-0">
+              <Card className="bg-zinc-900/40 border-zinc-800/60 shadow-xl overflow-hidden rounded-xl backdrop-blur-md">
+                <CardHeader className="border-b border-zinc-800/60 pb-4 bg-zinc-900/20">
+                  <CardTitle className="text-sm font-semibold tracking-tight text-zinc-200">Hardware Sensors</CardTitle>
+                  <CardDescription className="text-xs text-zinc-500">Configure NMEA 0183/2000 connections for auto-populating coordinates.</CardDescription>
+                </CardHeader>
+                <CardContent className="pt-6 space-y-4">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">NMEA Endpoint URL / Serial Port</Label>
+                    <Input type="text" placeholder="tcp://192.168.1.100:10110" className="bg-zinc-950/80 border-zinc-800/80 focus-visible:ring-zinc-700 text-zinc-100 text-sm h-10" />
+                  </div>
+                  <Button className="bg-blue-600 hover:bg-blue-500 text-white rounded-md h-9 text-sm font-semibold shadow-sm transition-all mt-2">
+                    Save Sensor Config
                   </Button>
                 </CardContent>
               </Card>

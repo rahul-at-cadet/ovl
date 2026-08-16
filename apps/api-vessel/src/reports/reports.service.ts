@@ -63,9 +63,15 @@ export class ReportsService {
     });
   }
 
-  async listReports(schemaName: string) {
+  async listReports(schemaName?: string) {
     // Return the latest versions of reports for a given schema
     // In SQLite, we can just group by reportId or filter. For simplicity, we just fetch all drafts/ready for now
+    if (!schemaName) {
+      return this.db.query.reports.findMany({
+        orderBy: (reports, { desc }) => [desc(reports.updatedAt)],
+      });
+    }
+    
     return this.db.query.reports.findMany({
       where: eq(schema.reports.schemaName, schemaName),
       orderBy: (reports, { desc }) => [desc(reports.updatedAt)],
@@ -95,8 +101,19 @@ export class ReportsService {
       );
     }
 
+    let currentFields: Record<string, any> = {};
+    if (typeof report.fields === 'string') {
+      try {
+        currentFields = JSON.parse(report.fields);
+      } catch (e) {
+        console.error("Failed to parse report fields", e);
+      }
+    } else if (report.fields) {
+      currentFields = report.fields as Record<string, any>;
+    }
+
     const mergedFields = {
-      ...(report.fields as Record<string, any>),
+      ...currentFields,
       ...dto.changes,
     };
     const now = new Date().toISOString();

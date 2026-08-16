@@ -7,18 +7,14 @@ import { Input } from '@/components/ui/input';
 import { Ship, Search, MoreHorizontal, ArrowUpDown, Filter, Plus, Activity, Wifi, WifiOff } from 'lucide-react';
 
 
-const MOCK_VESSELS = [
-  { id: 'v-001', name: 'Seawise Giant', imo: '7381154', type: 'ULCC', status: 'At Sea', edgeStatus: 'Online', lastSync: '2 mins ago' },
-  { id: 'v-002', name: 'Emma Maersk', imo: '9321483', type: 'Container', status: 'In Port', edgeStatus: 'Online', lastSync: '5 mins ago' },
-  { id: 'v-003', name: 'TI Europe', imo: '9235268', type: 'ULCC', status: 'Underway', edgeStatus: 'Syncing', lastSync: '12 mins ago' },
-  { id: 'v-004', name: 'Batillus', imo: '7360148', type: 'Supertanker', status: 'Dry Dock', edgeStatus: 'Offline', lastSync: '3 days ago' },
-  { id: 'v-005', name: 'Pioneering Spirit', imo: '9593505', type: 'Crane', status: 'At Sea', edgeStatus: 'Online', lastSync: 'Just now' },
-];
+import { trpc } from '@/lib/trpc';
 
 export default function VesselsPage() {
   const [searchQuery, setSearchQuery] = useState('');
 
-  const filteredVessels = MOCK_VESSELS.filter(vessel => 
+  const { data: vessels = [], isLoading } = trpc.vessels.list.useQuery();
+
+  const filteredVessels = vessels.filter((vessel: any) => 
     vessel.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
     vessel.imo.includes(searchQuery)
   );
@@ -70,8 +66,14 @@ export default function VesselsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredVessels.length > 0 ? (
-                  filteredVessels.map((vessel) => (
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-12 text-center text-zinc-500 bg-zinc-950/20">
+                      Loading vessels...
+                    </td>
+                  </tr>
+                ) : filteredVessels.length > 0 ? (
+                  filteredVessels.map((vessel: any) => (
                     <tr key={vessel.id} className="border-b border-zinc-800/40 hover:bg-zinc-800/20 transition-all group">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
