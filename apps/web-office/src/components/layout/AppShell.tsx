@@ -4,7 +4,7 @@ import { ReactNode, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import Session, { signOut } from 'supertokens-auth-react/recipe/session';
-import { Globe, LayoutDashboard, Database, Ship, Users, Settings, Bell, Menu, LogOut, Search, Sliders } from 'lucide-react';
+import { LayoutDashboard, Database, Ship, Users, Settings, Bell, Menu, LogOut, Search, Sliders } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -79,12 +79,9 @@ export function AppShell({ children }: AppShellProps) {
         className={`h-screen bg-card border-r border-border flex flex-col relative z-20 shrink-0 hidden md:flex transition-all duration-200 ${isSidebarOpen ? 'w-[260px]' : 'w-[70px]'}`}
       >
         <div className="h-14 flex items-center px-4 border-b border-border/50">
-          <div className="p-1.5 bg-muted rounded-sm border border-border mr-3 shrink-0">
-            <Globe className="w-4 h-4 text-foreground" />
-          </div>
           {isSidebarOpen && (
             <span className="font-medium text-sm tracking-tight whitespace-nowrap text-foreground">
-              OVL Command
+              Cadetlabs
             </span>
           )}
         </div>
@@ -132,11 +129,8 @@ export function AppShell({ children }: AppShellProps) {
                 </SheetTrigger>
                 <SheetContent side="left" className="w-[260px] bg-card border-r border-border p-0 flex flex-col">
                   <div className="h-14 flex items-center px-4 border-b border-border/50 shrink-0">
-                    <div className="p-1.5 bg-muted rounded-sm border border-border mr-3 shrink-0">
-                      <Globe className="w-4 h-4 text-foreground" />
-                    </div>
                     <span className="font-medium text-sm tracking-tight whitespace-nowrap text-foreground">
-                      OVL Command
+                      Cadetlabs
                     </span>
                   </div>
                   <div className="flex-1 overflow-y-auto py-6 px-3 space-y-1">
@@ -166,8 +160,7 @@ export function AppShell({ children }: AppShellProps) {
 
             {/* Mobile Title */}
             <div className="md:hidden flex items-center mr-4">
-               <Globe className="w-5 h-5 text-indigo-400 mr-2" />
-               <span className="font-bold tracking-tight">OVL Command</span>
+               <span className="font-bold tracking-tight">Cadetlabs</span>
             </div>
 
             <div className="hidden md:flex relative max-w-md w-full">

@@ -8,7 +8,7 @@ import Session from 'supertokens-auth-react/recipe/session';
 if (typeof window !== 'undefined') {
   SuperTokens.init({
     appInfo: {
-      appName: 'OVL Office',
+      appName: 'Cadetlabs',
       apiDomain: 'http://localhost:3001',
       websiteDomain: 'http://localhost:3000',
       apiBasePath: '/auth',

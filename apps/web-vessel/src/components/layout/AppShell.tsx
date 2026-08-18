@@ -69,12 +69,9 @@ export function AppShell({ children }: AppShellProps) {
           ${isSidebarOpen ? 'w-[260px]' : 'md:w-[80px] w-[260px]'}`}
       >
         <div className="h-16 flex items-center px-4 border-b border-border/40 relative">
-          <div className="p-2 bg-gradient-to-tr from-indigo-500/20 to-purple-500/20 rounded-xl border border-indigo-500/20 shadow-inner mr-3 shrink-0 flex items-center justify-center">
-            <Ship className="w-5 h-5 text-indigo-400" />
-          </div>
           {isSidebarOpen && (
             <span className="font-semibold text-[15px] tracking-wide whitespace-nowrap bg-clip-text text-transparent bg-gradient-to-r from-zinc-100 to-zinc-400">
-              Vessel Edge
+              Cadetlabs
             </span>
           )}
           <Button 

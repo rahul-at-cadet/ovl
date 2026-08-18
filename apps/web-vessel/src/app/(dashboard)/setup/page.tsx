@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Ship, Globe, Anchor, Save, Database, User, CheckCircle, Copy, Check, AlertTriangle } from 'lucide-react';
+import { Ship, Globe, Save, Database, User, CheckCircle, Copy, Check, AlertTriangle } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useRouter } from 'next/navigation';
 import { useToastManager } from '@/components/ui/toast';
@@ -83,11 +83,6 @@ export default function SetupPage() {
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 max-w-2xl mx-auto">
       <div className="border-b border-border/60 pb-6 text-center mt-8">
-        <div className="flex justify-center mb-4">
-          <div className="p-3 bg-card border border-border shadow-sm rounded-xl">
-            <Anchor className="w-8 h-8 text-blue-400" />
-          </div>
-        </div>
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">Vessel Node Initialization</h1>
         <p className="text-muted-foreground mt-1.5 text-sm font-medium">Configure this edge node with the vessel&apos;s identity and shore-side uplink.</p>
       </div>
@@ -125,7 +120,7 @@ export default function SetupPage() {
             <CardTitle className="text-sm font-semibold tracking-tight text-foreground flex items-center"><Database className="w-4 h-4 mr-2" /> Data Persistence</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 pt-6 text-sm text-foreground">
-            <p>Welcome to OVL Edge. This node operates in an occasionally-connected environment.</p>
+            <p>Welcome to Cadetlabs. This node operates in an occasionally-connected environment.</p>
             <p>All data is persisted locally in the configured SQLite database before being synchronized to shore. Ensure your host machine provides persistent storage for the data directory.</p>
           </CardContent>
           <CardFooter className="bg-background/40 border-t border-border/60 p-4 flex justify-end">

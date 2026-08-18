@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Ship, User, KeyRound, ShieldCheck } from 'lucide-react';
+import { User, KeyRound, ShieldCheck } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -52,14 +52,9 @@ export default function LoginPage() {
       <div className="w-full max-w-[400px] z-10 p-4">
         <Card className="bg-card border-border shadow-xl rounded-md">
           <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-border/50">
-            <div className="flex justify-center mb-4">
-              <div className="p-2 bg-muted/50 rounded-sm border border-border">
-                <Ship className="w-6 h-6 text-foreground" />
-              </div>
-            </div>
             <div>
               <CardTitle className="text-xl font-medium tracking-tight text-foreground">
-                Vessel Edge
+                Cadetlabs
               </CardTitle>
               <CardDescription className="text-muted-foreground mt-1 text-sm">
                 Secure Terminal Authentication

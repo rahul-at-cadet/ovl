@@ -11,8 +11,11 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "OVL Command | Office Dashboard",
+  title: "Cadetlabs | Office Dashboard",
   description: "Centralized fleet management and reporting",
+  icons: {
+    icon: "/cadetlabs-logo.png",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

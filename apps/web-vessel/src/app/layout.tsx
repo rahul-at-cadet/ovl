@@ -11,8 +11,11 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "OVL Edge | Vessel Reporting Engine",
-  description: "Secure local edge reporting for OVL vessels",
+  title: "Cadetlabs | Vessel Reporting Engine",
+  description: "Secure local edge reporting for Cadetlabs vessels",
+  icons: {
+    icon: "/cadetlabs-logo.png",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
