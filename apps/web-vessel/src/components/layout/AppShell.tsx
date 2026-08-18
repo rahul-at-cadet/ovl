@@ -52,7 +52,7 @@ export function AppShell({ children }: AppShellProps) {
   ];
 
   return (
-    <div className="min-h-screen bg-[#0a0a0c] text-zinc-100 flex overflow-hidden font-sans selection:bg-indigo-500/30">
+    <div className="min-h-screen bg-[#0a0a0c] text-foreground flex overflow-hidden font-sans selection:bg-indigo-500/30">
       
       {/* Mobile Sidebar Overlay */}
       {isMobileSidebarOpen && (
@@ -64,11 +64,11 @@ export function AppShell({ children }: AppShellProps) {
 
       {/* Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex flex-col bg-zinc-950/80 backdrop-blur-xl border-r border-zinc-800/60 shadow-2xl transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)]
+        className={`fixed inset-y-0 left-0 z-50 flex flex-col bg-background/80 backdrop-blur-xl border-r border-border/60 shadow-2xl transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)]
           md:relative md:translate-x-0 ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
           ${isSidebarOpen ? 'w-[260px]' : 'md:w-[80px] w-[260px]'}`}
       >
-        <div className="h-16 flex items-center px-4 border-b border-zinc-800/40 relative">
+        <div className="h-16 flex items-center px-4 border-b border-border/40 relative">
           <div className="p-2 bg-gradient-to-tr from-indigo-500/20 to-purple-500/20 rounded-xl border border-indigo-500/20 shadow-inner mr-3 shrink-0 flex items-center justify-center">
             <Ship className="w-5 h-5 text-indigo-400" />
           </div>
@@ -81,7 +81,7 @@ export function AppShell({ children }: AppShellProps) {
             variant="ghost" 
             size="icon" 
             onClick={() => setIsMobileSidebarOpen(false)} 
-            className="absolute right-2 md:hidden text-zinc-400 hover:text-zinc-100"
+            className="absolute right-2 md:hidden text-muted-foreground hover:text-foreground"
           >
             <X className="w-5 h-5" />
           </Button>
@@ -95,11 +95,11 @@ export function AppShell({ children }: AppShellProps) {
                 <div className={`flex items-center px-3 py-2.5 rounded-xl transition-all duration-200 relative overflow-hidden
                   ${isActive 
                     ? 'bg-indigo-500/10 text-indigo-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] ring-1 ring-inset ring-indigo-500/20' 
-                    : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/40'}`}>
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'}`}>
                   {isActive && (
                     <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-1/2 bg-indigo-500 rounded-r-full shadow-[0_0_8px_rgba(99,102,241,0.8)]" />
                   )}
-                  <item.icon className={`w-[18px] h-[18px] shrink-0 z-10 transition-colors ${isActive ? 'text-indigo-400' : 'text-zinc-500 group-hover:text-zinc-300'}`} />
+                  <item.icon className={`w-[18px] h-[18px] shrink-0 z-10 transition-colors ${isActive ? 'text-indigo-400' : 'text-muted-foreground group-hover:text-foreground'}`} />
                   {isSidebarOpen && (
                     <span className="ml-3.5 font-medium text-[13px] z-10 whitespace-nowrap tracking-wide">{item.label}</span>
                   )}
@@ -109,11 +109,11 @@ export function AppShell({ children }: AppShellProps) {
           })}
         </div>
 
-        <div className="p-4 border-t border-zinc-800/40 bg-zinc-950/50">
+        <div className="p-4 border-t border-border/40 bg-background/50">
           <button 
             onClick={handleLogout}
             disabled={isLoggingOut}
-            className="w-full flex items-center px-3 py-2.5 rounded-xl text-zinc-400 hover:text-red-400 hover:bg-red-500/10 hover:ring-1 hover:ring-inset hover:ring-red-500/20 transition-all duration-200 disabled:opacity-50 group"
+            className="w-full flex items-center px-3 py-2.5 rounded-xl text-muted-foreground hover:text-red-400 hover:bg-red-500/10 hover:ring-1 hover:ring-inset hover:ring-red-500/20 transition-all duration-200 disabled:opacity-50 group"
           >
             {isLoggingOut ? (
               <Loader2 className="w-[18px] h-[18px] shrink-0 animate-spin text-red-400" />
@@ -128,20 +128,20 @@ export function AppShell({ children }: AppShellProps) {
       {/* Main Content */}
       <div className="flex-1 flex flex-col h-screen overflow-hidden bg-gradient-to-br from-[#0a0a0c] to-[#121216]">
         {/* Top Header */}
-        <header className="h-16 bg-zinc-950/60 backdrop-blur-xl border-b border-zinc-800/50 flex items-center justify-between px-4 lg:px-8 z-10 shrink-0 sticky top-0 shadow-sm">
+        <header className="h-16 bg-background/60 backdrop-blur-xl border-b border-border/50 flex items-center justify-between px-4 lg:px-8 z-10 shrink-0 sticky top-0 shadow-sm">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => setIsMobileSidebarOpen(true)} className="md:hidden text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/50 rounded-lg">
+            <Button variant="ghost" size="icon" onClick={() => setIsMobileSidebarOpen(true)} className="md:hidden text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-lg">
               <Menu className="w-5 h-5" />
             </Button>
-            <Button variant="ghost" size="icon" onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="hidden md:flex text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/50 rounded-lg transition-transform active:scale-95">
+            <Button variant="ghost" size="icon" onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="hidden md:flex text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-lg transition-transform active:scale-95">
               <Menu className="w-5 h-5" />
             </Button>
             {/* Search */}
             <div className="hidden md:flex relative max-w-md w-64 group">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500 group-focus-within:text-indigo-400 transition-colors" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-indigo-400 transition-colors" />
               <Input 
                 placeholder="Search resources..." 
-                className="pl-10 bg-zinc-900/50 border-zinc-800 focus-visible:ring-1 focus-visible:ring-indigo-500/50 h-9 w-full text-[13px] rounded-xl shadow-inner placeholder:text-zinc-500 transition-all focus-visible:bg-zinc-900"
+                className="pl-10 bg-card/50 border-border focus-visible:ring-1 focus-visible:ring-indigo-500/50 h-9 w-full text-[13px] rounded-xl shadow-inner placeholder:text-muted-foreground transition-all focus-visible:bg-card"
               />
             </div>
           </div>
@@ -151,29 +151,29 @@ export function AppShell({ children }: AppShellProps) {
             <Popover>
               <PopoverTrigger
                 render={
-                  <Button variant="ghost" size="icon" className="relative text-zinc-400 hover:text-zinc-100 h-9 w-9 rounded-xl hover:bg-zinc-800/50 transition-colors">
+                  <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-foreground h-9 w-9 rounded-xl hover:bg-muted/50 transition-colors">
                     <Bell className="w-4 h-4" />
                     <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-indigo-500 ring-2 ring-zinc-950 shadow-[0_0_8px_rgba(99,102,241,0.8)]" />
                   </Button>
                 }
               />
-              <PopoverContent align="end" className="w-80 bg-zinc-900/95 backdrop-blur-xl border-zinc-800 shadow-2xl rounded-2xl text-zinc-100 p-0 overflow-hidden">
-                <div className="p-4 border-b border-zinc-800/50 bg-zinc-950/50">
-                  <h4 className="font-semibold text-[13px] tracking-wide text-zinc-200">Notifications</h4>
+              <PopoverContent align="end" className="w-80 bg-card/95 backdrop-blur-xl border-border shadow-2xl rounded-2xl text-foreground p-0 overflow-hidden">
+                <div className="p-4 border-b border-border/50 bg-background/50">
+                  <h4 className="font-semibold text-[13px] tracking-wide text-foreground">Notifications</h4>
                 </div>
                 <div className="p-6 flex flex-col items-center justify-center text-center space-y-2">
                   <div className="w-10 h-10 rounded-full bg-indigo-500/10 flex items-center justify-center mb-1">
                     <Bell className="w-5 h-5 text-indigo-400" />
                   </div>
-                  <p className="text-[13px] font-medium text-zinc-300">You're all caught up</p>
-                  <p className="text-xs text-zinc-500">No new alerts from shore.</p>
+                  <p className="text-[13px] font-medium text-foreground">You're all caught up</p>
+                  <p className="text-xs text-muted-foreground">No new alerts from shore.</p>
                 </div>
               </PopoverContent>
             </Popover>
 
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 p-[1px] shadow-lg cursor-pointer hover:shadow-indigo-500/25 transition-shadow">
-              <div className="w-full h-full rounded-[11px] bg-zinc-900 border border-white/10 flex items-center justify-center">
-                <User className="w-4 h-4 text-zinc-300" />
+              <div className="w-full h-full rounded-[11px] bg-card border border-white/10 flex items-center justify-center">
+                <User className="w-4 h-4 text-foreground" />
               </div>
             </div>
           </div>

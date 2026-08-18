@@ -107,7 +107,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
 
   if (isReportLoading || isSchemaLoading) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 text-zinc-500">
+      <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
         <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-4" />
         <p>Loading draft...</p>
       </div>
@@ -184,12 +184,12 @@ export function ReportForm({ reportId }: ReportFormProps) {
     <div className="flex flex-col xl:flex-row gap-6 items-start animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Form Area */}
       <div className="flex-1 w-full space-y-6">
-        <div className="flex justify-between items-center bg-zinc-900/50 p-4 rounded-xl border border-zinc-800 backdrop-blur-sm">
+        <div className="flex justify-between items-center bg-card/50 p-4 rounded-xl border border-border backdrop-blur-sm">
           <div>
-            <h2 className="text-xl font-bold tracking-tight text-zinc-100">Drafting: {schema.schemaName}</h2>
+            <h2 className="text-xl font-bold tracking-tight text-foreground">Drafting: {schema.schemaName}</h2>
           </div>
           <div className="flex gap-2">
-            <Button type="button" onClick={() => handleAction(getValues(), 'draft')} variant="outline" className="border-zinc-700 bg-zinc-950/50 text-zinc-300 hover:text-white" disabled={saveSectionMutation.isPending || submitReportMutation.isPending}>
+            <Button type="button" onClick={() => handleAction(getValues(), 'draft')} variant="outline" className="border-border bg-background/50 text-foreground hover:text-white" disabled={saveSectionMutation.isPending || submitReportMutation.isPending}>
               <Save className="w-4 h-4 mr-2" />
               {saveSectionMutation.isPending ? 'Saving...' : 'Save Draft'}
             </Button>
@@ -200,14 +200,14 @@ export function ReportForm({ reportId }: ReportFormProps) {
           </div>
         </div>
 
-        <Card className="bg-zinc-900/50 border-zinc-800">
-          <div className="p-4 border-b border-zinc-800 flex justify-between items-center">
-            <h3 className="text-sm font-medium text-zinc-400">Form Details</h3>
+        <Card className="bg-card/50 border-border">
+          <div className="p-4 border-b border-border flex justify-between items-center">
+            <h3 className="text-sm font-medium text-muted-foreground">Form Details</h3>
             <Button
               type="button"
               variant="outline"
               size="sm"
-              className="text-xs bg-zinc-950 border-zinc-800 text-blue-400 hover:text-blue-300 hover:bg-zinc-800"
+              className="text-xs bg-background border-border text-blue-400 hover:text-blue-300 hover:bg-muted"
               onClick={handlePrefillSensors}
               disabled={telemetryLoading || !telemetry}
             >
@@ -217,10 +217,10 @@ export function ReportForm({ reportId }: ReportFormProps) {
           </div>
           <Tabs defaultValue={sections[0]} className="w-full">
             {sections.length > 1 && (
-              <CardHeader className="border-b border-zinc-800 pb-0 pt-4 px-4">
-                <TabsList className="bg-zinc-950/50 border border-zinc-800 w-full justify-start h-auto p-1 overflow-x-auto">
+              <CardHeader className="border-b border-border pb-0 pt-4 px-4">
+                <TabsList className="bg-background/50 border border-border w-full justify-start h-auto p-1 overflow-x-auto">
                   {sections.map(section => (
-                    <TabsTrigger key={section} value={section} className="data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100 px-6 py-2 capitalize">
+                    <TabsTrigger key={section} value={section} className="data-[state=active]:bg-muted data-[state=active]:text-foreground px-6 py-2 capitalize">
                       {section.replace(/([A-Z])/g, ' $1').trim()}
                     </TabsTrigger>
                   ))}
@@ -235,12 +235,12 @@ export function ReportForm({ reportId }: ReportFormProps) {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       {schema.fields.filter(f => f.section === section || (!f.section && section === sections[0])).map((field) => (
                         <div key={field.name} className="space-y-2">
-                          <Label htmlFor={field.name} className="text-zinc-300 flex items-center">
+                          <Label htmlFor={field.name} className="text-foreground flex items-center">
                             {field.label || field.name}
                             {field.schemaMandatory && <span className="text-red-400 ml-1">*</span>}
                           </Label>
                           {field.description && (
-                            <p className="text-[10px] text-zinc-500">{field.description}</p>
+                            <p className="text-[10px] text-muted-foreground">{field.description}</p>
                           )}
                           <Controller
                             name={field.name}
@@ -250,10 +250,10 @@ export function ReportForm({ reportId }: ReportFormProps) {
                               if (field.type === 'enum') {
                                 return (
                                   <Select onValueChange={controllerField.onChange} value={controllerField.value}>
-                                    <SelectTrigger className="bg-zinc-950/50 border-zinc-800 text-zinc-100 focus:ring-blue-500">
+                                    <SelectTrigger className="bg-background/50 border-border text-foreground focus:ring-blue-500">
                                       <SelectValue placeholder="Select an option" />
                                     </SelectTrigger>
-                                    <SelectContent className="bg-zinc-900 border-zinc-800 text-zinc-100">
+                                    <SelectContent className="bg-card border-border text-foreground">
                                       {/* Note: In a full implementation, enum options would come from the schema or a registry */}
                                       <SelectItem value="Option1">Option 1</SelectItem>
                                       <SelectItem value="Option2">Option 2</SelectItem>
@@ -271,7 +271,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
                                     value={controllerField.value ?? ''}
                                     onChange={(e) => controllerField.onChange(e.target.value)}
                                     type="datetime-local"
-                                    className="bg-zinc-950/50 border-zinc-800 focus-visible:ring-blue-500 text-zinc-100"
+                                    className="bg-background/50 border-border focus-visible:ring-blue-500 text-foreground"
                                   />
                                 );
                               }
@@ -284,7 +284,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
                                   value={controllerField.value ?? ''}
                                   onChange={(e) => controllerField.onChange(e.target.value)}
                                   type={field.type === 'wholeNumber' || field.type === 'decimal' ? 'number' : 'text'}
-                                  className="bg-zinc-950/50 border-zinc-800 focus-visible:ring-blue-500 text-zinc-100"
+                                  className="bg-background/50 border-border focus-visible:ring-blue-500 text-foreground"
                                 />
                               );
                             }}
@@ -300,12 +300,12 @@ export function ReportForm({ reportId }: ReportFormProps) {
         </Card>
 
         <AttachmentsSection reportId={reportId} />
-        <Card className="bg-zinc-900/50 border-zinc-800 mt-6">
+        <Card className="bg-card/50 border-border mt-6">
           <CardHeader>
-            <CardTitle className="text-sm text-zinc-400">Debug: Form Values</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">Debug: Form Values</CardTitle>
           </CardHeader>
           <CardContent>
-            <pre className="text-xs text-zinc-300 overflow-auto max-h-60">
+            <pre className="text-xs text-foreground overflow-auto max-h-60">
               {JSON.stringify(formValues, null, 2)}
             </pre>
           </CardContent>
@@ -314,8 +314,8 @@ export function ReportForm({ reportId }: ReportFormProps) {
 
       {/* Health Check Panel (Errors) */}
       <div className="w-full xl:w-80 shrink-0">
-        <Card className="bg-zinc-900/50 border-zinc-800 sticky top-24">
-          <CardHeader className="border-b border-zinc-800 pb-4">
+        <Card className="bg-card/50 border-border sticky top-24">
+          <CardHeader className="border-b border-border pb-4">
             <CardTitle className="text-lg flex items-center">
               Health Check
             </CardTitle>
@@ -336,7 +336,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
                   </div>
                   <div className="space-y-2">
                     {serverErrors.map((err, idx) => (
-                      <div key={idx} className="text-xs text-zinc-400 p-2 rounded bg-zinc-950/50 border border-zinc-800/50 hover:border-red-500/30 cursor-pointer transition-colors">
+                      <div key={idx} className="text-xs text-muted-foreground p-2 rounded bg-background/50 border border-border/50 hover:border-red-500/30 cursor-pointer transition-colors">
                         {err}
                       </div>
                     ))}
@@ -352,8 +352,8 @@ export function ReportForm({ reportId }: ReportFormProps) {
                     <CheckCircle2 className="w-6 h-6 text-green-400" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-medium text-zinc-200">All checks passed</h4>
-                    <p className="text-xs text-zinc-500 mt-1">Ready for submission</p>
+                    <h4 className="text-sm font-medium text-foreground">All checks passed</h4>
+                    <p className="text-xs text-muted-foreground mt-1">Ready for submission</p>
                   </div>
                 </motion.div>
               )}

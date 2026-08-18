@@ -18,7 +18,7 @@ const TYPE_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
 const TYPE_ACCENT: Record<string, string> = {
   success: "border-emerald-500/30 [&_[data-slot=toast-icon]]:text-emerald-400",
   error: "border-red-500/30 [&_[data-slot=toast-icon]]:text-red-400",
-  info: "border-zinc-700 [&_[data-slot=toast-icon]]:text-zinc-400",
+  info: "border-border [&_[data-slot=toast-icon]]:text-muted-foreground",
 }
 
 function ToastList() {
@@ -38,7 +38,7 @@ function ToastList() {
               toast={toast}
               data-slot="toast"
               className={cn(
-                "relative flex items-start gap-3 rounded-lg border bg-zinc-950/95 p-4 shadow-xl backdrop-blur-md transition-all",
+                "relative flex items-start gap-3 rounded-lg border bg-background/95 p-4 shadow-xl backdrop-blur-md transition-all",
                 "data-starting-style:translate-x-full data-starting-style:opacity-0",
                 "data-ending-style:opacity-0",
                 "data-[swipe-direction]:transition-none",
@@ -47,16 +47,16 @@ function ToastList() {
             >
               <Icon data-slot="toast-icon" className="w-5 h-5 mt-0.5 shrink-0" />
               <div className="flex-1 min-w-0 space-y-0.5">
-                <ToastPrimitive.Title data-slot="toast-title" className="text-sm font-semibold text-zinc-100" />
+                <ToastPrimitive.Title data-slot="toast-title" className="text-sm font-semibold text-foreground" />
                 <ToastPrimitive.Description
                   data-slot="toast-description"
-                  className="text-xs text-zinc-400 empty:hidden"
+                  className="text-xs text-muted-foreground empty:hidden"
                 />
               </div>
               <ToastPrimitive.Close
                 data-slot="toast-close"
                 aria-label="Dismiss"
-                className="shrink-0 text-zinc-500 hover:text-zinc-300 transition-colors"
+                className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
               >
                 <X className="w-4 h-4" />
               </ToastPrimitive.Close>

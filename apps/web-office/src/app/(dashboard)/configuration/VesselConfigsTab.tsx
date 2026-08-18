@@ -13,7 +13,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 const STATUS_CLASS: Record<string, string> = {
-  unassigned: "text-slate-400 bg-slate-800/60",
+  unassigned: "text-muted-foreground bg-muted/60",
   pendingSync: "text-amber-300 bg-amber-950/40",
   synced: "text-emerald-300 bg-emerald-950/40",
   outOfDate: "text-red-300 bg-red-950/40",
@@ -24,23 +24,23 @@ export function VesselConfigsTab() {
 
   return (
     <div className="space-y-6">
-      <Card className="bg-slate-900 border-slate-800">
+      <Card className="bg-card border-border">
         <CardHeader>
-          <CardTitle className="text-slate-100 text-base">Vessel Configs</CardTitle>
+          <CardTitle className="text-foreground text-base">Vessel Configs</CardTitle>
           <CardDescription>Each vessel&apos;s assigned bundle vs. what it last reported running.</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="p-6 text-slate-400">Loading vessel configs...</div>
+            <div className="p-6 text-muted-foreground">Loading vessel configs...</div>
           ) : rows?.length === 0 ? (
-            <div className="text-center py-12 text-slate-500 border-dashed border-slate-800 rounded-lg">
+            <div className="text-center py-12 text-muted-foreground border-dashed border-border rounded-lg">
               <Ship className="w-8 h-8 mx-auto mb-3 opacity-50" />
               <p>No vessels found</p>
             </div>
           ) : (
             <Table>
               <TableHeader>
-                <TableRow className="border-slate-800 hover:bg-transparent">
+                <TableRow className="border-border hover:bg-transparent">
                   <TableHead>Vessel</TableHead>
                   <TableHead>IMO</TableHead>
                   <TableHead>Bundle</TableHead>
@@ -50,11 +50,11 @@ export function VesselConfigsTab() {
               </TableHeader>
               <TableBody>
                 {rows?.map((r) => (
-                  <TableRow key={r.vesselId} className="border-slate-800 hover:bg-slate-800/50">
-                    <TableCell className="font-medium text-slate-200">{r.vesselName}</TableCell>
-                    <TableCell className="text-slate-500 font-mono text-xs">{r.imo}</TableCell>
-                    <TableCell className="text-slate-400">{r.assignedBundleLabel || "—"}</TableCell>
-                    <TableCell className="text-slate-400">
+                  <TableRow key={r.vesselId} className="border-border hover:bg-muted/50">
+                    <TableCell className="font-medium text-foreground">{r.vesselName}</TableCell>
+                    <TableCell className="text-muted-foreground font-mono text-xs">{r.imo}</TableCell>
+                    <TableCell className="text-muted-foreground">{r.assignedBundleLabel || "—"}</TableCell>
+                    <TableCell className="text-muted-foreground">
                       {r.activeSince ? new Date(r.activeSince).toLocaleString() : "—"}
                     </TableCell>
                     <TableCell>

@@ -48,20 +48,20 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-950">
+    <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="w-full max-w-[400px] z-10 p-4">
-        <Card className="bg-zinc-900 border-zinc-800 shadow-xl rounded-md">
-          <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-zinc-800/50">
+        <Card className="bg-card border-border shadow-xl rounded-md">
+          <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-border/50">
             <div className="flex justify-center mb-4">
-              <div className="p-2 bg-zinc-800/50 rounded-sm border border-zinc-700">
-                <Ship className="w-6 h-6 text-zinc-300" />
+              <div className="p-2 bg-muted/50 rounded-sm border border-border">
+                <Ship className="w-6 h-6 text-foreground" />
               </div>
             </div>
             <div>
-              <CardTitle className="text-xl font-medium tracking-tight text-zinc-100">
+              <CardTitle className="text-xl font-medium tracking-tight text-foreground">
                 Vessel Edge
               </CardTitle>
-              <CardDescription className="text-zinc-400 mt-1 text-sm">
+              <CardDescription className="text-muted-foreground mt-1 text-sm">
                 Secure Terminal Authentication
               </CardDescription>
             </div>
@@ -69,32 +69,32 @@ export default function LoginPage() {
           <CardContent className="pt-6">
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="id" className="text-zinc-300 text-xs uppercase tracking-wider font-medium">Crew ID</Label>
+                <Label htmlFor="id" className="text-foreground text-xs uppercase tracking-wider font-medium">Crew ID</Label>
                 <div className="relative">
-                  <User className="absolute left-3 top-2.5 h-4 w-4 text-zinc-500" />
+                  <User className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input 
                     id="id" 
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     placeholder="e.g. master" 
-                    className="pl-9 bg-zinc-950/50 border-zinc-800 focus-visible:ring-zinc-600 text-zinc-100 rounded-sm h-9 text-sm"
+                    className="pl-9 bg-background/50 border-border focus-visible:ring-ring text-foreground rounded-sm h-9 text-sm"
                     required
                   />
                 </div>
               </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Label htmlFor="password" className="text-zinc-300 text-xs uppercase tracking-wider font-medium">Passcode</Label>
+                  <Label htmlFor="password" className="text-foreground text-xs uppercase tracking-wider font-medium">Passcode</Label>
                 </div>
                 <div className="relative">
-                  <KeyRound className="absolute left-3 top-2.5 h-4 w-4 text-zinc-500" />
+                  <KeyRound className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input 
                     id="password" 
                     type="password" 
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••" 
-                    className="pl-9 bg-zinc-950/50 border-zinc-800 focus-visible:ring-zinc-600 text-zinc-100 rounded-sm h-9 text-sm"
+                    className="pl-9 bg-background/50 border-border focus-visible:ring-ring text-foreground rounded-sm h-9 text-sm"
                     required
                   />
                 </div>
@@ -106,7 +106,7 @@ export default function LoginPage() {
               )}
               <Button 
                 type="submit" 
-                className="w-full bg-zinc-100 hover:bg-white text-zinc-950 transition-all rounded-sm h-9 text-sm font-medium mt-4"
+                className="w-full bg-primary hover:bg-white text-primary-foreground transition-all rounded-sm h-9 text-sm font-medium mt-4"
                 disabled={isLoading}
               >
                 {isLoading ? (

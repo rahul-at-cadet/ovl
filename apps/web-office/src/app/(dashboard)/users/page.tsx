@@ -76,33 +76,33 @@ export default function UsersPage() {
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-zinc-800/60 pb-6">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border/60 pb-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-100">User Access Management</h1>
-          <p className="text-zinc-400 mt-1.5 text-sm font-medium">Control roles, permissions, and security policies across the fleet.</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">User Access Management</h1>
+          <p className="text-muted-foreground mt-1.5 text-sm font-medium">Control roles, permissions, and security policies across the fleet.</p>
         </div>
         <div className="flex gap-3 w-full md:w-auto">
           <div className="relative w-full md:w-72 shadow-sm">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-zinc-500" />
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input 
               placeholder="Search by username or role..." 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 bg-zinc-950/80 border-zinc-800/80 focus-visible:ring-zinc-700 text-zinc-100 rounded-md h-9 text-sm w-full transition-all"
+              className="pl-9 bg-background/80 border-border/80 focus-visible:ring-ring text-foreground rounded-md h-9 text-sm w-full transition-all"
             />
           </div>
         </div>
       </div>
 
-      <Card className="bg-zinc-900/40 border-zinc-800/60 shadow-xl overflow-hidden rounded-xl backdrop-blur-md">
-        <CardHeader className="border-b border-zinc-800/60 pb-4 bg-zinc-900/20">
-          <CardTitle className="text-sm font-semibold tracking-tight text-zinc-200">Active Directory</CardTitle>
-          <CardDescription className="text-xs text-zinc-500">All registered personnel and service accounts.</CardDescription>
+      <Card className="bg-card/40 border-border/60 shadow-xl overflow-hidden rounded-xl backdrop-blur-md">
+        <CardHeader className="border-b border-border/60 pb-4 bg-card/20">
+          <CardTitle className="text-sm font-semibold tracking-tight text-foreground">Active Directory</CardTitle>
+          <CardDescription className="text-xs text-muted-foreground">All registered personnel and service accounts.</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left text-zinc-400">
-              <thead className="text-xs text-zinc-500 uppercase tracking-wider bg-zinc-950/40 border-b border-zinc-800/60">
+            <table className="w-full text-sm text-left text-muted-foreground">
+              <thead className="text-xs text-muted-foreground uppercase tracking-wider bg-background/40 border-b border-border/60">
                 <tr>
                   <th scope="col" className="px-4 py-2 font-semibold flex items-center gap-2">User <ArrowUpDown className="w-3 h-3" /></th>
                   <th scope="col" className="px-4 py-2 font-semibold">Security Role</th>
@@ -113,7 +113,7 @@ export default function UsersPage() {
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td colSpan={4} className="px-6 py-12 text-center text-zinc-500 bg-zinc-950/20">
+                    <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground bg-background/20">
                       Loading users...
                     </td>
                   </tr>
@@ -123,25 +123,25 @@ export default function UsersPage() {
                     const isAdmin = user.roles && user.roles.includes('Admin');
                     
                     return (
-                    <tr key={user.id} className="border-b border-zinc-800/40 hover:bg-zinc-800/20 transition-all group">
+                    <tr key={user.id} className="border-b border-border/40 hover:bg-muted/20 transition-all group">
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-3">
-                          <Avatar className="h-9 w-9 bg-zinc-800 border border-zinc-700 shadow-sm">
-                            <AvatarFallback className="text-zinc-300 bg-transparent text-xs font-semibold">{user.username.substring(0,2).toUpperCase()}</AvatarFallback>
+                          <Avatar className="h-9 w-9 bg-muted border border-border shadow-sm">
+                            <AvatarFallback className="text-foreground bg-transparent text-xs font-semibold">{user.username.substring(0,2).toUpperCase()}</AvatarFallback>
                           </Avatar>
                           <div>
-                            <div className="font-semibold text-zinc-200 group-hover:text-white transition-colors">{user.username}</div>
+                            <div className="font-semibold text-foreground group-hover:text-white transition-colors">{user.username}</div>
                           </div>
                         </div>
                       </td>
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-2">
-                          {isAdmin ? <ShieldAlert className="w-4 h-4 text-amber-500/80" /> : <Shield className="w-4 h-4 text-zinc-500" />}
-                          <span className="text-zinc-300 font-medium capitalize">{displayRole}</span>
+                          {isAdmin ? <ShieldAlert className="w-4 h-4 text-amber-500/80" /> : <Shield className="w-4 h-4 text-muted-foreground" />}
+                          <span className="text-foreground font-medium capitalize">{displayRole}</span>
                         </div>
                       </td>
                       <td className="px-4 py-2.5">
-                        <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold tracking-wide uppercase border ${user.active ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50'}`}>
+                        <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold tracking-wide uppercase border ${user.active ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-muted/50 text-muted-foreground border-border/50'}`}>
                           {user.active && <UserCheck className="w-3 h-3" />}
                           {user.active ? 'Active' : 'Inactive'}
                         </div>
@@ -150,13 +150,13 @@ export default function UsersPage() {
                         <DropdownMenu>
                           <DropdownMenuTrigger
                             render={
-                              <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 rounded-md transition-colors" />
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors" />
                             }
                           >
                             <Edit className="w-4 h-4" />
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-48 bg-zinc-950 border-zinc-800">
-                            <DropdownMenuItem onClick={() => openEditDialog(user)} className="hover:bg-zinc-800 cursor-pointer text-zinc-300 focus:bg-zinc-800 focus:text-white">
+                          <DropdownMenuContent align="end" className="w-48 bg-background border-border">
+                            <DropdownMenuItem onClick={() => openEditDialog(user)} className="hover:bg-muted cursor-pointer text-foreground focus:bg-muted focus:text-white">
                               <Edit className="mr-2 h-4 w-4" />
                               <span>Edit User</span>
                             </DropdownMenuItem>
@@ -171,7 +171,7 @@ export default function UsersPage() {
                   )})
                 ) : (
                   <tr>
-                    <td colSpan={4} className="px-6 py-12 text-center text-zinc-500 bg-zinc-950/20">
+                    <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground bg-background/20">
                       No users found matching &quot;{searchQuery}&quot;.
                     </td>
                   </tr>
@@ -183,25 +183,25 @@ export default function UsersPage() {
       </Card>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-[425px] bg-zinc-950 border-zinc-800 text-zinc-100">
+        <DialogContent className="sm:max-w-[425px] bg-background border-border text-foreground">
           <DialogHeader>
-            <DialogTitle className="text-zinc-100">Edit User Roles</DialogTitle>
+            <DialogTitle className="text-foreground">Edit User Roles</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="roles" className="text-right text-zinc-400">
+              <Label htmlFor="roles" className="text-right text-muted-foreground">
                 Roles
               </Label>
               <Input
                 id="roles"
                 value={roles}
                 onChange={(e) => setRoles(e.target.value)}
-                className="col-span-3 bg-zinc-900 border-zinc-800 text-zinc-100"
+                className="col-span-3 bg-card border-border text-foreground"
                 placeholder="Admin, viewer"
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label className="text-right text-zinc-400">
+              <Label className="text-right text-muted-foreground">
                 Active
               </Label>
               <input 
@@ -213,7 +213,7 @@ export default function UsersPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDialogOpen(false)} className="bg-transparent border-zinc-800 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100">
+            <Button variant="outline" onClick={() => setIsDialogOpen(false)} className="bg-transparent border-border text-foreground hover:bg-muted hover:text-foreground">
               Cancel
             </Button>
             <Button onClick={handleSave} disabled={updateMutation.isPending} className="bg-indigo-600 hover:bg-indigo-700 text-white">

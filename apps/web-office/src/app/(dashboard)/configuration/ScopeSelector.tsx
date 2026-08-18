@@ -40,7 +40,7 @@ export function ScopeSelector({ scope, onChange, vessels, allowFleet = true }: S
   return (
     <div className="flex items-end gap-4">
       <div className="space-y-1">
-        <label className="text-xs text-slate-400 uppercase font-semibold tracking-wider">Scope</label>
+        <label className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">Scope</label>
         <Select
           value={scope.type}
           onValueChange={(val: any) => {
@@ -48,7 +48,7 @@ export function ScopeSelector({ scope, onChange, vessels, allowFleet = true }: S
             onChange(val === "fleet" ? { type: "fleet" } : { type: val as ScopeType, key: "" });
           }}
         >
-          <SelectTrigger className="w-40 bg-slate-950 border-slate-800">
+          <SelectTrigger className="w-40 bg-background border-border">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -63,9 +63,9 @@ export function ScopeSelector({ scope, onChange, vessels, allowFleet = true }: S
 
       {scope.type === "group" && (
         <div className="space-y-1">
-          <label className="text-xs text-slate-400 uppercase font-semibold tracking-wider">Group</label>
+          <label className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">Group</label>
           <Select value={scope.key || ""} onValueChange={(val: any) => val && onChange({ type: "group", key: val })}>
-            <SelectTrigger className="w-48 bg-slate-950 border-slate-800">
+            <SelectTrigger className="w-48 bg-background border-border">
               <SelectValue placeholder={groups.length ? "Select group" : "No groups defined"} />
             </SelectTrigger>
             <SelectContent>
@@ -81,9 +81,9 @@ export function ScopeSelector({ scope, onChange, vessels, allowFleet = true }: S
 
       {scope.type === "vessel" && (
         <div className="space-y-1">
-          <label className="text-xs text-slate-400 uppercase font-semibold tracking-wider">Vessel</label>
+          <label className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">Vessel</label>
           <Select value={scope.key || ""} onValueChange={(val: any) => val && onChange({ type: "vessel", key: val })}>
-            <SelectTrigger className="w-56 bg-slate-950 border-slate-800">
+            <SelectTrigger className="w-56 bg-background border-border">
               <SelectValue placeholder={vessels.length ? "Select vessel" : "No vessels"} />
             </SelectTrigger>
             <SelectContent>

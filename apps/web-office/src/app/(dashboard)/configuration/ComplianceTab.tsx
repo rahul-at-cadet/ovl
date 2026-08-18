@@ -80,9 +80,9 @@ function RegulatoryProfilesPanel() {
 
   return (
     <div className="space-y-6">
-      <Card className="bg-slate-900 border-slate-800">
+      <Card className="bg-card border-border">
         <CardHeader>
-          <CardTitle className="text-slate-100 text-base">Regulatory Profiles</CardTitle>
+          <CardTitle className="text-foreground text-base">Regulatory Profiles</CardTitle>
           <CardDescription>Which reporting obligations apply at this scope.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -95,7 +95,7 @@ function RegulatoryProfilesPanel() {
                 className={`text-left rounded-md border px-4 py-3 text-sm transition-colors ${
                   selected.has(p)
                     ? "border-emerald-600 bg-emerald-950/40 text-emerald-300"
-                    : "border-slate-800 bg-slate-950 text-slate-300 hover:border-slate-700"
+                    : "border-border bg-background text-foreground hover:border-border"
                 }`}
               >
                 {PROFILE_LABELS[p] ?? p}
@@ -112,15 +112,15 @@ function RegulatoryProfilesPanel() {
         </CardContent>
       </Card>
 
-      <Card className="bg-slate-900 border-slate-800">
+      <Card className="bg-card border-border">
         <CardHeader>
-          <CardTitle className="text-slate-100 text-base">Current Assignments</CardTitle>
+          <CardTitle className="text-foreground text-base">Current Assignments</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
-          {assignments.length === 0 && <p className="text-sm text-slate-500">No profile assignments yet.</p>}
+          {assignments.length === 0 && <p className="text-sm text-muted-foreground">No profile assignments yet.</p>}
           {assignments.map((a, i) => (
-            <div key={i} className="flex items-center justify-between border-b border-slate-800 py-2 text-sm">
-              <span className="text-slate-300">{scopeLabel(a.scope as Scope, vessels as any)}</span>
+            <div key={i} className="flex items-center justify-between border-b border-border py-2 text-sm">
+              <span className="text-foreground">{scopeLabel(a.scope as Scope, vessels as any)}</span>
               <div className="flex gap-1 flex-wrap">
                 {(a.profiles as string[]).map((p) => (
                   <Badge key={p} variant="secondary">
@@ -158,32 +158,32 @@ function CadenceRulesPanel() {
 
   return (
     <div className="space-y-6">
-      <Card className="bg-slate-900 border-slate-800">
+      <Card className="bg-card border-border">
         <CardHeader>
-          <CardTitle className="text-slate-100 text-base">Cadence Rule</CardTitle>
+          <CardTitle className="text-foreground text-base">Cadence Rule</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <ScopeSelector scope={scope} onChange={setScope} vessels={vessels as any} />
           <div className="flex gap-4">
             <div className="space-y-1">
-              <label className="text-xs text-slate-400 uppercase font-semibold tracking-wider">
+              <label className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">
                 Min report interval (hours)
               </label>
               <Input
                 value={minInterval}
                 onChange={(e) => setMinInterval(e.target.value)}
-                className="w-32 bg-slate-950 border-slate-800"
+                className="w-32 bg-background border-border"
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-slate-400 uppercase font-semibold tracking-wider">
+              <label className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">
                 Max gap (hours)
               </label>
-              <Input value={maxGap} onChange={(e) => setMaxGap(e.target.value)} className="w-32 bg-slate-950 border-slate-800" />
+              <Input value={maxGap} onChange={(e) => setMaxGap(e.target.value)} className="w-32 bg-background border-border" />
             </div>
           </div>
           {valid && (
-            <p className="text-sm text-slate-400">
+            <p className="text-sm text-muted-foreground">
               Vessels {scopeLabel(scope, vessels as any).toLowerCase()} must report at least every {maxNum} hours, with no more
               than {minNum} hours between the start of consecutive reporting windows.
             </p>
@@ -199,16 +199,16 @@ function CadenceRulesPanel() {
         </CardContent>
       </Card>
 
-      <Card className="bg-slate-900 border-slate-800">
+      <Card className="bg-card border-border">
         <CardHeader>
-          <CardTitle className="text-slate-100 text-base">Current Cadence Rules</CardTitle>
+          <CardTitle className="text-foreground text-base">Current Cadence Rules</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
-          {rules.length === 0 && <p className="text-sm text-slate-500">No cadence rules set yet.</p>}
+          {rules.length === 0 && <p className="text-sm text-muted-foreground">No cadence rules set yet.</p>}
           {rules.map((r, i) => (
-            <div key={i} className="flex items-center justify-between border-b border-slate-800 py-2 text-sm">
-              <span className="text-slate-300">{scopeLabel(r.scope as Scope, vessels as any)}</span>
-              <span className="text-slate-400">
+            <div key={i} className="flex items-center justify-between border-b border-border py-2 text-sm">
+              <span className="text-foreground">{scopeLabel(r.scope as Scope, vessels as any)}</span>
+              <span className="text-muted-foreground">
                 max gap {r.maxGapHours}h · min interval {r.minReportIntervalHours}h
               </span>
             </div>
@@ -247,19 +247,19 @@ function RuleSeveritiesPanel() {
 
   return (
     <div className="space-y-6">
-      <Card className="bg-slate-900 border-slate-800">
+      <Card className="bg-card border-border">
         <CardHeader>
-          <CardTitle className="text-slate-100 text-base">Rule Severity Overrides</CardTitle>
+          <CardTitle className="text-foreground text-base">Rule Severity Overrides</CardTitle>
           <CardDescription>Override how strictly plausibility/continuity rules are enforced.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <ScopeSelector scope={scope} onChange={setScope} vessels={vessels as any} />
-          <div className="divide-y divide-slate-800 border border-slate-800 rounded-md">
+          <div className="divide-y divide-slate-800 border border-border rounded-md">
             {(catalog?.overridable ?? Object.keys(RULE_LABELS)).map((ruleId) => (
               <div key={ruleId} className="flex items-center justify-between px-4 py-2">
-                <span className="text-sm text-slate-300">{ruleLabel(ruleId)}</span>
+                <span className="text-sm text-foreground">{ruleLabel(ruleId)}</span>
                 <Select value={severities[ruleId] ?? "default"} onValueChange={(v: any) => v && setSeverity(ruleId, v)}>
-                  <SelectTrigger className="w-32 bg-slate-950 border-slate-800">
+                  <SelectTrigger className="w-32 bg-background border-border">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -274,8 +274,8 @@ function RuleSeveritiesPanel() {
             ))}
             {(catalog?.hard ?? []).map((ruleId) => (
               <div key={ruleId} className="flex items-center justify-between px-4 py-2 opacity-60">
-                <span className="text-sm text-slate-300">{ruleLabel(ruleId)}</span>
-                <span className="flex items-center gap-1 text-xs text-slate-400">
+                <span className="text-sm text-foreground">{ruleLabel(ruleId)}</span>
+                <span className="flex items-center gap-1 text-xs text-muted-foreground">
                   <Lock className="w-3 h-3" /> Error (locked)
                 </span>
               </div>

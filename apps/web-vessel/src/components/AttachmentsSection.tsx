@@ -70,13 +70,13 @@ export function AttachmentsSection({ reportId }: AttachmentsSectionProps) {
   };
 
   return (
-    <Card className="bg-zinc-900/50 border-zinc-800">
-      <CardHeader className="border-b border-zinc-800 pb-4">
-        <CardTitle className="text-lg font-medium text-zinc-100 flex items-center">
-          <Paperclip className="w-5 h-5 mr-2 text-zinc-400" />
+    <Card className="bg-card/50 border-border">
+      <CardHeader className="border-b border-border pb-4">
+        <CardTitle className="text-lg font-medium text-foreground flex items-center">
+          <Paperclip className="w-5 h-5 mr-2 text-muted-foreground" />
           Attachments
         </CardTitle>
-        <CardDescription className="text-zinc-400">
+        <CardDescription className="text-muted-foreground">
           Upload photos, documents, or logs to attach to this report (Max 10MB)
         </CardDescription>
       </CardHeader>
@@ -89,24 +89,24 @@ export function AttachmentsSection({ reportId }: AttachmentsSectionProps) {
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {attachments.map((file) => (
-            <div key={file.fileId} className="flex items-center justify-between p-3 bg-zinc-950 border border-zinc-800 rounded-md">
+            <div key={file.fileId} className="flex items-center justify-between p-3 bg-background border border-border rounded-md">
               <div className="flex items-center space-x-3 overflow-hidden">
                 <div className="p-2 bg-blue-500/10 text-blue-400 rounded-md shrink-0">
                   <File className="w-4 h-4" />
                 </div>
                 <div className="overflow-hidden">
-                  <p className="text-sm font-medium text-zinc-200 truncate">{file.filename}</p>
-                  <p className="text-xs text-zinc-500">{formatSize(file.size)}</p>
+                  <p className="text-sm font-medium text-foreground truncate">{file.filename}</p>
+                  <p className="text-xs text-muted-foreground">{formatSize(file.size)}</p>
                 </div>
               </div>
-              <Button variant="ghost" size="icon" className="text-zinc-500 hover:text-red-400 shrink-0" onClick={() => removeAttachment(file.fileId)}>
+              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-red-400 shrink-0" onClick={() => removeAttachment(file.fileId)}>
                 <X className="w-4 h-4" />
               </Button>
             </div>
           ))}
         </div>
 
-        <div className="border-2 border-dashed border-zinc-800 rounded-xl p-8 text-center flex flex-col items-center justify-center bg-zinc-950/30 transition-colors hover:bg-zinc-900/50 hover:border-zinc-700 relative">
+        <div className="border-2 border-dashed border-border rounded-xl p-8 text-center flex flex-col items-center justify-center bg-background/30 transition-colors hover:bg-card/50 hover:border-border relative">
           <input 
             type="file" 
             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
@@ -116,12 +116,12 @@ export function AttachmentsSection({ reportId }: AttachmentsSectionProps) {
           {isUploading ? (
             <Loader2 className="w-8 h-8 text-blue-500 animate-spin mb-3" />
           ) : (
-            <UploadCloud className="w-8 h-8 text-zinc-500 mb-3" />
+            <UploadCloud className="w-8 h-8 text-muted-foreground mb-3" />
           )}
-          <p className="text-sm font-medium text-zinc-300">
+          <p className="text-sm font-medium text-foreground">
             {isUploading ? 'Uploading...' : 'Click or drag file to upload'}
           </p>
-          <p className="text-xs text-zinc-500 mt-1">JPEG, PNG, PDF, CSV up to 10MB</p>
+          <p className="text-xs text-muted-foreground mt-1">JPEG, PNG, PDF, CSV up to 10MB</p>
         </div>
       </CardContent>
     </Card>

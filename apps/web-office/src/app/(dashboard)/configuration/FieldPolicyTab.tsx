@@ -111,7 +111,7 @@ export function FieldPolicyTab() {
       cell: info => (
         <div>
           <div className="font-medium">{info.row.original.label || info.getValue()}</div>
-          <div className="text-xs text-slate-500 font-mono">{info.getValue()}</div>
+          <div className="text-xs text-muted-foreground font-mono">{info.getValue()}</div>
         </div>
       ),
     }),
@@ -148,7 +148,7 @@ export function FieldPolicyTab() {
               } />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="inherit" className="italic text-slate-400">
+              <SelectItem value="inherit" className="italic text-muted-foreground">
                 Inherit ({POLICY_STATES.find(s => s.value === effectiveState(field, {}))?.label})
               </SelectItem>
               {POLICY_STATES.map(s => (
@@ -178,13 +178,13 @@ export function FieldPolicyTab() {
                     className={`text-xs rounded-md border px-2 py-1 ${
                       selectedEvents.length > 0
                         ? 'border-blue-500 bg-blue-500/10 text-blue-300'
-                        : 'border-slate-800 text-slate-400'
+                        : 'border-border text-muted-foreground'
                     } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     {label}
                   </PopoverTrigger>
                   <PopoverContent className="max-h-64 overflow-y-auto">
-                    <label className="flex items-center gap-2 text-xs text-slate-300 py-1">
+                    <label className="flex items-center gap-2 text-xs text-foreground py-1">
                       <input
                         type="checkbox"
                         checked={selectedEvents.length === 0}
@@ -197,7 +197,7 @@ export function FieldPolicyTab() {
                       All events
                     </label>
                     {eventTypes.map((ev) => (
-                      <label key={ev} className="flex items-center gap-2 text-xs text-slate-300 py-1">
+                      <label key={ev} className="flex items-center gap-2 text-xs text-foreground py-1">
                         <input
                           type="checkbox"
                           checked={selectedEvents.includes(ev)}
@@ -247,7 +247,7 @@ export function FieldPolicyTab() {
               <SelectValue placeholder={currentEffective} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="inherit" className="italic text-slate-400">
+              <SelectItem value="inherit" className="italic text-muted-foreground">
                 Inherit (none)
               </SelectItem>
               {PREFILL_CLASSES.map(s => (
@@ -278,14 +278,14 @@ export function FieldPolicyTab() {
 
   return (
     <div className="space-y-6">
-      <Card className="bg-slate-900 border-slate-800">
+      <Card className="bg-card border-border">
         <CardContent className="p-6">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div className="flex items-center gap-4">
               <div className="space-y-1">
-                <label className="text-xs text-slate-400 uppercase font-semibold tracking-wider">Schema</label>
+                <label className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">Schema</label>
                 <Select value={selectedSchema} onValueChange={(val) => setSelectedSchema(val || "")} disabled={schemasLoading}>
-                  <SelectTrigger className="w-48 bg-slate-950 border-slate-800">
+                  <SelectTrigger className="w-48 bg-background border-border">
                     <SelectValue placeholder="Select Schema" />
                   </SelectTrigger>
                   <SelectContent>
@@ -302,7 +302,7 @@ export function FieldPolicyTab() {
             <Button 
               onClick={handleSave} 
               disabled={!isDirty || savePolicy.isPending}
-              className={isDirty ? "bg-blue-600 hover:bg-blue-700 text-white" : "bg-slate-800 text-slate-400"}
+              className={isDirty ? "bg-blue-600 hover:bg-blue-700 text-white" : "bg-muted text-muted-foreground"}
             >
               {savePolicy.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
               {isDirty ? "Save Changes" : "Up to Date"}
@@ -324,42 +324,42 @@ export function FieldPolicyTab() {
       )}
 
       {overridesElsewhere.length > 0 && (
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-muted-foreground">
           Overrides also exist for {overridesElsewhere.length} other scope{overridesElsewhere.length === 1 ? "" : "s"} on this schema.
         </p>
       )}
 
-      <Card className="bg-slate-900 border-slate-800">
-        <CardHeader className="flex flex-row items-center justify-between py-4 border-b border-slate-800">
+      <Card className="bg-card border-border">
+        <CardHeader className="flex flex-row items-center justify-between py-4 border-b border-border">
           <CardTitle className="text-lg">Field Requirements Matrix</CardTitle>
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input 
               placeholder="Search fields..." 
               value={search}
               onChange={e => setSearch(e.target.value || "")}
-              className="pl-9 w-64 bg-slate-950 border-slate-800"
+              className="pl-9 w-64 bg-background border-border"
             />
           </div>
         </CardHeader>
         <CardContent className="p-0">
           {policyLoading ? (
-            <div className="p-12 text-center text-slate-500 flex flex-col items-center">
+            <div className="p-12 text-center text-muted-foreground flex flex-col items-center">
               <Loader2 className="w-8 h-8 animate-spin mb-4" />
               <p>Loading schema policy matrix...</p>
             </div>
           ) : fields.length === 0 ? (
-            <div className="p-12 text-center text-slate-500">
+            <div className="p-12 text-center text-muted-foreground">
               <p>No fields found in this schema version.</p>
             </div>
           ) : (
-            <div className="rounded-md border border-slate-800 overflow-hidden m-4">
+            <div className="rounded-md border border-border overflow-hidden m-4">
               <Table>
-                <TableHeader className="bg-slate-950/50">
+                <TableHeader className="bg-background/50">
                   {table.getHeaderGroups().map(headerGroup => (
-                    <TableRow key={headerGroup.id} className="border-slate-800 hover:bg-transparent">
+                    <TableRow key={headerGroup.id} className="border-border hover:bg-transparent">
                       {headerGroup.headers.map(header => (
-                        <TableHead key={header.id} className="font-semibold text-slate-300">
+                        <TableHead key={header.id} className="font-semibold text-foreground">
                           {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                         </TableHead>
                       ))}
@@ -369,7 +369,7 @@ export function FieldPolicyTab() {
                 <TableBody>
                   {table.getRowModel().rows?.length ? (
                     table.getRowModel().rows.map(row => (
-                      <TableRow key={row.id} data-state={row.getIsSelected() && "selected"} className="border-slate-800 hover:bg-slate-800/50">
+                      <TableRow key={row.id} data-state={row.getIsSelected() && "selected"} className="border-border hover:bg-muted/50">
                         {row.getVisibleCells().map(cell => (
                           <TableCell key={cell.id} className="py-3">
                             {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -379,7 +379,7 @@ export function FieldPolicyTab() {
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={columns.length} className="h-24 text-center text-slate-500">
+                      <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">
                         No fields match your search.
                       </TableCell>
                     </TableRow>

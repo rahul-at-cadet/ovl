@@ -30,8 +30,8 @@ export default function ConfigurationPage() {
     <div className="p-8">
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-3xl font-heading font-bold text-slate-100">Fleet Configuration</h1>
-          <p className="text-slate-400 mt-2">Manage dynamic schemas and push config bundles to edge nodes.</p>
+          <h1 className="text-3xl font-heading font-bold text-foreground">Fleet Configuration</h1>
+          <p className="text-muted-foreground mt-2">Manage dynamic schemas and push config bundles to edge nodes.</p>
         </div>
       </div>
 
@@ -127,16 +127,16 @@ function SchemasTab() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div className="lg:col-span-2 space-y-6">
-        <Card className="bg-slate-900 border-slate-800">
+        <Card className="bg-card border-border">
           <CardHeader>
-            <CardTitle className="text-slate-100">Published Schemas</CardTitle>
+            <CardTitle className="text-foreground">Published Schemas</CardTitle>
             <CardDescription>Immutable versions of data models available for config bundles.</CardDescription>
           </CardHeader>
           <CardContent>
             {isLoading ? (
-              <p className="text-slate-400">Loading schemas...</p>
+              <p className="text-muted-foreground">Loading schemas...</p>
             ) : schemas?.length === 0 ? (
-              <div className="text-center py-12 text-slate-500 border border-dashed border-slate-800 rounded-lg">
+              <div className="text-center py-12 text-muted-foreground border border-dashed border-border rounded-lg">
                 <FileJson className="w-8 h-8 mx-auto mb-3 opacity-50" />
                 <p>No schemas published yet</p>
               </div>
@@ -144,7 +144,7 @@ function SchemasTab() {
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
-                    <TableRow className="border-slate-800 hover:bg-transparent">
+                    <TableRow className="border-border hover:bg-transparent">
                       <TableHead>Schema Name</TableHead>
                       <TableHead>Version</TableHead>
                       <TableHead>Source</TableHead>
@@ -153,11 +153,11 @@ function SchemasTab() {
                   </TableHeader>
                   <TableBody>
                     {schemas?.map((s) => (
-                      <TableRow key={s.id} className="border-slate-800 hover:bg-slate-800/50">
-                        <TableCell className="font-medium text-slate-200">{s.schemaName}</TableCell>
+                      <TableRow key={s.id} className="border-border hover:bg-muted/50">
+                        <TableCell className="font-medium text-foreground">{s.schemaName}</TableCell>
                         <TableCell><span className="bg-blue-900/30 text-blue-400 px-2 py-0.5 rounded text-xs font-mono">{s.version}</span></TableCell>
-                        <TableCell className="text-slate-400 capitalize">{s.source}</TableCell>
-                        <TableCell className="text-slate-400">{new Date(s.publishedAt).toLocaleDateString()}</TableCell>
+                        <TableCell className="text-muted-foreground capitalize">{s.source}</TableCell>
+                        <TableCell className="text-muted-foreground">{new Date(s.publishedAt).toLocaleDateString()}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -169,9 +169,9 @@ function SchemasTab() {
       </div>
 
       <div>
-        <Card className="bg-slate-900 border-slate-800">
+        <Card className="bg-card border-border">
           <CardHeader>
-            <CardTitle className="text-slate-100">Upload New Version</CardTitle>
+            <CardTitle className="text-foreground">Upload New Version</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
@@ -180,7 +180,7 @@ function SchemasTab() {
                 placeholder="e.g. log-abstract" 
                 value={schemaName}
                 onChange={e => setSchemaName(e.target.value)}
-                className="bg-slate-950 border-slate-800 text-slate-200" 
+                className="bg-background border-border text-foreground" 
               />
             </div>
             <div className="space-y-2">
@@ -189,7 +189,7 @@ function SchemasTab() {
                 placeholder="e.g. 1.0.0" 
                 value={version}
                 onChange={e => setVersion(e.target.value)}
-                className="bg-slate-950 border-slate-800 text-slate-200" 
+                className="bg-background border-border text-foreground" 
               />
             </div>
             <div className="space-y-2">
@@ -199,7 +199,7 @@ function SchemasTab() {
                 rows={10} 
                 value={content}
                 onChange={e => setContent(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 text-slate-200 font-mono text-sm rounded-md p-3 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent" 
+                className="w-full bg-background border border-border text-foreground font-mono text-sm rounded-md p-3 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent" 
               />
             </div>
             
@@ -247,12 +247,12 @@ function BundlesTab() {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h2 className="text-xl font-heading font-medium text-slate-200">Config Bundles</h2>
+        <h2 className="text-xl font-heading font-medium text-foreground">Config Bundles</h2>
       </div>
 
-      <Card className="bg-slate-900 border-slate-800">
+      <Card className="bg-card border-border">
         <CardHeader>
-          <CardTitle className="text-slate-100 text-base">Compose New Bundle</CardTitle>
+          <CardTitle className="text-foreground text-base">Compose New Bundle</CardTitle>
           <CardDescription>
             Captures a snapshot of every published schema&apos;s latest version, field policy, regulatory
             profile, cadence, and rule-severity setting right now. Publishing does not change what&apos;s
@@ -274,7 +274,7 @@ function BundlesTab() {
               placeholder="Bundle Label"
               value={label}
               onChange={(e) => setLabel(e.target.value)}
-              className="w-64 bg-slate-950 border-slate-800 text-slate-200"
+              className="w-64 bg-background border-border text-foreground"
             />
             <Button onClick={() => setConfirmOpen(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white">
               <Plus className="w-4 h-4 mr-2" />
@@ -289,7 +289,7 @@ function BundlesTab() {
           <DialogHeader>
             <DialogTitle>Publish this configuration snapshot?</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-muted-foreground">
             This creates a new immutable configuration bundle from the current live settings. It will not be
             applied to any vessel until you assign it in the Assignments tab.
           </p>
@@ -304,22 +304,22 @@ function BundlesTab() {
         </DialogContent>
       </Dialog>
 
-      <Card className="bg-slate-900 border-slate-800">
+      <Card className="bg-card border-border">
         <CardHeader>
-          <CardTitle className="text-slate-100 text-base">Publish History</CardTitle>
+          <CardTitle className="text-foreground text-base">Publish History</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="p-6 text-slate-400">Loading bundles...</div>
+            <div className="p-6 text-muted-foreground">Loading bundles...</div>
           ) : bundles?.length === 0 ? (
-            <div className="text-center py-12 text-slate-500 border-dashed border-slate-800 rounded-lg">
+            <div className="text-center py-12 text-muted-foreground border-dashed border-border rounded-lg">
               <Layers className="w-8 h-8 mx-auto mb-3 opacity-50" />
               <p>No config bundles published yet</p>
             </div>
           ) : (
             <Table>
               <TableHeader>
-                <TableRow className="border-slate-800 hover:bg-transparent">
+                <TableRow className="border-border hover:bg-transparent">
                   <TableHead>Label</TableHead>
                   <TableHead>Contents</TableHead>
                   <TableHead>Published</TableHead>
@@ -328,10 +328,10 @@ function BundlesTab() {
               </TableHeader>
               <TableBody>
                 {bundles?.map((b) => (
-                  <TableRow key={b.id} className="border-slate-800 hover:bg-slate-800/50">
+                  <TableRow key={b.id} className="border-border hover:bg-muted/50">
                     <TableCell>
-                      <div className="font-medium text-slate-200">{b.label || "(unlabeled)"}</div>
-                      <div className="text-xs text-slate-500">by {b.publishedBy}</div>
+                      <div className="font-medium text-foreground">{b.label || "(unlabeled)"}</div>
+                      <div className="text-xs text-muted-foreground">by {b.publishedBy}</div>
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
@@ -340,7 +340,7 @@ function BundlesTab() {
                         <Badge variant="outline">{b.counts.regulatoryProfiles} profiles</Badge>
                       </div>
                     </TableCell>
-                    <TableCell className="text-slate-400">{new Date(b.publishedAt).toLocaleString()}</TableCell>
+                    <TableCell className="text-muted-foreground">{new Date(b.publishedAt).toLocaleString()}</TableCell>
                     <TableCell>
                       {assignedToByBundle.has(b.id) ? (
                         <div className="flex flex-col gap-1">
@@ -349,10 +349,10 @@ function BundlesTab() {
                               {s}
                             </span>
                           ))}
-                          <span className="text-xs text-slate-500">Pending next sync</span>
+                          <span className="text-xs text-muted-foreground">Pending next sync</span>
                         </div>
                       ) : (
-                        <span className="text-xs text-slate-500">Not assigned</span>
+                        <span className="text-xs text-muted-foreground">Not assigned</span>
                       )}
                     </TableCell>
                   </TableRow>
@@ -388,7 +388,7 @@ function AssignmentsTab() {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h2 className="text-xl font-heading font-medium text-slate-200">Bundle Assignments</h2>
+        <h2 className="text-xl font-heading font-medium text-foreground">Bundle Assignments</h2>
         <Button onClick={() => setDialogOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white">
           <LinkIcon className="w-4 h-4 mr-2" />
           Assign Bundle
@@ -403,11 +403,11 @@ function AssignmentsTab() {
           <div className="space-y-4">
             <ScopeSelector scope={assignScope} onChange={setAssignScope} vessels={vessels as any} />
             <div className="space-y-1">
-              <Label className="text-xs text-slate-400 uppercase font-semibold tracking-wider">Bundle</Label>
+              <Label className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">Bundle</Label>
               <select
                 value={bundleId}
                 onChange={(e) => setBundleId(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-md h-9 px-2 text-sm"
+                className="w-full bg-background border border-border text-foreground rounded-md h-9 px-2 text-sm"
               >
                 <option value="">Select a bundle…</option>
                 {bundles.map((b) => (
@@ -436,19 +436,19 @@ function AssignmentsTab() {
         </DialogContent>
       </Dialog>
 
-      <Card className="bg-slate-900 border-slate-800">
+      <Card className="bg-card border-border">
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="p-6 text-slate-400">Loading assignments...</div>
+            <div className="p-6 text-muted-foreground">Loading assignments...</div>
           ) : assignments?.length === 0 ? (
-            <div className="text-center py-12 text-slate-500 border-dashed border-slate-800 rounded-lg">
+            <div className="text-center py-12 text-muted-foreground border-dashed border-border rounded-lg">
               <LinkIcon className="w-8 h-8 mx-auto mb-3 opacity-50" />
               <p>No bundles assigned to any scopes</p>
             </div>
           ) : (
             <Table>
               <TableHeader>
-                <TableRow className="border-slate-800 hover:bg-transparent">
+                <TableRow className="border-border hover:bg-transparent">
                   <TableHead>Scope</TableHead>
                   <TableHead>Bundle</TableHead>
                   <TableHead>Assigned At</TableHead>
@@ -456,10 +456,10 @@ function AssignmentsTab() {
               </TableHeader>
               <TableBody>
                 {assignments?.map((a, i) => (
-                  <TableRow key={i} className="border-slate-800 hover:bg-slate-800/50">
-                    <TableCell className="text-slate-200">{scopeLabel(a.scope as Scope, vessels as any)}</TableCell>
-                    <TableCell className="text-slate-400">{a.bundleLabel || a.bundleId}</TableCell>
-                    <TableCell className="text-slate-400">{new Date(a.assignedAt).toLocaleString()}</TableCell>
+                  <TableRow key={i} className="border-border hover:bg-muted/50">
+                    <TableCell className="text-foreground">{scopeLabel(a.scope as Scope, vessels as any)}</TableCell>
+                    <TableCell className="text-muted-foreground">{a.bundleLabel || a.bundleId}</TableCell>
+                    <TableCell className="text-muted-foreground">{new Date(a.assignedAt).toLocaleString()}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

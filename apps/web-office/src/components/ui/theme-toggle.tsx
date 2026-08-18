@@ -29,18 +29,18 @@ export function ThemeToggle() {
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
-          <Button variant="ghost" size="icon" className="text-zinc-400 hover:text-zinc-100 h-8 w-8">
+          <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground h-8 w-8">
             {mounted ? <ActiveIcon className="w-4 h-4" /> : <Monitor className="w-4 h-4" />}
             <span className="sr-only">Toggle theme</span>
           </Button>
         }
       />
-      <DropdownMenuContent align="end" className="bg-slate-900 border-slate-800 text-slate-100">
+      <DropdownMenuContent align="end" className="bg-card border-border text-foreground">
         {OPTIONS.map((opt) => (
           <DropdownMenuItem
             key={opt.value}
             onClick={() => setTheme(opt.value)}
-            className="focus:bg-slate-800 focus:text-slate-100 cursor-pointer gap-2"
+            className="focus:bg-muted focus:text-foreground cursor-pointer gap-2"
           >
             <opt.icon className="w-4 h-4" />
             {opt.label}

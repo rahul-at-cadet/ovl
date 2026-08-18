@@ -8,14 +8,28 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, Filter, FileText, ChevronRight, Download } from 'lucide-react';
+import { Search, Filter, FileText, ChevronRight, CheckCircle2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+
+const STATUS_LABEL: Record<string, string> = {
+  draft: 'Draft',
+  submitted: 'Submitted',
+};
+
+const STATUS_CLASS: Record<string, string> = {
+  draft: 'bg-zinc-500/10 text-muted-foreground border-zinc-500/20',
+  submitted: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+};
 
 export default function GlobalReportsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
+  const utils = trpc.useUtils();
   const { data: reports = [], isLoading } = trpc.reports.list.useQuery();
+  const markReviewed = trpc.reports.markReviewed.useMutation({
+    onSuccess: () => utils.reports.list.invalidate(),
+  });
 
   const filteredReports = reports.filter((report: any) => {
     const matchesSearch = report.vessel.toLowerCase().includes(searchQuery.toLowerCase()) || report.imo.includes(searchQuery);
@@ -27,41 +41,36 @@ export default function GlobalReportsPage() {
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-100">Global Reports Ledger</h1>
-          <p className="text-slate-400 mt-1">Audit, review, and export all incoming vessel reports.</p>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">Global Reports Ledger</h1>
+          <p className="text-muted-foreground mt-1">Audit and review all incoming vessel reports.</p>
         </div>
-        <Button variant="outline" className="border-slate-700 bg-slate-900 text-slate-300 hover:text-white">
-          <Download className="w-4 h-4 mr-2" />
-          Export CSV
-        </Button>
       </div>
 
-      <Card className="bg-slate-900/50 border-slate-800 shadow-xl">
-        <CardHeader className="pb-3 border-b border-slate-800/50">
+      <Card className="bg-card/50 border-border shadow-xl">
+        <CardHeader className="pb-3 border-b border-border/50">
           <div className="flex flex-col lg:flex-row items-center justify-between gap-4">
             <CardTitle>Fleet Reports</CardTitle>
             <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
               <div className="relative w-full lg:w-64">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-500" />
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Search by IMO or Vessel..."
-                  className="pl-9 bg-slate-950/50 border-slate-800 h-9"
+                  className="pl-9 bg-background/50 border-border h-9"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </div>
               <Select value={statusFilter} onValueChange={(val) => setStatusFilter(val || 'all')}>
-                <SelectTrigger className="w-[140px] h-9 bg-slate-950/50 border-slate-800 text-slate-200">
+                <SelectTrigger className="w-[140px] h-9 bg-background/50 border-border text-foreground">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
-                <SelectContent className="bg-slate-900 border-slate-800 text-slate-200">
+                <SelectContent className="bg-card border-border text-foreground">
                   <SelectItem value="all">All Statuses</SelectItem>
-                  <SelectItem value="pending_review">Pending Review</SelectItem>
-                  <SelectItem value="approved">Approved</SelectItem>
-                  <SelectItem value="rejected">Rejected</SelectItem>
+                  <SelectItem value="draft">Draft</SelectItem>
+                  <SelectItem value="submitted">Submitted</SelectItem>
                 </SelectContent>
               </Select>
-              <Button variant="outline" size="icon" className="h-9 w-9 border-slate-800 bg-slate-950/50 text-slate-400 hover:text-slate-100">
+              <Button variant="outline" size="icon" className="h-9 w-9 border-border bg-background/50 text-muted-foreground hover:text-foreground">
                 <Filter className="w-4 h-4" />
               </Button>
             </div>
@@ -70,55 +79,68 @@ export default function GlobalReportsPage() {
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <Table>
-              <TableHeader className="bg-slate-950/30">
-              <TableRow className="border-slate-800 hover:bg-transparent">
-                <TableHead className="text-slate-400 font-medium">Report ID</TableHead>
-                <TableHead className="text-slate-400 font-medium">Vessel / IMO</TableHead>
-                <TableHead className="text-slate-400 font-medium">Type</TableHead>
-                <TableHead className="text-slate-400 font-medium">Status</TableHead>
-                <TableHead className="text-slate-400 font-medium">Date Received</TableHead>
-                <TableHead className="text-right text-slate-400 font-medium">Action</TableHead>
+              <TableHeader className="bg-background/30">
+              <TableRow className="border-border hover:bg-transparent">
+                <TableHead className="text-muted-foreground font-medium">Report ID</TableHead>
+                <TableHead className="text-muted-foreground font-medium">Vessel / IMO</TableHead>
+                <TableHead className="text-muted-foreground font-medium">Type</TableHead>
+                <TableHead className="text-muted-foreground font-medium">Status</TableHead>
+                <TableHead className="text-muted-foreground font-medium">Date Received</TableHead>
+                <TableHead className="text-muted-foreground font-medium">Reviewed</TableHead>
+                <TableHead className="text-right text-muted-foreground font-medium">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-12 text-slate-500">
+                  <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
                     Loading reports...
                   </TableCell>
                 </TableRow>
               ) : filteredReports.length > 0 ? (
                 filteredReports.map((report: any) => (
-                  <TableRow key={report.id} className="border-slate-800 hover:bg-slate-800/30 transition-colors group">
-                  <TableCell className="font-medium text-slate-300 font-mono text-sm">
+                  <TableRow key={report.id} className="border-border hover:bg-muted/30 transition-colors group">
+                  <TableCell className="font-medium text-foreground font-mono text-sm">
                     {report.id}
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-col">
-                      <span className="font-semibold text-slate-200">{report.vessel}</span>
-                      <span className="text-xs text-slate-500">IMO {report.imo}</span>
+                      <span className="font-semibold text-foreground">{report.vessel}</span>
+                      <span className="text-xs text-muted-foreground">IMO {report.imo}</span>
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center text-slate-300">
-                      <FileText className="w-4 h-4 text-slate-500 mr-2" />
+                    <div className="flex items-center text-foreground">
+                      <FileText className="w-4 h-4 text-muted-foreground mr-2" />
                       {report.type}
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline" className={`
-                      ${report.status === 'approved' ? 'bg-green-500/10 text-green-400 border-green-500/20' : 
-                        report.status === 'rejected' ? 'bg-red-500/10 text-red-400 border-red-500/20' : 
-                        'bg-orange-500/10 text-orange-400 border-orange-500/20'}
-                    `}>
-                      {report.status === 'pending_review' ? 'Pending Review' : 
-                       report.status.charAt(0).toUpperCase() + report.status.slice(1)}
+                    <Badge variant="outline" className={STATUS_CLASS[report.status] ?? 'bg-orange-500/10 text-orange-400 border-orange-500/20'}>
+                      {STATUS_LABEL[report.status] ?? (report.status.charAt(0).toUpperCase() + report.status.slice(1))}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-slate-400">{report.date}</TableCell>
+                  <TableCell className="text-muted-foreground">{report.date}</TableCell>
+                  <TableCell>
+                    {report.reviewed ? (
+                      <span className="flex items-center gap-1.5 text-xs text-emerald-400">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Reviewed
+                      </span>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={markReviewed.isPending}
+                        onClick={() => markReviewed.mutate({ reportId: report.id })}
+                        className="text-muted-foreground hover:text-foreground text-xs h-7"
+                      >
+                        Mark Reviewed
+                      </Button>
+                    )}
+                  </TableCell>
                   <TableCell className="text-right">
                     <Link href={`/reports/${report.id}`}>
-                      <Button variant="ghost" size="sm" className="text-slate-400 hover:text-indigo-400 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                      <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-indigo-400 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                         Audit <ChevronRight className="w-4 h-4 ml-1" />
                       </Button>
                     </Link>
@@ -127,7 +149,7 @@ export default function GlobalReportsPage() {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-12 text-slate-500">
+                  <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
                     No reports found matching your criteria.
                   </TableCell>
                 </TableRow>

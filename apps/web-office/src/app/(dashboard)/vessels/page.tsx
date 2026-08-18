@@ -96,37 +96,37 @@ export default function VesselsPage() {
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-zinc-800/60 pb-6">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border/60 pb-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-100">Fleet Management</h1>
-          <p className="text-zinc-400 mt-1.5 text-sm font-medium">Monitor vessel telemetry, edge node status, and sync operations.</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Fleet Management</h1>
+          <p className="text-muted-foreground mt-1.5 text-sm font-medium">Monitor vessel telemetry, edge node status, and sync operations.</p>
         </div>
         <div className="flex gap-3 w-full md:w-auto">
           <div className="relative w-full md:w-72 shadow-sm">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-zinc-500" />
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input 
               placeholder="Search by vessel name or IMO..." 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 bg-zinc-950/80 border-zinc-800/80 focus-visible:ring-zinc-700 text-zinc-100 rounded-md h-9 text-sm w-full transition-all"
+              className="pl-9 bg-background/80 border-border/80 focus-visible:ring-ring text-foreground rounded-md h-9 text-sm w-full transition-all"
             />
           </div>
-          <Button onClick={openNewDialog} className="bg-zinc-100 hover:bg-white text-zinc-950 rounded-md h-9 text-sm font-semibold shadow-sm shrink-0 transition-all">
+          <Button onClick={openNewDialog} className="bg-primary hover:bg-white text-primary-foreground rounded-md h-9 text-sm font-semibold shadow-sm shrink-0 transition-all">
             <Plus className="w-4 h-4 mr-2" />
             Provision Node
           </Button>
         </div>
       </div>
 
-      <Card className="bg-zinc-900/40 border-zinc-800/60 shadow-xl overflow-hidden rounded-xl backdrop-blur-md">
-        <CardHeader className="border-b border-zinc-800/60 pb-4 bg-zinc-900/20">
-          <CardTitle className="text-sm font-semibold tracking-tight text-zinc-200">Registered Vessels</CardTitle>
-          <CardDescription className="text-xs text-zinc-500">Live overview of edge infrastructure across the fleet.</CardDescription>
+      <Card className="bg-card/40 border-border/60 shadow-xl overflow-hidden rounded-xl backdrop-blur-md">
+        <CardHeader className="border-b border-border/60 pb-4 bg-card/20">
+          <CardTitle className="text-sm font-semibold tracking-tight text-foreground">Registered Vessels</CardTitle>
+          <CardDescription className="text-xs text-muted-foreground">Live overview of edge infrastructure across the fleet.</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left text-zinc-400">
-              <thead className="text-xs text-zinc-500 uppercase tracking-wider bg-zinc-950/40 border-b border-zinc-800/60">
+            <table className="w-full text-sm text-left text-muted-foreground">
+              <thead className="text-xs text-muted-foreground uppercase tracking-wider bg-background/40 border-b border-border/60">
                 <tr>
                   <th scope="col" className="px-4 py-2 font-semibold flex items-center gap-2">Vessel Details <ArrowUpDown className="w-3 h-3" /></th>
                   <th scope="col" className="px-4 py-2 font-semibold">IMO Number</th>
@@ -139,28 +139,28 @@ export default function VesselsPage() {
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center text-zinc-500 bg-zinc-950/20">
+                    <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground bg-background/20">
                       Loading vessels...
                     </td>
                   </tr>
                 ) : filteredVessels.length > 0 ? (
                   filteredVessels.map((vessel: any) => (
-                    <tr key={vessel.id} className="border-b border-zinc-800/40 hover:bg-zinc-800/20 transition-all group">
+                    <tr key={vessel.id} className="border-b border-border/40 hover:bg-muted/20 transition-all group">
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-3">
-                          <div className="p-2 rounded-md bg-zinc-800 border border-zinc-700 shadow-sm shrink-0">
-                            <Ship className="w-4 h-4 text-zinc-300" />
+                          <div className="p-2 rounded-md bg-muted border border-border shadow-sm shrink-0">
+                            <Ship className="w-4 h-4 text-foreground" />
                           </div>
                           <div>
-                            <div className="font-semibold text-zinc-200 group-hover:text-white transition-colors">{vessel.name}</div>
-                            <div className="text-xs text-zinc-500">{vessel.status}</div>
+                            <div className="font-semibold text-foreground group-hover:text-white transition-colors">{vessel.name}</div>
+                            <div className="text-xs text-muted-foreground">{vessel.status}</div>
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-2.5 font-mono text-xs tracking-wider text-zinc-300">
+                      <td className="px-4 py-2.5 font-mono text-xs tracking-wider text-foreground">
                         {vessel.imo}
                       </td>
-                      <td className="px-4 py-2.5 text-zinc-300 font-medium">
+                      <td className="px-4 py-2.5 text-foreground font-medium">
                         {vessel.type}
                       </td>
                       <td className="px-4 py-2.5">
@@ -176,20 +176,20 @@ export default function VesselsPage() {
                           </span>
                         </div>
                       </td>
-                      <td className="px-4 py-2.5 text-zinc-400 text-xs font-medium">
+                      <td className="px-4 py-2.5 text-muted-foreground text-xs font-medium">
                         {vessel.lastSync}
                       </td>
                       <td className="px-4 py-2.5 text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger
                             render={
-                              <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 rounded-md transition-colors" />
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors" />
                             }
                           >
                             <Edit className="w-4 h-4" />
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-48 bg-zinc-950 border-zinc-800">
-                            <DropdownMenuItem onClick={() => openEditDialog(vessel)} className="hover:bg-zinc-800 cursor-pointer text-zinc-300 focus:bg-zinc-800 focus:text-white">
+                          <DropdownMenuContent align="end" className="w-48 bg-background border-border">
+                            <DropdownMenuItem onClick={() => openEditDialog(vessel)} className="hover:bg-muted cursor-pointer text-foreground focus:bg-muted focus:text-white">
                               <Edit className="mr-2 h-4 w-4" />
                               <span>Edit Vessel</span>
                             </DropdownMenuItem>
@@ -204,7 +204,7 @@ export default function VesselsPage() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center text-zinc-500 bg-zinc-950/20">
+                    <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground bg-background/20">
                       No vessels found matching &quot;{searchQuery}&quot;.
                     </td>
                   </tr>
@@ -216,48 +216,48 @@ export default function VesselsPage() {
       </Card>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-[425px] bg-zinc-950 border-zinc-800 text-zinc-100">
+        <DialogContent className="sm:max-w-[425px] bg-background border-border text-foreground">
           <DialogHeader>
-            <DialogTitle className="text-zinc-100">{editingVessel ? 'Edit Vessel' : 'Provision New Vessel'}</DialogTitle>
+            <DialogTitle className="text-foreground">{editingVessel ? 'Edit Vessel' : 'Provision New Vessel'}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="name" className="text-right text-zinc-400">
+              <Label htmlFor="name" className="text-right text-muted-foreground">
                 Name
               </Label>
               <Input
                 id="name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="col-span-3 bg-zinc-900 border-zinc-800 text-zinc-100"
+                className="col-span-3 bg-card border-border text-foreground"
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="imo" className="text-right text-zinc-400">
+              <Label htmlFor="imo" className="text-right text-muted-foreground">
                 IMO
               </Label>
               <Input
                 id="imo"
                 value={imo}
                 onChange={(e) => setImo(e.target.value)}
-                className="col-span-3 bg-zinc-900 border-zinc-800 text-zinc-100"
+                className="col-span-3 bg-card border-border text-foreground"
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="type" className="text-right text-zinc-400">
+              <Label htmlFor="type" className="text-right text-muted-foreground">
                 Type
               </Label>
               <Input
                 id="type"
                 value={type}
                 onChange={(e) => setType(e.target.value)}
-                className="col-span-3 bg-zinc-900 border-zinc-800 text-zinc-100"
+                className="col-span-3 bg-card border-border text-foreground"
                 placeholder="e.g. Tanker"
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={closeDialog} className="bg-transparent border-zinc-800 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100">
+            <Button variant="outline" onClick={closeDialog} className="bg-transparent border-border text-foreground hover:bg-muted hover:text-foreground">
               Cancel
             </Button>
             <Button onClick={handleSave} disabled={createMutation.isPending || updateMutation.isPending} className="bg-indigo-600 hover:bg-indigo-700 text-white">
