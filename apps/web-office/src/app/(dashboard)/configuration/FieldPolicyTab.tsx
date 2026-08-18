@@ -1,14 +1,15 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
-import { 
-  useReactTable, 
-  getCoreRowModel, 
+import {
+  useReactTable,
+  getCoreRowModel,
   getFilteredRowModel,
-  flexRender, 
+  flexRender,
   createColumnHelper
 } from "@tanstack/react-table";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -104,10 +105,11 @@ export function FieldPolicyTab() {
   const fields = policyData?.fields || [];
   const eventTypes = policyData?.eventTypes || [];
 
-  const columnHelper = createColumnHelper<SchemaField>();
-  const columns = [
+  const columnHelper = useMemo(() => createColumnHelper<SchemaField>(), []);
+  const columns = useMemo(() => [
     columnHelper.accessor('name', {
       header: 'Field Name',
+      size: 320,
       cell: info => (
         <div>
           <div className="font-medium">{info.row.original.label || info.getValue()}</div>
@@ -117,11 +119,13 @@ export function FieldPolicyTab() {
     }),
     columnHelper.accessor('section', {
       header: 'Section',
+      size: 140,
       cell: info => <Badge variant="secondary">{info.getValue()}</Badge>
     }),
     columnHelper.accessor(row => effectiveState(row, policyOverrides, eventsOverrides), {
       id: 'state',
       header: 'Policy State',
+      size: 160,
       cell: info => {
         const field = info.row.original;
         const currentEffective = info.getValue();
@@ -166,6 +170,7 @@ export function FieldPolicyTab() {
           columnHelper.display({
             id: 'events',
             header: 'Applies To',
+            size: 160,
             cell: (info: any) => {
               const field = info.row.original as SchemaField;
               const selectedEvents = eventsOverrides[field.name] ?? [];
@@ -224,6 +229,7 @@ export function FieldPolicyTab() {
     columnHelper.accessor(row => effectivePrefill(row, prefillOverrides), {
       id: 'prefill',
       header: 'Prefill Behavior',
+      size: 180,
       cell: info => {
         const field = info.row.original;
         const currentEffective = info.getValue();
@@ -258,7 +264,7 @@ export function FieldPolicyTab() {
         )
       }
     })
-  ];
+  ], [columnHelper, policyOverrides, prefillOverrides, eventsOverrides, eventTypes]);
 
   const table = useReactTable({
     data: fields,
@@ -275,6 +281,22 @@ export function FieldPolicyTab() {
       return !!(f.name.toLowerCase().includes(q) || (f.label && f.label.toLowerCase().includes(q)));
     }
   });
+
+  // Schemas here run to 400+ fields; rendering every row's Select/Popover
+  // controls at once made the tab unresponsive. Only the rows actually in
+  // (or near) the viewport get mounted.
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+  const { rows } = table.getRowModel();
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => tableContainerRef.current,
+    estimateSize: () => 57,
+    overscan: 12,
+  });
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const totalHeight = rowVirtualizer.getTotalSize();
+  const paddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
+  const paddingBottom = virtualRows.length > 0 ? totalHeight - virtualRows[virtualRows.length - 1].end : 0;
 
   return (
     <div className="space-y-6">
@@ -353,13 +375,13 @@ export function FieldPolicyTab() {
               <p>No fields found in this schema version.</p>
             </div>
           ) : (
-            <div className="rounded-md border border-border overflow-hidden m-4">
+            <div ref={tableContainerRef} className="rounded-md border border-border overflow-auto m-4 max-h-[70vh]">
               <Table>
-                <TableHeader className="bg-background/50">
+                <TableHeader className="bg-background/50 sticky top-0 z-10">
                   {table.getHeaderGroups().map(headerGroup => (
                     <TableRow key={headerGroup.id} className="border-border hover:bg-transparent">
                       {headerGroup.headers.map(header => (
-                        <TableHead key={header.id} className="font-semibold text-foreground">
+                        <TableHead key={header.id} style={{ width: header.getSize() }} className="font-semibold text-foreground">
                           {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                         </TableHead>
                       ))}
@@ -367,16 +389,35 @@ export function FieldPolicyTab() {
                   ))}
                 </TableHeader>
                 <TableBody>
-                  {table.getRowModel().rows?.length ? (
-                    table.getRowModel().rows.map(row => (
-                      <TableRow key={row.id} data-state={row.getIsSelected() && "selected"} className="border-border hover:bg-muted/50">
-                        {row.getVisibleCells().map(cell => (
-                          <TableCell key={cell.id} className="py-3">
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                    ))
+                  {rows.length ? (
+                    <>
+                      {paddingTop > 0 && (
+                        <tr>
+                          <td colSpan={columns.length} style={{ height: paddingTop }} />
+                        </tr>
+                      )}
+                      {virtualRows.map(virtualRow => {
+                        const row = rows[virtualRow.index];
+                        return (
+                          <TableRow
+                            key={row.id}
+                            data-state={row.getIsSelected() && "selected"}
+                            className="border-border hover:bg-muted/50"
+                          >
+                            {row.getVisibleCells().map(cell => (
+                              <TableCell key={cell.id} style={{ width: cell.column.getSize() }} className="py-3">
+                                {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                              </TableCell>
+                            ))}
+                          </TableRow>
+                        );
+                      })}
+                      {paddingBottom > 0 && (
+                        <tr>
+                          <td colSpan={columns.length} style={{ height: paddingBottom }} />
+                        </tr>
+                      )}
+                    </>
                   ) : (
                     <TableRow>
                       <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">

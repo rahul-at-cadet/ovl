@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -96,16 +96,74 @@ function SchemasTab() {
   const publishSchema = trpc.schemas.publish.useMutation({
     onSuccess: () => refetch(),
   });
+  const previewSchema = trpc.schemas.preview.useMutation();
 
   const [schemaName, setSchemaName] = useState("");
   const [version, setVersion] = useState("");
   const [content, setContent] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{
+    forSchemaName: string;
+    forContent: string;
+    valid: boolean;
+    error?: string;
+    diff?: {
+      added: { name: string }[];
+      removed: { name: string }[];
+      typeChanged: string[];
+      mandatorinessChanged: string[];
+      enumChanged: string[];
+    } | null;
+  } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const knownSchemaNames = useMemo(
+    () => [...new Set((schemas ?? []).map((s) => s.schemaName))],
+    [schemas],
+  );
+
+  const invalidatePreview = () => setPreview(null);
+
+  const handleFilePick = () => fileInputRef.current?.click();
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const text = await file.text();
+    setContent(text);
+    invalidatePreview();
+    setError(null);
+    try {
+      const parsed = JSON.parse(text);
+      if (typeof parsed.schemaName === "string" && !schemaName) setSchemaName(parsed.schemaName);
+      if (typeof parsed.version === "string" && !version) setVersion(parsed.version);
+    } catch {
+      // Leave name/version alone; the preview step will surface the parse error.
+    }
+  };
+
+  const handleValidate = async () => {
+    setError(null);
+    if (!schemaName || !content) {
+      setError("Schema name and JSON content are required to validate.");
+      return;
+    }
+    const result = await previewSchema.mutateAsync({ schemaName, content });
+    setPreview({ forSchemaName: schemaName, forContent: content, ...result });
+  };
+
+  const previewIsCurrent =
+    preview && preview.forSchemaName === schemaName && preview.forContent === content;
 
   const handleUpload = async () => {
     setError(null);
     if (!schemaName || !version || !content) {
       setError("Please fill in all fields");
+      return;
+    }
+    if (!previewIsCurrent || !preview?.valid) {
+      setError("Validate the schema before publishing.");
       return;
     }
 
@@ -119,6 +177,7 @@ function SchemasTab() {
       setSchemaName("");
       setVersion("");
       setContent("");
+      setPreview(null);
     } catch (err: any) {
       setError(err.message || "Failed to publish schema");
     }
@@ -172,43 +231,121 @@ function SchemasTab() {
         <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle className="text-foreground">Upload New Version</CardTitle>
+            <CardDescription>Validate before publishing — published versions are immutable.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label>Schema Name</Label>
-              <Input 
-                placeholder="e.g. log-abstract" 
+              <Input
+                placeholder="e.g. log-abstract"
                 value={schemaName}
-                onChange={e => setSchemaName(e.target.value)}
-                className="bg-background border-border text-foreground" 
+                list="known-schema-names"
+                onChange={e => { setSchemaName(e.target.value); invalidatePreview(); }}
+                className="bg-background border-border text-foreground"
               />
+              <datalist id="known-schema-names">
+                {knownSchemaNames.map((n) => (
+                  <option key={n} value={n} />
+                ))}
+              </datalist>
             </div>
             <div className="space-y-2">
               <Label>Version Tag</Label>
-              <Input 
-                placeholder="e.g. 1.0.0" 
+              <Input
+                placeholder="e.g. 3.13-company-r2"
                 value={version}
                 onChange={e => setVersion(e.target.value)}
-                className="bg-background border-border text-foreground" 
+                className="bg-background border-border text-foreground"
               />
             </div>
             <div className="space-y-2">
-              <Label>JSON Content</Label>
-              <textarea 
-                placeholder="{ ... }" 
-                rows={10} 
+              <div className="flex items-center justify-between">
+                <Label>JSON Content</Label>
+                <button
+                  type="button"
+                  onClick={handleFilePick}
+                  className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                >
+                  <FileJson className="w-3 h-3" />
+                  Upload .json file
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="application/json,.json"
+                  className="hidden"
+                  onChange={handleFileChange}
+                />
+              </div>
+              <textarea
+                placeholder="Paste JSON or upload a .json file above"
+                rows={10}
                 value={content}
-                onChange={e => setContent(e.target.value)}
-                className="w-full bg-background border border-border text-foreground font-mono text-sm rounded-md p-3 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent" 
+                onChange={e => { setContent(e.target.value); invalidatePreview(); }}
+                className="w-full bg-background border border-border text-foreground font-mono text-xs rounded-md p-3 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
               />
             </div>
-            
+
             {error && <p className="text-red-400 text-sm">{error}</p>}
-            
-            <Button onClick={handleUpload} disabled={publishSchema.isPending} className="w-full bg-blue-600 hover:bg-blue-700 text-white">
-              <Upload className="w-4 h-4 mr-2" />
-              {publishSchema.isPending ? "Publishing..." : "Publish Immutable Version"}
-            </Button>
+
+            {previewIsCurrent && (
+              preview!.valid ? (
+                <div className="rounded-md border border-emerald-900/50 bg-emerald-950/30 p-3 space-y-2">
+                  <p className="text-sm text-emerald-400 font-medium">Valid schema</p>
+                  {preview!.diff ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {preview!.diff.added.length > 0 && (
+                        <Badge variant="outline" className="border-emerald-700 text-emerald-400">+{preview!.diff.added.length} added</Badge>
+                      )}
+                      {preview!.diff.removed.length > 0 && (
+                        <Badge variant="outline" className="border-red-700 text-red-400">-{preview!.diff.removed.length} removed</Badge>
+                      )}
+                      {preview!.diff.typeChanged.length > 0 && (
+                        <Badge variant="outline" className="border-amber-700 text-amber-400">{preview!.diff.typeChanged.length} type changed</Badge>
+                      )}
+                      {preview!.diff.mandatorinessChanged.length > 0 && (
+                        <Badge variant="outline" className="border-amber-700 text-amber-400">{preview!.diff.mandatorinessChanged.length} mandatoriness changed</Badge>
+                      )}
+                      {preview!.diff.enumChanged.length > 0 && (
+                        <Badge variant="outline" className="border-amber-700 text-amber-400">{preview!.diff.enumChanged.length} enum changed</Badge>
+                      )}
+                      {preview!.diff.added.length === 0 &&
+                        preview!.diff.removed.length === 0 &&
+                        preview!.diff.typeChanged.length === 0 &&
+                        preview!.diff.mandatorinessChanged.length === 0 &&
+                        preview!.diff.enumChanged.length === 0 && (
+                          <span className="text-xs text-muted-foreground">No field changes from the current version.</span>
+                        )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">First published version of this schema.</p>
+                  )}
+                </div>
+              ) : (
+                <div className="rounded-md border border-red-900/50 bg-red-950/30 p-3">
+                  <p className="text-sm text-red-400">{preview!.error}</p>
+                </div>
+              )
+            )}
+
+            <div className="flex gap-2">
+              <Button
+                onClick={handleValidate}
+                disabled={previewSchema.isPending || !schemaName || !content}
+                variant="outline"
+                className="flex-1 border-border"
+              >
+                {previewSchema.isPending ? "Validating..." : "Validate"}
+              </Button>
+              <Button
+                onClick={handleUpload}
+                disabled={publishSchema.isPending || !previewIsCurrent || !preview?.valid}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                <Upload className="w-4 h-4 mr-2" />
+                {publishSchema.isPending ? "Publishing..." : "Publish"}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>
