@@ -215,7 +215,7 @@ export default function SetupPage() {
                     <code className="flex-1 text-xl font-mono tracking-wider bg-card p-4 rounded border border-border select-all text-foreground">
                       {createdPassword}
                     </code>
-                    <Button variant="outline" onClick={handleCopyPassword} className="h-[52px] w-[52px] p-0 border-border bg-background text-foreground hover:text-white shrink-0">
+                    <Button variant="outline" onClick={handleCopyPassword} className="h-[52px] w-[52px] p-0 border-border bg-background text-foreground hover:text-foreground shrink-0">
                       {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
                     </Button>
                   </div>
@@ -241,7 +241,7 @@ export default function SetupPage() {
             <CheckCircle className="w-16 h-16 text-green-400" />
             <h2 className="text-xl font-bold text-foreground">Setup Complete!</h2>
             <p className="text-sm text-muted-foreground">The edge node is successfully enrolled and your master admin has been created.</p>
-            <Button onClick={() => router.push('/')} className="mt-4 bg-primary text-primary-foreground hover:bg-white font-semibold">
+            <Button onClick={() => router.push('/')} className="mt-4 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold">
               Go to Dashboard
             </Button>
           </CardContent>

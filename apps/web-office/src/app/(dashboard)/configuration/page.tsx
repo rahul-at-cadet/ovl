@@ -290,8 +290,8 @@ function SchemasTab() {
 
             {previewIsCurrent && (
               preview!.valid ? (
-                <div className="rounded-md border border-emerald-900/50 bg-emerald-950/30 p-3 space-y-2">
-                  <p className="text-sm text-emerald-400 font-medium">Valid schema</p>
+                <div className="rounded-md border border-emerald-300 bg-emerald-50 dark:border-emerald-900/50 dark:bg-emerald-950/30 p-3 space-y-2">
+                  <p className="text-sm text-emerald-700 dark:text-emerald-400 font-medium">Valid schema</p>
                   {preview!.diff ? (
                     <div className="flex flex-wrap gap-1.5">
                       {preview!.diff.added.length > 0 && (
@@ -322,8 +322,8 @@ function SchemasTab() {
                   )}
                 </div>
               ) : (
-                <div className="rounded-md border border-red-900/50 bg-red-950/30 p-3">
-                  <p className="text-sm text-red-400">{preview!.error}</p>
+                <div className="rounded-md border border-red-300 bg-red-50 dark:border-red-900/50 dark:bg-red-950/30 p-3">
+                  <p className="text-sm text-red-700 dark:text-red-400">{preview!.error}</p>
                 </div>
               )
             )}

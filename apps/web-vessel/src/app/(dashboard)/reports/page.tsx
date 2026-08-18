@@ -180,7 +180,7 @@ export default function ReportsPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <Link href={`/reports/${report.reportId}`}>
-                          <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-blue-400">
                             View <ChevronRight className="w-4 h-4 ml-1" />
                           </Button>
                         </Link>

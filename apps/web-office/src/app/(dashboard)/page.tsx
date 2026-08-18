@@ -26,11 +26,11 @@ export default function OfficeDashboardPage() {
           <p className="text-muted-foreground mt-1 text-sm">Real-time telemetry and aggregated reporting from all vessels.</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" className="border-border bg-card text-foreground hover:text-white rounded-sm h-8 text-xs">
+          <Button variant="outline" className="border-border bg-card text-foreground hover:text-foreground rounded-sm h-8 text-xs">
             Export Report
           </Button>
           <Link href="/reports">
-            <Button className="bg-primary hover:bg-white text-primary-foreground rounded-sm h-8 text-xs font-medium shadow-sm">
+            <Button className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-sm h-8 text-xs font-medium shadow-sm">
               View All Reports
             </Button>
           </Link>

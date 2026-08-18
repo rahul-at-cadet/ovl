@@ -92,7 +92,7 @@ export default function OfficeLoginPage() {
               {error && <div className="text-red-500 text-xs text-center">{error}</div>}
               <Button 
                 type="submit" 
-                className="w-full bg-primary hover:bg-white text-primary-foreground transition-all rounded-sm h-9 text-sm font-medium mt-4"
+                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground transition-all rounded-sm h-9 text-sm font-medium mt-4"
                 disabled={isLoading}
               >
                 {isLoading ? (

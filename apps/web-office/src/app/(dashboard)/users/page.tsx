@@ -130,7 +130,7 @@ export default function UsersPage() {
                             <AvatarFallback className="text-foreground bg-transparent text-xs font-semibold">{user.username.substring(0,2).toUpperCase()}</AvatarFallback>
                           </Avatar>
                           <div>
-                            <div className="font-semibold text-foreground group-hover:text-white transition-colors">{user.username}</div>
+                            <div className="font-semibold text-foreground group-hover:text-foreground transition-colors">{user.username}</div>
                           </div>
                         </div>
                       </td>

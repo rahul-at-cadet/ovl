@@ -150,7 +150,7 @@ export function AppShell({ children }: AppShellProps) {
                 render={
                   <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-foreground h-9 w-9 rounded-xl hover:bg-muted/50 transition-colors">
                     <Bell className="w-4 h-4" />
-                    <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-indigo-500 ring-2 ring-zinc-950 shadow-[0_0_8px_rgba(99,102,241,0.8)]" />
+                    <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-indigo-500 ring-2 ring-background shadow-[0_0_8px_rgba(99,102,241,0.8)]" />
                   </Button>
                 }
               />

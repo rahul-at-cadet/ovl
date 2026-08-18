@@ -140,7 +140,7 @@ export default function GlobalReportsPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     <Link href={`/reports/${report.id}`}>
-                      <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-indigo-400 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                      <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-indigo-400">
                         Audit <ChevronRight className="w-4 h-4 ml-1" />
                       </Button>
                     </Link>

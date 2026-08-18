@@ -18,6 +18,17 @@ import { SupertokensService } from '../auth/supertokens.service';
 import Session from 'supertokens-node/recipe/session';
 import { TRPCError } from '@trpc/server';
 
+function formatRelativeTime(thenMs: number): string {
+  const diffSec = Math.max(0, Math.floor((Date.now() - thenMs) / 1000));
+  if (diffSec < 60) return 'Just now';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.floor(diffHr / 24);
+  return `${diffDay}d ago`;
+}
+
 export const createContext = ({
   req,
   res,
@@ -93,6 +104,11 @@ const GetReportSchema = Type.Object({
   reportId: Type.String(),
 });
 const GetReportCompiler = TypeCompiler.Compile(GetReportSchema);
+
+const MarkReviewedSchema = Type.Object({
+  reportId: Type.String(),
+});
+const MarkReviewedCompiler = TypeCompiler.Compile(MarkReviewedSchema);
 
 const CreateApiKeySchema = Type.Object({
   label: Type.String(),
@@ -307,7 +323,14 @@ export class TrpcRouter {
         })
         .mutation(async ({ input }) => {
           console.log(`Office received ${input.events.length} events from vessel ${input.vesselId}`);
-          
+
+          await this.db.insert(schema.vesselSyncStatus)
+            .values({ vesselId: input.vesselId, lastSeenAt: new Date().toISOString() })
+            .onConflictDoUpdate({
+              target: schema.vesselSyncStatus.vesselId,
+              set: { lastSeenAt: new Date().toISOString() },
+            });
+
           for (const event of input.events) {
             if (event.eventType === 'report_submitted') {
               try {
@@ -356,26 +379,55 @@ export class TrpcRouter {
         })
         .query(async ({ input }) => {
           const bundle = await this.configBundleService.resolveForVessel(input.vesselId);
+          const syncedAt = new Date().toISOString();
+
+          await this.db.insert(schema.vesselSyncStatus)
+            .values({
+              vesselId: input.vesselId,
+              lastSeenAt: syncedAt,
+              appliedBundleId: bundle?.bundleId ?? '',
+              appliedBundleVersion: bundle?.versionNo ?? 0,
+            })
+            .onConflictDoUpdate({
+              target: schema.vesselSyncStatus.vesselId,
+              set: {
+                lastSeenAt: syncedAt,
+                appliedBundleId: bundle?.bundleId ?? '',
+                appliedBundleVersion: bundle?.versionNo ?? 0,
+              },
+            });
+
           return {
             bundle,
-            syncedAt: new Date().toISOString(),
+            syncedAt,
           };
         }),
     }),
     vessels: router({
       list: protectedProcedure.query(async () => {
-        const vessels = await this.db.select().from(schema.vessels);
-        // Map data to match the UI expectations (with mock edgeStatus/lastSync for now since those are dynamic sync states)
-        return vessels.map(v => ({
-          id: v.id,
-          name: v.name,
-          imo: v.imo,
-          type: v.type,
-          status: 'At Sea', // Mocked operational status for now
-          edgeStatus: 'Online', // Mocked edge node status
-          lastSync: 'Just now',
-          groups: v.groups,
-        }));
+        const rows = await this.db.select({
+          vessel: schema.vessels,
+          lastSeenAt: schema.vesselSyncStatus.lastSeenAt,
+        })
+          .from(schema.vessels)
+          .leftJoin(schema.vesselSyncStatus, eq(schema.vesselSyncStatus.vesselId, schema.vessels.id));
+
+        const ONLINE_THRESHOLD_MS = 5 * 60 * 1000;
+        const now = Date.now();
+
+        return rows.map(({ vessel: v, lastSeenAt }) => {
+          const lastSeenMs = lastSeenAt ? new Date(lastSeenAt).getTime() : null;
+          return {
+            id: v.id,
+            name: v.name,
+            imo: v.imo,
+            type: v.type,
+            status: 'At Sea',
+            edgeStatus: lastSeenMs === null ? 'Offline' : (now - lastSeenMs <= ONLINE_THRESHOLD_MS ? 'Online' : 'Offline'),
+            lastSync: lastSeenAt ? formatRelativeTime(lastSeenMs!) : 'Never',
+            groups: v.groups,
+          };
+        });
       }),
       create: protectedProcedure
         .input((val: unknown) => {
@@ -488,9 +540,17 @@ export class TrpcRouter {
             date: schema.reportVersions.receivedAt,
             vesselName: schema.vessels.name,
             vesselImo: schema.vessels.imo,
+            reviewedBy: schema.reportReviews.reviewedBy,
           })
           .from(schema.reportVersions)
           .leftJoin(schema.vessels, eq(schema.reportVersions.vesselId, schema.vessels.id))
+          .leftJoin(
+            schema.reportReviews,
+            and(
+              eq(schema.reportReviews.vesselId, schema.reportVersions.vesselId),
+              eq(schema.reportReviews.reportId, schema.reportVersions.reportId),
+            ),
+          )
           .limit(100);
 
         return reports.map(r => ({
@@ -501,6 +561,7 @@ export class TrpcRouter {
           status: r.status,
           date: new Date(r.date).toISOString().split('T')[0],
           by: 'System',
+          reviewed: !!r.reviewedBy,
         }));
       }),
       get: protectedProcedure
@@ -545,8 +606,20 @@ export class TrpcRouter {
             .orderBy(desc(schema.reportAuditEvents.occurredAt))
             .limit(1);
 
+          const review = await this.db
+            .select({ reviewedBy: schema.reportReviews.reviewedBy, reviewedAt: schema.reportReviews.reviewedAt })
+            .from(schema.reportReviews)
+            .where(
+              and(
+                eq(schema.reportReviews.vesselId, r.vesselId),
+                eq(schema.reportReviews.reportId, r.id),
+              ),
+            )
+            .limit(1);
+
           return {
             id: r.id,
+            vesselId: r.vesselId,
             type: r.type,
             vessel: r.vesselName || 'Unknown',
             imo: r.vesselImo || 'Unknown',
@@ -554,7 +627,46 @@ export class TrpcRouter {
             submittedAt: r.date,
             author: submitEvent[0]?.actor || 'System',
             fields: (r.fields || {}) as Record<string, any>,
+            reviewed: review.length > 0,
+            reviewedBy: review[0]?.reviewedBy ?? null,
+            reviewedAt: review[0]?.reviewedAt ?? null,
           };
+        }),
+      // Mirrors the original OVL product's reviewer workflow: office staff can
+      // mark a report as looked-at ("triage"), which is a bookkeeping flag,
+      // not a state transition — there is no approve/reject concept for
+      // reports in the source product (see office/store/reportreviews.go).
+      markReviewed: protectedProcedure
+        .input((val: unknown) => {
+          if (!MarkReviewedCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof MarkReviewedSchema>;
+        })
+        .mutation(async ({ input, ctx }) => {
+          const latest = await this.db
+            .select({ vesselId: schema.reportVersions.vesselId })
+            .from(schema.reportVersions)
+            .where(eq(schema.reportVersions.reportId, input.reportId))
+            .limit(1);
+          if (!latest.length) throw new Error('Report not found');
+          const vesselId = latest[0].vesselId;
+
+          const localUser = await this.supertokensService.getLocalUser(ctx.session.getUserId());
+          const reviewedBy = localUser?.username || 'unknown';
+
+          await this.db
+            .insert(schema.reportReviews)
+            .values({
+              vesselId,
+              reportId: input.reportId,
+              reviewedBy,
+              reviewedAt: new Date().toISOString(),
+            })
+            .onConflictDoUpdate({
+              target: [schema.reportReviews.vesselId, schema.reportReviews.reportId],
+              set: { reviewedBy, reviewedAt: new Date().toISOString() },
+            });
+
+          return { reviewed: true, reviewedBy };
         }),
     }),
     apiKeys: router({

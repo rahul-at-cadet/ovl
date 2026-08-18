@@ -16,7 +16,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Loader2, Search, Save, CalendarClock } from "lucide-react";
 
 import {
@@ -42,13 +41,21 @@ export function FieldPolicyTab() {
     }
   }, [schemas, selectedSchema]);
 
+  // A group/vessel scope isn't usable until a specific key is picked — until
+  // then, don't fetch. Otherwise this fires immediately with an empty key
+  // the instant the scope *type* changes, and the backend's scope filter
+  // (which requires a non-empty key to apply) ends up matching whatever
+  // arbitrary group/vessel row happens to exist for this schema instead of
+  // nothing.
+  const scopeReady = scope.type === "fleet" || !!scope.key;
+
   const { data: policyData, isLoading: policyLoading, refetch: refetchPolicy } = trpc.fieldPolicies.get.useQuery(
-    { 
-      schemaName: selectedSchema, 
+    {
+      schemaName: selectedSchema,
       scopeType: scope.type,
       scopeKey: scope.key
     },
-    { enabled: !!selectedSchema }
+    { enabled: !!selectedSchema && scopeReady }
   );
 
   const savePolicy = trpc.fieldPolicies.save.useMutation({
@@ -71,12 +78,18 @@ export function FieldPolicyTab() {
 
   // Sync state when policy data loads
   useEffect(() => {
+    if (!scopeReady) {
+      setPolicyOverrides({});
+      setPrefillOverrides({});
+      setEventsOverrides({});
+      return;
+    }
     if (policyData) {
       setPolicyOverrides(policyData.policy || {});
       setPrefillOverrides(policyData.prefill || {});
       setEventsOverrides(policyData.events || {});
     }
-  }, [policyData]);
+  }, [policyData, scopeReady]);
 
   const isDirty = useMemo(() => {
     if (!policyData) return false;
@@ -130,13 +143,19 @@ export function FieldPolicyTab() {
         const field = info.row.original;
         const currentEffective = info.getValue();
         const explicit = policyOverrides[field.name];
-        
+
+        // A plain <select> here rather than the Select component: with a
+        // 400+ row virtualized table, mounting dozens of Base UI Select
+        // instances at once (each registered in its shared floating-element
+        // tree) made every interaction on the page — including unrelated
+        // ones, like the scope picker above the table — grind to a halt.
+        // Native selects have no such coordination overhead.
         return (
-          <Select 
-            value={explicit || "inherit"} 
+          <select
+            value={explicit || "inherit"}
             disabled={field.schemaMandatory}
-            onValueChange={val => {
-              if (!val) return;
+            onChange={e => {
+              const val = e.target.value;
               const newOverrides = { ...policyOverrides };
               if (val === "inherit") {
                 delete newOverrides[field.name];
@@ -145,23 +164,17 @@ export function FieldPolicyTab() {
               }
               setPolicyOverrides(newOverrides);
             }}
+            className={`w-32 h-8 rounded-md border bg-background text-xs px-2 disabled:opacity-50 disabled:cursor-not-allowed ${explicit ? 'border-blue-500 bg-blue-500/10 text-blue-300' : 'border-border text-foreground'}`}
           >
-            <SelectTrigger className={`w-32 ${explicit ? 'border-blue-500 bg-blue-500/10 text-blue-300' : ''}`}>
-              <SelectValue placeholder={
-                POLICY_STATES.find(s => s.value === currentEffective)?.label || currentEffective
-              } />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="inherit" className="italic text-muted-foreground">
-                Inherit ({POLICY_STATES.find(s => s.value === effectiveState(field, {}))?.label})
-              </SelectItem>
-              {POLICY_STATES.map(s => (
-                <SelectItem key={s.value} value={s.value} disabled={s.value === "schemaMandatory" && !field.schemaMandatory}>
-                  {s.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            <option value="inherit">
+              Inherit ({POLICY_STATES.find(s => s.value === effectiveState(field, {}))?.label})
+            </option>
+            {POLICY_STATES.map(s => (
+              <option key={s.value} value={s.value} disabled={s.value === "schemaMandatory" && !field.schemaMandatory}>
+                {s.label}
+              </option>
+            ))}
+          </select>
         )
       }
     }),
@@ -176,19 +189,20 @@ export function FieldPolicyTab() {
               const selectedEvents = eventsOverrides[field.name] ?? [];
               const disabled = field.schemaMandatory;
               const label = selectedEvents.length === 0 ? 'All events' : `${selectedEvents.length} event${selectedEvents.length === 1 ? '' : 's'}`;
+              // A native <details> disclosure instead of the Popover component —
+              // same floating-element-overhead reasoning as the selects above.
               return (
-                <Popover>
-                  <PopoverTrigger
-                    disabled={disabled}
-                    className={`text-xs rounded-md border px-2 py-1 ${
+                <details className="relative">
+                  <summary
+                    className={`list-none text-xs rounded-md border px-2 py-1 cursor-pointer inline-block ${
                       selectedEvents.length > 0
                         ? 'border-blue-500 bg-blue-500/10 text-blue-300'
                         : 'border-border text-muted-foreground'
-                    } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    } ${disabled ? 'opacity-50 pointer-events-none' : ''}`}
                   >
                     {label}
-                  </PopoverTrigger>
-                  <PopoverContent className="max-h-64 overflow-y-auto">
+                  </summary>
+                  <div className="absolute z-20 mt-1 max-h-64 w-48 overflow-y-auto rounded-md border border-border bg-popover p-2 shadow-md">
                     <label className="flex items-center gap-2 text-xs text-foreground py-1">
                       <input
                         type="checkbox"
@@ -219,8 +233,8 @@ export function FieldPolicyTab() {
                         {ev}
                       </label>
                     ))}
-                  </PopoverContent>
-                </Popover>
+                  </div>
+                </details>
               );
             },
           }),
@@ -232,14 +246,13 @@ export function FieldPolicyTab() {
       size: 180,
       cell: info => {
         const field = info.row.original;
-        const currentEffective = info.getValue();
         const explicit = prefillOverrides[field.name];
-        
+
         return (
-          <Select 
-            value={explicit || "inherit"} 
-            onValueChange={val => {
-              if (!val) return;
+          <select
+            value={explicit || "inherit"}
+            onChange={e => {
+              const val = e.target.value;
               const newOverrides = { ...prefillOverrides };
               if (val === "inherit") {
                 delete newOverrides[field.name];
@@ -248,19 +261,13 @@ export function FieldPolicyTab() {
               }
               setPrefillOverrides(newOverrides);
             }}
+            className={`w-36 h-8 rounded-md border bg-background text-xs px-2 ${explicit ? 'border-blue-500 bg-blue-500/10 text-blue-300' : 'border-border text-foreground'}`}
           >
-            <SelectTrigger className={`w-36 ${explicit ? 'border-blue-500 bg-blue-500/10 text-blue-300' : ''}`}>
-              <SelectValue placeholder={currentEffective} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="inherit" className="italic text-muted-foreground">
-                Inherit (none)
-              </SelectItem>
-              {PREFILL_CLASSES.map(s => (
-                <SelectItem key={s} value={s}>{s}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            <option value="inherit">Inherit (none)</option>
+            {PREFILL_CLASSES.map(s => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
         )
       }
     })
@@ -334,7 +341,7 @@ export function FieldPolicyTab() {
       </Card>
 
       {policyData?.migration && (
-        <div className="rounded-md border border-amber-900/50 bg-amber-950/30 px-4 py-3 text-sm text-amber-300 flex items-start gap-2">
+        <div className="rounded-md border border-amber-300 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30 px-4 py-3 text-sm text-amber-700 dark:text-amber-300 flex items-start gap-2">
           <CalendarClock className="w-4 h-4 mt-0.5 shrink-0" />
           <div>
             Migrating field policy from v{policyData.migration.fromVersion} to v{policyData.version} —{" "}
@@ -365,7 +372,11 @@ export function FieldPolicyTab() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {policyLoading ? (
+          {!scopeReady ? (
+            <div className="p-12 text-center text-muted-foreground">
+              <p>Select a {scope.type} to view and edit its field policy.</p>
+            </div>
+          ) : policyLoading ? (
             <div className="p-12 text-center text-muted-foreground flex flex-col items-center">
               <Loader2 className="w-8 h-8 animate-spin mb-4" />
               <p>Loading schema policy matrix...</p>

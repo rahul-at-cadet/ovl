@@ -189,7 +189,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
             <h2 className="text-xl font-bold tracking-tight text-foreground">Drafting: {schema.schemaName}</h2>
           </div>
           <div className="flex gap-2">
-            <Button type="button" onClick={() => handleAction(getValues(), 'draft')} variant="outline" className="border-border bg-background/50 text-foreground hover:text-white" disabled={saveSectionMutation.isPending || submitReportMutation.isPending}>
+            <Button type="button" onClick={() => handleAction(getValues(), 'draft')} variant="outline" className="border-border bg-background/50 text-foreground hover:text-foreground" disabled={saveSectionMutation.isPending || submitReportMutation.isPending}>
               <Save className="w-4 h-4 mr-2" />
               {saveSectionMutation.isPending ? 'Saving...' : 'Save Draft'}
             </Button>

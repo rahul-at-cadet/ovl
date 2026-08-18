@@ -53,7 +53,7 @@ export default function DashboardPage() {
           <p className="text-muted-foreground mt-1 text-sm">Local edge reporting and synchronization.</p>
         </div>
         <Link href="/reports/new">
-          <Button className="bg-primary hover:bg-white text-primary-foreground rounded-sm h-8 text-xs font-medium shadow-sm">
+          <Button className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-sm h-8 text-xs font-medium shadow-sm">
             <Plus className="w-4 h-4 mr-2" />
             New Report
           </Button>
@@ -334,7 +334,7 @@ export default function DashboardPage() {
                   size="sm"
                   onClick={() => syncNowMutation.mutate()} 
                   disabled={syncNowMutation.isPending || !syncStatus?.enrolled}
-                  className="w-full mt-4 bg-primary hover:bg-white text-primary-foreground font-semibold rounded-lg h-8 text-xs shadow-[0_0_10px_rgba(255,255,255,0.1)] transition-all disabled:bg-muted disabled:text-muted-foreground"
+                  className="w-full mt-4 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-lg h-8 text-xs shadow-[0_0_10px_rgba(255,255,255,0.1)] transition-all disabled:bg-muted disabled:text-muted-foreground"
                 >
                   <CloudOff className="w-3.5 h-3.5 mr-1.5" />
                   {syncNowMutation.isPending ? 'Syncing...' : 'Sync Now'}

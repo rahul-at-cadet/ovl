@@ -97,7 +97,7 @@ export default function SettingsPage() {
                   </div>
                 </CardContent>
                 <CardFooter className="bg-background/40 border-t border-border/60 p-4 flex justify-end">
-                  <Button className="bg-primary hover:bg-white text-primary-foreground rounded-md h-9 text-sm font-semibold shadow-sm transition-all">
+                  <Button className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-9 text-sm font-semibold shadow-sm transition-all">
                     Save Changes
                   </Button>
                 </CardFooter>
@@ -140,7 +140,7 @@ export default function SettingsPage() {
                       onChange={(e) => setNewKeyLabel(e.target.value)}
                       className="bg-background/80 border-border/80 text-foreground text-xs h-8 w-56"
                     />
-                    <Button onClick={handleGenerateKey} disabled={createMutation.isPending} className="bg-primary hover:bg-white text-primary-foreground rounded-md h-8 text-xs font-semibold shadow-sm transition-all px-3 shrink-0">
+                    <Button onClick={handleGenerateKey} disabled={createMutation.isPending} className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-8 text-xs font-semibold shadow-sm transition-all px-3 shrink-0">
                       {createMutation.isPending ? 'Generating...' : 'Generate New Key'}
                     </Button>
                   </div>

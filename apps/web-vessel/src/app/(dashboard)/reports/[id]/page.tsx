@@ -80,7 +80,7 @@ export default function ReportDetailPage() {
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-5xl mx-auto">
       <div className="flex items-center gap-4 border-b border-border/60 pb-6">
         <Link href="/reports">
-          <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-white hover:bg-muted">
+          <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground hover:bg-muted">
             <ArrowLeft className="w-5 h-5" />
           </Button>
         </Link>

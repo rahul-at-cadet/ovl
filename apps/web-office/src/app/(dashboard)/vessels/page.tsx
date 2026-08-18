@@ -111,7 +111,7 @@ export default function VesselsPage() {
               className="pl-9 bg-background/80 border-border/80 focus-visible:ring-ring text-foreground rounded-md h-9 text-sm w-full transition-all"
             />
           </div>
-          <Button onClick={openNewDialog} className="bg-primary hover:bg-white text-primary-foreground rounded-md h-9 text-sm font-semibold shadow-sm shrink-0 transition-all">
+          <Button onClick={openNewDialog} className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-9 text-sm font-semibold shadow-sm shrink-0 transition-all">
             <Plus className="w-4 h-4 mr-2" />
             Provision Node
           </Button>
@@ -152,7 +152,7 @@ export default function VesselsPage() {
                             <Ship className="w-4 h-4 text-foreground" />
                           </div>
                           <div>
-                            <div className="font-semibold text-foreground group-hover:text-white transition-colors">{vessel.name}</div>
+                            <div className="font-semibold text-foreground group-hover:text-foreground transition-colors">{vessel.name}</div>
                             <div className="text-xs text-muted-foreground">{vessel.status}</div>
                           </div>
                         </div>

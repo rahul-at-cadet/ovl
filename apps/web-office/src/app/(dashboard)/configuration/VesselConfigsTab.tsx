@@ -14,9 +14,9 @@ const STATUS_LABEL: Record<string, string> = {
 
 const STATUS_CLASS: Record<string, string> = {
   unassigned: "text-muted-foreground bg-muted/60",
-  pendingSync: "text-amber-300 bg-amber-950/40",
-  synced: "text-emerald-300 bg-emerald-950/40",
-  outOfDate: "text-red-300 bg-red-950/40",
+  pendingSync: "text-amber-700 bg-amber-50 dark:text-amber-300 dark:bg-amber-950/40",
+  synced: "text-emerald-700 bg-emerald-50 dark:text-emerald-300 dark:bg-emerald-950/40",
+  outOfDate: "text-red-700 bg-red-50 dark:text-red-300 dark:bg-red-950/40",
 };
 
 export function VesselConfigsTab() {

@@ -25,7 +25,7 @@ const PRECEDENCE_TEXT =
 
 function PrecedenceBanner() {
   return (
-    <div className="rounded-md border border-emerald-900/50 bg-emerald-950/30 px-4 py-2 text-xs text-emerald-300">
+    <div className="rounded-md border border-emerald-300 bg-emerald-50 dark:border-emerald-900/50 dark:bg-emerald-950/30 px-4 py-2 text-xs text-emerald-700 dark:text-emerald-300">
       {PRECEDENCE_TEXT}
     </div>
   );
@@ -94,7 +94,7 @@ function RegulatoryProfilesPanel() {
                 onClick={() => toggle(p)}
                 className={`text-left rounded-md border px-4 py-3 text-sm transition-colors ${
                   selected.has(p)
-                    ? "border-emerald-600 bg-emerald-950/40 text-emerald-300"
+                    ? "border-emerald-600 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
                     : "border-border bg-background text-foreground hover:border-border"
                 }`}
               >

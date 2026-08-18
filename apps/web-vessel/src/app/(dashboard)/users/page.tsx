@@ -94,12 +94,12 @@ export default function UsersPage() {
               className="pl-9 bg-background/80 border-border/80 focus-visible:ring-ring text-foreground rounded-md h-9 text-sm w-full transition-all"
             />
           </div>
-          <Button variant="outline" className="border-border bg-background text-foreground hover:text-white hover:bg-card rounded-md h-9 shadow-sm shrink-0">
+          <Button variant="outline" className="border-border bg-background text-foreground hover:text-foreground hover:bg-card rounded-md h-9 shadow-sm shrink-0">
             <Filter className="w-4 h-4 mr-2" />
             Filter
           </Button>
           <Dialog open={isCreateOpen} onOpenChange={handleCloseCreate}>
-            <DialogTrigger className="inline-flex items-center justify-center bg-primary hover:bg-white text-primary-foreground rounded-md h-9 px-4 py-2 text-sm font-semibold shadow-sm shrink-0 transition-all">
+            <DialogTrigger className="inline-flex items-center justify-center bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-9 px-4 py-2 text-sm font-semibold shadow-sm shrink-0 transition-all">
               <UserPlus className="w-4 h-4 mr-2" />
               Onboard Crew
             </DialogTrigger>
@@ -150,11 +150,11 @@ export default function UsersPage() {
 
               <DialogFooter>
                 {!generatedPassword ? (
-                  <Button onClick={handleOnboard} disabled={!newUsername || createUser.isPending} className="bg-primary text-primary-foreground hover:bg-white">
+                  <Button onClick={handleOnboard} disabled={!newUsername || createUser.isPending} className="bg-primary text-primary-foreground hover:bg-primary/90">
                     {createUser.isPending ? 'Creating...' : 'Create Account'}
                   </Button>
                 ) : (
-                  <Button onClick={() => handleCloseCreate(false)} className="bg-primary text-primary-foreground hover:bg-white">
+                  <Button onClick={() => handleCloseCreate(false)} className="bg-primary text-primary-foreground hover:bg-primary/90">
                     Done
                   </Button>
                 )}
@@ -196,7 +196,7 @@ export default function UsersPage() {
                             <AvatarFallback className="text-foreground bg-transparent text-xs font-semibold">{user.username.substring(0, 2).toUpperCase()}</AvatarFallback>
                           </Avatar>
                           <div>
-                            <div className="font-semibold text-foreground group-hover:text-white transition-colors">{user.username}</div>
+                            <div className="font-semibold text-foreground group-hover:text-foreground transition-colors">{user.username}</div>
                             <div className="text-xs text-muted-foreground">Edge Account</div>
                           </div>
                         </div>
@@ -288,7 +288,7 @@ export default function UsersPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setSelectedUserForRole(null)} className="border-border bg-background text-foreground hover:bg-card hover:text-white">Cancel</Button>
+            <Button variant="outline" onClick={() => setSelectedUserForRole(null)} className="border-border bg-background text-foreground hover:bg-card hover:text-foreground">Cancel</Button>
             <Button 
               onClick={() => updateRole.mutate({ id: selectedUserForRole.id, role: editRoleValue })}
               disabled={updateRole.isPending}
@@ -321,7 +321,7 @@ export default function UsersPage() {
                 This will immediately invalidate their current password. They will be required to change this temporary password upon their next login.
               </p>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setSelectedUserForPassword(null)} className="border-border bg-background text-foreground hover:bg-card hover:text-white">Cancel</Button>
+                <Button variant="outline" onClick={() => setSelectedUserForPassword(null)} className="border-border bg-background text-foreground hover:bg-card hover:text-foreground">Cancel</Button>
                 <Button 
                   onClick={() => adminResetPassword.mutate({ id: selectedUserForPassword.id })}
                   disabled={adminResetPassword.isPending}
@@ -343,7 +343,7 @@ export default function UsersPage() {
                 Please provide this password to the crew member. It will only be shown once.
               </p>
               <DialogFooter className="mt-6">
-                <Button onClick={() => setSelectedUserForPassword(null)} className="bg-primary hover:bg-white text-primary-foreground">Done</Button>
+                <Button onClick={() => setSelectedUserForPassword(null)} className="bg-primary hover:bg-primary/90 text-primary-foreground">Done</Button>
               </DialogFooter>
             </div>
           )}
