@@ -99,6 +99,7 @@ function SchemasTab() {
   const previewSchema = trpc.schemas.preview.useMutation();
 
   const [schemaName, setSchemaName] = useState("");
+  const [showNameSuggestions, setShowNameSuggestions] = useState(false);
   const [version, setVersion] = useState("");
   const [content, setContent] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -121,6 +122,14 @@ function SchemasTab() {
     () => [...new Set((schemas ?? []).map((s) => s.schemaName))],
     [schemas],
   );
+
+  const nameSuggestions = useMemo(() => {
+    const q = schemaName.trim().toLowerCase();
+    const matches = q
+      ? knownSchemaNames.filter((n) => n.toLowerCase().includes(q) && n.toLowerCase() !== q)
+      : knownSchemaNames;
+    return matches.slice(0, 8);
+  }, [knownSchemaNames, schemaName]);
 
   const invalidatePreview = () => setPreview(null);
 
@@ -234,20 +243,32 @@ function SchemasTab() {
             <CardDescription>Validate before publishing — published versions are immutable.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-2">
+            <div className="space-y-2 relative">
               <Label>Schema Name</Label>
               <Input
                 placeholder="e.g. log-abstract"
                 value={schemaName}
-                list="known-schema-names"
-                onChange={e => { setSchemaName(e.target.value); invalidatePreview(); }}
+                onChange={e => { setSchemaName(e.target.value); invalidatePreview(); setShowNameSuggestions(true); }}
+                onFocus={() => setShowNameSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowNameSuggestions(false), 150)}
+                autoComplete="off"
                 className="bg-background border-border text-foreground"
               />
-              <datalist id="known-schema-names">
-                {knownSchemaNames.map((n) => (
-                  <option key={n} value={n} />
-                ))}
-              </datalist>
+              {showNameSuggestions && nameSuggestions.length > 0 && (
+                <div className="absolute z-20 top-full mt-1 w-full rounded-md border border-border bg-popover text-popover-foreground shadow-md py-1 max-h-48 overflow-auto">
+                  {nameSuggestions.map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => { setSchemaName(n); invalidatePreview(); setShowNameSuggestions(false); }}
+                      className="w-full text-left px-3 py-1.5 text-sm hover:bg-muted"
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="space-y-2">
               <Label>Version Tag</Label>

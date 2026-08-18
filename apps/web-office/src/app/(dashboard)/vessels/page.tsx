@@ -31,6 +31,7 @@ export default function VesselsPage() {
   const [name, setName] = useState('');
   const [imo, setImo] = useState('');
   const [type, setType] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
 
   const utils = trpc.useUtils();
   const { data: vessels = [], isLoading } = trpc.vessels.list.useQuery();
@@ -52,6 +53,7 @@ export default function VesselsPage() {
   const deleteMutation = trpc.vessels.delete.useMutation({
     onSuccess: () => {
       utils.vessels.list.invalidate();
+      setDeleteTarget(null);
     }
   });
 
@@ -88,10 +90,12 @@ export default function VesselsPage() {
     }
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to delete this vessel? This action cannot be undone.')) {
-      deleteMutation.mutate({ id });
-    }
+  const handleDelete = (id: string, name: string) => {
+    setDeleteTarget({ id, name });
+  };
+
+  const confirmDelete = () => {
+    if (deleteTarget) deleteMutation.mutate({ id: deleteTarget.id });
   };
 
   return (
@@ -193,7 +197,7 @@ export default function VesselsPage() {
                               <Edit className="mr-2 h-4 w-4" />
                               <span>Edit Vessel</span>
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleDelete(vessel.id)} className="text-red-400 hover:bg-red-500/10 cursor-pointer focus:bg-red-500/10 focus:text-red-400">
+                            <DropdownMenuItem onClick={() => handleDelete(vessel.id, vessel.name)} className="text-red-400 hover:bg-red-500/10 cursor-pointer focus:bg-red-500/10 focus:text-red-400">
                               <Trash2 className="mr-2 h-4 w-4" />
                               <span>Delete Vessel</span>
                             </DropdownMenuItem>
@@ -262,6 +266,30 @@ export default function VesselsPage() {
             </Button>
             <Button onClick={handleSave} disabled={createMutation.isPending || updateMutation.isPending} className="bg-indigo-600 hover:bg-indigo-700 text-white">
               {editingVessel ? 'Save Changes' : 'Provision'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent className="sm:max-w-[425px] bg-background border-border text-foreground">
+          <DialogHeader>
+            <DialogTitle className="text-foreground">Delete vessel?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This will permanently remove <span className="font-medium text-foreground">{deleteTarget?.name}</span> and
+            its edge enrollment. This action cannot be undone.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} className="bg-transparent border-border text-foreground hover:bg-muted hover:text-foreground">
+              Cancel
+            </Button>
+            <Button
+              onClick={confirmDelete}
+              disabled={deleteMutation.isPending}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              {deleteMutation.isPending ? 'Deleting...' : 'Delete Vessel'}
             </Button>
           </DialogFooter>
         </DialogContent>

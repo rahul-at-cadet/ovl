@@ -29,6 +29,7 @@ export default function UsersPage() {
   const [editingUser, setEditingUser] = useState<any>(null);
   const [roles, setRoles] = useState('');
   const [active, setActive] = useState(true);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; username: string } | null>(null);
 
   const utils = trpc.useUtils();
   const { data: users = [], isLoading } = trpc.users.list.useQuery();
@@ -43,6 +44,7 @@ export default function UsersPage() {
   const deleteMutation = trpc.users.delete.useMutation({
     onSuccess: () => {
       utils.users.list.invalidate();
+      setDeleteTarget(null);
     }
   });
 
@@ -68,10 +70,12 @@ export default function UsersPage() {
     }
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to delete this user?')) {
-      deleteMutation.mutate({ id });
-    }
+  const handleDelete = (id: string, username: string) => {
+    setDeleteTarget({ id, username });
+  };
+
+  const confirmDelete = () => {
+    if (deleteTarget) deleteMutation.mutate({ id: deleteTarget.id });
   };
 
   return (
@@ -160,7 +164,7 @@ export default function UsersPage() {
                               <Edit className="mr-2 h-4 w-4" />
                               <span>Edit User</span>
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleDelete(user.id)} className="text-red-400 hover:bg-red-500/10 cursor-pointer focus:bg-red-500/10 focus:text-red-400">
+                            <DropdownMenuItem onClick={() => handleDelete(user.id, user.username)} className="text-red-400 hover:bg-red-500/10 cursor-pointer focus:bg-red-500/10 focus:text-red-400">
                               <Trash2 className="mr-2 h-4 w-4" />
                               <span>Delete User</span>
                             </DropdownMenuItem>
@@ -218,6 +222,30 @@ export default function UsersPage() {
             </Button>
             <Button onClick={handleSave} disabled={updateMutation.isPending} className="bg-indigo-600 hover:bg-indigo-700 text-white">
               Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent className="sm:max-w-[425px] bg-background border-border text-foreground">
+          <DialogHeader>
+            <DialogTitle className="text-foreground">Delete user?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This will permanently remove <span className="font-medium text-foreground">{deleteTarget?.username}</span>&apos;s
+            access. This action cannot be undone.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} className="bg-transparent border-border text-foreground hover:bg-muted hover:text-foreground">
+              Cancel
+            </Button>
+            <Button
+              onClick={confirmDelete}
+              disabled={deleteMutation.isPending}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              {deleteMutation.isPending ? 'Deleting...' : 'Delete User'}
             </Button>
           </DialogFooter>
         </DialogContent>

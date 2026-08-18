@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo } from "react";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { Scope, ScopeType } from "@/lib/config/complianceLogic";
 
 interface VesselLike {
@@ -37,63 +36,67 @@ export function ScopeSelector({ scope, onChange, vessels, allowFleet = true }: S
     vessel: "Specific Vessel",
   };
 
+  // Native <select> elements rather than the Select component: this picker
+  // sits directly above the Field Policy tab's large virtualized table, and
+  // mounting/unmounting a Base UI Select's floating tree in that context
+  // was hanging the whole tab (a runaway re-render loop, not just jank).
   return (
     <div className="flex items-end gap-4">
       <div className="space-y-1">
         <label className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">Scope</label>
-        <Select
+        <select
           value={scope.type}
-          onValueChange={(val: any) => {
-            if (!val) return;
-            onChange(val === "fleet" ? { type: "fleet" } : { type: val as ScopeType, key: "" });
+          onChange={(e) => {
+            const val = e.target.value as ScopeType;
+            onChange(val === "fleet" ? { type: "fleet" } : { type: val, key: "" });
           }}
+          className="w-40 bg-background border border-border text-foreground rounded-md h-9 px-2 text-sm"
         >
-          <SelectTrigger className="w-40 bg-background border-border">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {typeOptions.map((t) => (
-              <SelectItem key={t} value={t}>
-                {typeLabels[t]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          {typeOptions.map((t) => (
+            <option key={t} value={t}>
+              {typeLabels[t]}
+            </option>
+          ))}
+        </select>
       </div>
 
       {scope.type === "group" && (
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">Group</label>
-          <Select value={scope.key || ""} onValueChange={(val: any) => val && onChange({ type: "group", key: val })}>
-            <SelectTrigger className="w-48 bg-background border-border">
-              <SelectValue placeholder={groups.length ? "Select group" : "No groups defined"} />
-            </SelectTrigger>
-            <SelectContent>
-              {groups.map((g) => (
-                <SelectItem key={g} value={g}>
-                  {g}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <select
+            value={scope.key || ""}
+            onChange={(e) => e.target.value && onChange({ type: "group", key: e.target.value })}
+            className="w-48 bg-background border border-border text-foreground rounded-md h-9 px-2 text-sm"
+          >
+            <option value="" disabled>
+              {groups.length ? "Select group" : "No groups defined"}
+            </option>
+            {groups.map((g) => (
+              <option key={g} value={g}>
+                {g}
+              </option>
+            ))}
+          </select>
         </div>
       )}
 
       {scope.type === "vessel" && (
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">Vessel</label>
-          <Select value={scope.key || ""} onValueChange={(val: any) => val && onChange({ type: "vessel", key: val })}>
-            <SelectTrigger className="w-56 bg-background border-border">
-              <SelectValue placeholder={vessels.length ? "Select vessel" : "No vessels"} />
-            </SelectTrigger>
-            <SelectContent>
-              {vessels.map((v) => (
-                <SelectItem key={v.id} value={v.id}>
-                  {v.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <select
+            value={scope.key || ""}
+            onChange={(e) => e.target.value && onChange({ type: "vessel", key: e.target.value })}
+            className="w-56 bg-background border border-border text-foreground rounded-md h-9 px-2 text-sm"
+          >
+            <option value="" disabled>
+              {vessels.length ? "Select vessel" : "No vessels"}
+            </option>
+            {vessels.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.name}
+              </option>
+            ))}
+          </select>
         </div>
       )}
     </div>
