@@ -12,15 +12,21 @@ import { trpc } from '@/lib/trpc';
 export default function SettingsPage() {
   const [copied, setCopied] = useState<string | null>(null);
   const [newRawToken, setNewRawToken] = useState<string | null>(null);
+  const [newKeyLabel, setNewKeyLabel] = useState('');
 
   const utils = trpc.useUtils();
   const { data: apiKeys = [], isLoading } = trpc.apiKeys.list.useQuery();
-  
+
   const createMutation = trpc.apiKeys.create.useMutation({
     onSuccess: (data) => {
       utils.apiKeys.list.invalidate();
       setNewRawToken(data.rawToken);
+      setNewKeyLabel('');
     }
+  });
+
+  const revokeMutation = trpc.apiKeys.revoke.useMutation({
+    onSuccess: () => utils.apiKeys.list.invalidate(),
   });
 
   const handleCopy = (text: string, id: string) => {
@@ -30,7 +36,7 @@ export default function SettingsPage() {
   };
 
   const handleGenerateKey = () => {
-    createMutation.mutate({ label: 'Production Sync Key' });
+    createMutation.mutate({ label: newKeyLabel.trim() || 'Sync Key' });
   };
 
   return (
@@ -127,9 +133,17 @@ export default function SettingsPage() {
                     <CardTitle className="text-sm font-semibold tracking-tight text-zinc-200">API Credentials</CardTitle>
                     <CardDescription className="text-xs text-zinc-500 mt-1">Manage keys for edge-node synchronization.</CardDescription>
                   </div>
-                  <Button onClick={handleGenerateKey} disabled={createMutation.isPending} className="bg-zinc-100 hover:bg-white text-zinc-950 rounded-md h-8 text-xs font-semibold shadow-sm transition-all px-3">
-                    {createMutation.isPending ? 'Generating...' : 'Generate New Key'}
-                  </Button>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Key label (e.g. Production Sync Key)"
+                      value={newKeyLabel}
+                      onChange={(e) => setNewKeyLabel(e.target.value)}
+                      className="bg-zinc-950/80 border-zinc-800/80 text-zinc-100 text-xs h-8 w-56"
+                    />
+                    <Button onClick={handleGenerateKey} disabled={createMutation.isPending} className="bg-zinc-100 hover:bg-white text-zinc-950 rounded-md h-8 text-xs font-semibold shadow-sm transition-all px-3 shrink-0">
+                      {createMutation.isPending ? 'Generating...' : 'Generate New Key'}
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent className="pt-6 space-y-6">
                   {newRawToken && (
@@ -150,15 +164,27 @@ export default function SettingsPage() {
                   ) : apiKeys.length > 0 ? (
                     apiKeys.map((key) => (
                       <div key={key.id} className="space-y-2 pb-4 border-b border-zinc-800/40 last:border-0">
-                        <Label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">{key.label || 'API Key'}</Label>
+                        <div className="flex items-center justify-between">
+                          <Label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">{key.label || 'API Key'}</Label>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={revokeMutation.isPending}
+                            onClick={() => revokeMutation.mutate({ id: key.id })}
+                            className="h-7 px-2 text-zinc-500 hover:text-red-400 hover:bg-red-500/10"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 mr-1" />
+                            Revoke
+                          </Button>
+                        </div>
                         <div className="flex gap-2">
                           <div className="relative flex-1">
                             <KeyRound className="absolute left-3 top-2.5 h-4 w-4 text-zinc-500" />
-                            <Input 
-                              readOnly 
+                            <Input
+                              readOnly
                               type="password"
-                              defaultValue="ovl_prod_xxxxxxxxxxxxxxxxxxxxxxxx" 
-                              className="pl-9 bg-zinc-950/80 border-zinc-800/80 text-zinc-400 text-sm h-10 font-mono tracking-widest" 
+                              defaultValue="ovl_prod_xxxxxxxxxxxxxxxxxxxxxxxx"
+                              className="pl-9 bg-zinc-950/80 border-zinc-800/80 text-zinc-400 text-sm h-10 font-mono tracking-widest"
                             />
                           </div>
                         </div>

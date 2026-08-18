@@ -100,6 +100,11 @@ const CreateApiKeySchema = Type.Object({
 });
 const CreateApiKeyCompiler = TypeCompiler.Compile(CreateApiKeySchema);
 
+const RevokeApiKeySchema = Type.Object({
+  id: Type.String(),
+});
+const RevokeApiKeyCompiler = TypeCompiler.Compile(RevokeApiKeySchema);
+
 const PublishSchemaSchema = Type.Object({
   schemaName: Type.String(),
   version: Type.String(),
@@ -579,6 +584,18 @@ export class TrpcRouter {
             key: newKey[0],
             rawToken: `ovl_prod_${rawToken}`,
           };
+        }),
+      revoke: protectedProcedure
+        .input((val: unknown) => {
+          if (!RevokeApiKeyCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof RevokeApiKeySchema>;
+        })
+        .mutation(async ({ input }) => {
+          await this.db
+            .update(schema.apiKeys)
+            .set({ revokedAt: new Date().toISOString() })
+            .where(eq(schema.apiKeys.id, input.id));
+          return { success: true };
         }),
     }),
     dashboard: router({

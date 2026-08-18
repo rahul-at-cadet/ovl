@@ -148,10 +148,12 @@ export default function UsersPage() {
                       </td>
                       <td className="px-4 py-2.5 text-right">
                         <DropdownMenu>
-                          <DropdownMenuTrigger>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 rounded-md transition-colors">
-                              <Edit className="w-4 h-4" />
-                            </Button>
+                          <DropdownMenuTrigger
+                            render={
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 rounded-md transition-colors" />
+                            }
+                          >
+                            <Edit className="w-4 h-4" />
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-48 bg-zinc-950 border-zinc-800">
                             <DropdownMenuItem onClick={() => openEditDialog(user)} className="hover:bg-zinc-800 cursor-pointer text-zinc-300 focus:bg-zinc-800 focus:text-white">

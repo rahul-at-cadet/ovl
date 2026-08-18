@@ -249,7 +249,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
                             render={({ field: controllerField }) => {
                               if (field.type === 'enum') {
                                 return (
-                                  <Select onValueChange={controllerField.onChange} defaultValue={controllerField.value}>
+                                  <Select onValueChange={controllerField.onChange} value={controllerField.value}>
                                     <SelectTrigger className="bg-zinc-950/50 border-zinc-800 text-zinc-100 focus:ring-blue-500">
                                       <SelectValue placeholder="Select an option" />
                                     </SelectTrigger>
