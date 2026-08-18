@@ -20,15 +20,11 @@ export class AuthService {
       throw new UnauthorizedException();
     }
     
-    // For master admin temp password, it might be stored directly in a special way or hashed.
-    // In our setup script, we probably didn't hash it, so we should check both.
-    // Let's assume they are using Argon2
     let isValid = false;
     try {
       isValid = await argon2.verify(user.passwordHash, pass);
     } catch {
-      // Fallback for unhashed temporary passwords during early dev
-      isValid = user.passwordHash === pass;
+      isValid = false;
     }
 
     if (isValid) {

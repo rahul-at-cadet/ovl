@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import { trpc } from '@/lib/trpc';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { useToastManager } from '@/components/ui/toast';
 
 const availableReports = [
   { id: 'bunker-report.json', title: 'Bunker Report', description: 'Log fuel intake and quality metrics.', icon: Fuel, color: 'text-orange-400', bg: 'bg-orange-500/10 border-orange-500/20' },
@@ -18,14 +19,15 @@ const availableReports = [
 
 export default function NewReportPage() {
   const router = useRouter();
+  const toastManager = useToastManager();
   const [startingSchema, setStartingSchema] = useState<string | null>(null);
-  
+
   const createReportMutation = trpc.reports.createReport.useMutation({
     onSuccess: (res) => {
       router.push(`/reports/${res.reportId}`);
     },
     onError: (err) => {
-      alert(`Failed to start draft: ${err.message}`);
+      toastManager.add({ title: 'Failed to start draft', description: err.message, type: 'error' });
       setStartingSchema(null);
     }
   });

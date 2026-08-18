@@ -41,7 +41,7 @@ export default function SettingsPage() {
       </div>
 
       <Tabs defaultValue="general" orientation="vertical" className="w-full">
-        <div className="flex flex-col md:flex-row gap-8">
+        <div className="flex flex-col md:flex-row gap-8 w-full">
           <TabsList className="flex flex-col h-auto bg-transparent gap-2 w-64 shrink-0">
             <TabsTrigger 
               value="general" 

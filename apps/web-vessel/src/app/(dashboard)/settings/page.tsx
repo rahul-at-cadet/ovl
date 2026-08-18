@@ -8,8 +8,10 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Satellite, Database, Activity, RefreshCw, Save, Cpu } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+import { useToastManager } from '@/components/ui/toast';
 
 export default function SettingsPage() {
+  const toastManager = useToastManager();
   const { data: settings, isLoading } = trpc.settings.get.useQuery();
   const updateSettingsMutation = trpc.settings.update.useMutation();
 
@@ -31,13 +33,13 @@ export default function SettingsPage() {
       max_bandwidth: maxBandwidth,
       pause_syncing: pauseSyncing ? 'true' : 'false',
     }, {
-      onSuccess: () => alert('Network settings applied successfully!'),
-      onError: (err) => alert('Failed to apply settings: ' + err.message)
+      onSuccess: () => toastManager.add({ title: 'Network settings applied', type: 'success' }),
+      onError: (err) => toastManager.add({ title: 'Failed to apply settings', description: err.message, type: 'error' })
     });
   };
 
   const handleForceSync = () => {
-    alert('Sync triggered (running in background).');
+    toastManager.add({ title: 'Sync triggered', description: 'Running in background.', type: 'info' });
   };
 
   if (isLoading) {
@@ -51,8 +53,8 @@ export default function SettingsPage() {
         <p className="text-zinc-400 mt-1.5 text-sm font-medium">Configure edge infrastructure, satellite networking, and diagnostic logging.</p>
       </div>
 
-      <Tabs defaultValue="network" className="w-full">
-        <div className="flex flex-col md:flex-row gap-8">
+      <Tabs defaultValue="network" orientation="vertical" className="w-full">
+        <div className="flex flex-col md:flex-row gap-8 w-full">
           <TabsList className="flex flex-col h-auto bg-transparent gap-2 w-full md:w-64 shrink-0">
             <TabsTrigger 
               value="network" 

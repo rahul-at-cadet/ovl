@@ -11,11 +11,13 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuGroup } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
+import { useToastManager } from '@/components/ui/toast';
 
 
 export default function UsersPage() {
   const [searchQuery, setSearchQuery] = useState('');
-  
+  const toastManager = useToastManager();
+
   const utils = trpc.useUtils();
   const { data: users = [], isLoading } = trpc.users.list.useQuery();
   
@@ -30,7 +32,7 @@ export default function UsersPage() {
       utils.users.list.invalidate();
     },
     onError: (err) => {
-      alert('Failed to create user: ' + err.message);
+      toastManager.add({ title: 'Failed to create user', description: err.message, type: 'error' });
     }
   });
 
@@ -60,14 +62,14 @@ export default function UsersPage() {
       utils.users.list.invalidate();
       setSelectedUserForRole(null);
     },
-    onError: (err) => alert('Failed to update role: ' + err.message)
+    onError: (err) => toastManager.add({ title: 'Failed to update role', description: err.message, type: 'error' })
   });
 
   const adminResetPassword = trpc.users.adminResetPassword.useMutation({
     onSuccess: (data) => {
       setResetPasswordGenerated(data.temporaryPassword);
     },
-    onError: (err) => alert('Failed to reset password: ' + err.message)
+    onError: (err) => toastManager.add({ title: 'Failed to reset password', description: err.message, type: 'error' })
   });
 
   const filteredUsers = users.filter((user: any) => 

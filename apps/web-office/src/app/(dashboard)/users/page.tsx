@@ -104,10 +104,10 @@ export default function UsersPage() {
             <table className="w-full text-sm text-left text-zinc-400">
               <thead className="text-xs text-zinc-500 uppercase tracking-wider bg-zinc-950/40 border-b border-zinc-800/60">
                 <tr>
-                  <th scope="col" className="px-6 py-3 font-semibold flex items-center gap-2">User <ArrowUpDown className="w-3 h-3" /></th>
-                  <th scope="col" className="px-6 py-3 font-semibold">Security Role</th>
-                  <th scope="col" className="px-6 py-3 font-semibold">Account Status</th>
-                  <th scope="col" className="px-6 py-3 text-right font-semibold">Manage</th>
+                  <th scope="col" className="px-4 py-2 font-semibold flex items-center gap-2">User <ArrowUpDown className="w-3 h-3" /></th>
+                  <th scope="col" className="px-4 py-2 font-semibold">Security Role</th>
+                  <th scope="col" className="px-4 py-2 font-semibold">Account Status</th>
+                  <th scope="col" className="px-4 py-2 text-right font-semibold">Manage</th>
                 </tr>
               </thead>
               <tbody>
@@ -124,7 +124,7 @@ export default function UsersPage() {
                     
                     return (
                     <tr key={user.id} className="border-b border-zinc-800/40 hover:bg-zinc-800/20 transition-all group">
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-2.5">
                         <div className="flex items-center gap-3">
                           <Avatar className="h-9 w-9 bg-zinc-800 border border-zinc-700 shadow-sm">
                             <AvatarFallback className="text-zinc-300 bg-transparent text-xs font-semibold">{user.username.substring(0,2).toUpperCase()}</AvatarFallback>
@@ -134,19 +134,19 @@ export default function UsersPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-2.5">
                         <div className="flex items-center gap-2">
                           {isAdmin ? <ShieldAlert className="w-4 h-4 text-amber-500/80" /> : <Shield className="w-4 h-4 text-zinc-500" />}
                           <span className="text-zinc-300 font-medium capitalize">{displayRole}</span>
                         </div>
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-2.5">
                         <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold tracking-wide uppercase border ${user.active ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-zinc-800/50 text-zinc-400 border-zinc-700/50'}`}>
                           {user.active && <UserCheck className="w-3 h-3" />}
                           {user.active ? 'Active' : 'Inactive'}
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-right">
+                      <td className="px-4 py-2.5 text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger>
                             <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 rounded-md transition-colors">

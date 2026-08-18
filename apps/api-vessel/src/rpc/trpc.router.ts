@@ -279,10 +279,31 @@ export class TrpcRouter {
           if (!CreateUserCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof CreateUserSchema>;
         })
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
+          // Anonymous creation is only allowed to bootstrap the very first
+          // (master admin) user during initial setup. Once any user exists,
+          // this requires a valid session — otherwise anyone could mint
+          // arbitrary admin accounts at any time.
+          const existingUsers = await this.db.select().from(schema.users).limit(1);
+          if (existingUsers.length > 0) {
+            const token = ctx.req?.cookies?.['vessel_auth_token'];
+            let authed = false;
+            if (token) {
+              try {
+                jwt.verify(token, process.env.JWT_SECRET || 'vessel-edge-secret-key-123');
+                authed = true;
+              } catch {
+                authed = false;
+              }
+            }
+            if (!authed) {
+              throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Log in to create additional users.' });
+            }
+          }
+
           const argon2 = await import('argon2');
           const crypto = await import('crypto');
-          
+
           const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$';
           const bytes = crypto.randomBytes(12);
           const temporaryPassword = Array.from(bytes).map((b: number) => chars[b % chars.length]).join('');

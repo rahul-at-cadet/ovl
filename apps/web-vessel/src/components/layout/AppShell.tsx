@@ -7,6 +7,7 @@ import { LayoutDashboard, FileText, Settings, Users, Ship, Bell, Menu, LogOut, S
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { ThemeToggle } from '@/components/ui/theme-toggle';
 
 interface AppShellProps {
   children: ReactNode;
@@ -146,6 +147,7 @@ export function AppShell({ children }: AppShellProps) {
           </div>
 
           <div className="flex items-center space-x-5">
+            <ThemeToggle />
             <Popover>
               <PopoverTrigger
                 render={

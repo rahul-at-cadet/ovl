@@ -8,7 +8,7 @@ import { trpc } from '@/lib/trpc';
 
 export default function OfficeDashboardPage() {
   const pingQuery = trpc.ping.useQuery({ vesselId: 'office-dashboard' });
-  const configQuery = trpc.sync.pullConfig.useQuery({});
+  const configQuery = trpc.sync.pullConfig.useQuery({ vesselId: 'office-dashboard' });
   const { data: dashboard, isLoading: isDashboardLoading } = trpc.dashboard.getOverview.useQuery();
 
   const kpis = [

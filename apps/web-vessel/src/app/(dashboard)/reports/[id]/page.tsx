@@ -9,12 +9,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import Link from 'next/link';
 import { useState } from 'react';
 import { ReportForm } from '@/components/ReportForm';
+import { useToastManager } from '@/components/ui/toast';
 
 export default function ReportDetailPage() {
   const router = useRouter();
   const params = useParams();
   const id = params.id as string;
-  
+  const toastManager = useToastManager();
+  const utils = trpc.useUtils();
+
   const { data: report, isLoading, error } = trpc.reports.getReport.useQuery({ id });
   const { data: events, isLoading: eventsLoading } = trpc.reports.listEvents.useQuery({ reportId: id }, { enabled: !!report });
   const { data: chatMessages, isLoading: chatLoading } = trpc.reports.getChat.useQuery({ reportId: id }, { enabled: !!report });
@@ -30,8 +33,8 @@ export default function ReportDetailPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submitMutation = trpc.reports.submitReport.useMutation({
     onSuccess: () => {
-      alert('Report finalized and submitted to shore.');
-      window.location.reload();
+      toastManager.add({ title: 'Report submitted', description: 'Finalized and submitted to shore.', type: 'success' });
+      utils.reports.getReport.invalidate({ id });
     },
     onSettled: () => {
       setIsSubmitting(false);
@@ -64,7 +67,7 @@ export default function ReportDetailPage() {
 
   const handleStartCorrection = () => {
     // In a real implementation, this would call an API to clone the report into a new draft
-    alert('Started correction workflow. A new draft has been created.');
+    toastManager.add({ title: 'Correction workflow started', description: 'A new draft has been created.', type: 'info' });
     router.push(`/reports/new`);
   };
 

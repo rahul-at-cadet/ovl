@@ -2,6 +2,8 @@ import { Inter } from "next/font/google";
 import type { Metadata } from "next";
 import "./globals.css";
 import { TRPCProvider } from "@/components/providers/trpc-provider";
+import { ToastProvider, Toaster } from "@/components/ui/toast";
+import { ThemeProvider } from "@/components/providers/theme-provider";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -17,11 +19,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="en"
-      className={`${inter.variable} font-sans h-full antialiased dark`}
+      className={`${inter.variable} font-sans h-full antialiased`}
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col" suppressHydrationWarning>
-        <TRPCProvider>{children}</TRPCProvider>
+        <ThemeProvider>
+          <ToastProvider>
+            <TRPCProvider>{children}</TRPCProvider>
+            <Toaster />
+          </ToastProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

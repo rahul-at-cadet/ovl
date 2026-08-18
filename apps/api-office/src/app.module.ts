@@ -25,10 +25,10 @@ import { ReportsModule } from './reports/reports.module';
       apiKey: process.env.SUPERTOKENS_API_KEY,
       appInfo: {
         appName: 'OVL Office',
-        apiDomain: process.env.API_DOMAIN || 'http://localhost:3000',
-        websiteDomain: process.env.WEBSITE_DOMAIN || 'http://localhost:5173',
+        apiDomain: process.env.API_DOMAIN || 'http://localhost:3001',
+        websiteDomain: process.env.WEBSITE_DOMAIN || 'http://localhost:3000',
         apiBasePath: '/auth',
-        websiteBasePath: '/auth',
+        websiteBasePath: '/login',
       },
     }),
     UsersModule,

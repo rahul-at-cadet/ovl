@@ -1,14 +1,16 @@
 'use client';
 
-import { ReactNode, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import Session, { signOut } from 'supertokens-auth-react/recipe/session';
 import { Globe, LayoutDashboard, Database, Ship, Users, Settings, Bell, Menu, LogOut, Search, Sliders } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { trpc } from '@/lib/trpc';
 
 interface AppShellProps {
@@ -17,9 +19,33 @@ interface AppShellProps {
 
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  
-  const { data: notifications = [], isLoading } = trpc.notifications.list.useQuery();
+  const [sessionChecked, setSessionChecked] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    Session.doesSessionExist().then((exists) => {
+      if (cancelled) return;
+      if (!exists) {
+        router.replace('/login');
+      } else {
+        setSessionChecked(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
+
+  const handleSignOut = async () => {
+    await signOut();
+    router.push('/login');
+  };
+
+  const { data: notifications = [], isLoading } = trpc.notifications.list.useQuery(undefined, {
+    enabled: sessionChecked,
+  });
 
   const navItems = [
     { href: '/', label: 'Fleet Overview', icon: LayoutDashboard },
@@ -29,6 +55,14 @@ export function AppShell({ children }: AppShellProps) {
     { href: '/users', label: 'Users & Roles', icon: Users },
     { href: '/settings', label: 'Global Settings', icon: Settings },
   ];
+
+  if (!sessionChecked) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-500 text-sm">
+        Checking session...
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex overflow-hidden">
@@ -66,10 +100,10 @@ export function AppShell({ children }: AppShellProps) {
         </div>
 
         <div className="p-4 border-t border-slate-800">
-          <Link href="/login" className="flex items-center px-3 py-2.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800/50 transition-colors">
+          <button onClick={handleSignOut} className="w-full flex items-center px-3 py-2.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800/50 transition-colors">
             <LogOut className="w-5 h-5 shrink-0" />
             {isSidebarOpen && <span className="ml-3 font-medium text-sm">Sign Out</span>}
-          </Link>
+          </button>
         </div>
       </aside>
 
@@ -113,10 +147,10 @@ export function AppShell({ children }: AppShellProps) {
                     })}
                   </div>
                   <div className="p-4 border-t border-slate-800 mt-auto shrink-0">
-                    <Link href="/login" className="flex items-center px-3 py-2.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800/50 transition-colors">
+                    <button onClick={handleSignOut} className="w-full flex items-center px-3 py-2.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800/50 transition-colors">
                       <LogOut className="w-5 h-5 shrink-0" />
                       <span className="ml-3 font-medium text-sm">Sign Out</span>
-                    </Link>
+                    </button>
                   </div>
                 </SheetContent>
               </Sheet>
@@ -138,6 +172,7 @@ export function AppShell({ children }: AppShellProps) {
           </div>
 
           <div className="flex items-center space-x-4">
+            <ThemeToggle />
             <Popover>
               <PopoverTrigger
                 render={

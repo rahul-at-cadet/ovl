@@ -107,33 +107,36 @@ export class SyncService {
     try {
       this.logger.log('Requesting downstream config sync from shore...');
 
-      // In a robust implementation, we would query our local SQLite for the max(updatedAt)
-      // to pass as the lastSyncAt cursor. For this MVP, we just fetch all/recent.
-      const response = await this.trpc.client.sync.pullConfig.query({});
+      const vesselId = (await this.db.select().from(schema.configStore).where(eq(schema.configStore.key, 'vessel_id')))[0]?.value;
+      if (!vesselId) {
+        this.logger.debug('Vessel not yet enrolled; skipping config pull.');
+        return;
+      }
 
-      if (response.configs.length > 0) {
-        this.logger.log(
-          `Received ${response.configs.length} updated config keys. Merging locally...`,
-        );
+      const response = await this.trpc.client.sync.pullConfig.query({ vesselId });
 
-        for (const config of response.configs) {
-          // SQLite UPSERT pattern via Drizzle
+      if (response.bundle) {
+        // Skip if we've already applied this exact bundle version (avoids redundant local writes every 30s).
+        const current = (await this.db.select().from(schema.configStore).where(eq(schema.configStore.key, 'config_bundle')))[0];
+        const currentVersionNo = current ? JSON.parse(current.value)?.versionNo : undefined;
+
+        if (currentVersionNo !== response.bundle.versionNo) {
           await this.db
             .insert(schema.configStore)
             .values({
-              key: config.key,
-              value: config.value,
-              updatedAt: config.updatedAt,
+              key: 'config_bundle',
+              value: JSON.stringify(response.bundle),
+              updatedAt: response.syncedAt,
             })
             .onConflictDoUpdate({
               target: schema.configStore.key,
               set: {
-                value: config.value,
-                updatedAt: config.updatedAt,
+                value: JSON.stringify(response.bundle),
+                updatedAt: response.syncedAt,
               },
             });
+          this.logger.log(`Applied config bundle ${response.bundle.bundleId} (version ${response.bundle.versionNo}).`);
         }
-        this.logger.log(`Successfully merged downstream configurations.`);
       }
     } catch (err: any) {
       this.logger.error(`Failed to pull configuration: ${err.message}`);

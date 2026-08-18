@@ -5,16 +5,20 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Ship, Globe, Anchor, Save, Database, User, CheckCircle } from 'lucide-react';
+import { Ship, Globe, Anchor, Save, Database, User, CheckCircle, Copy, Check, AlertTriangle } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useRouter } from 'next/navigation';
+import { useToastManager } from '@/components/ui/toast';
 
 type Step = 'intro' | 'identity' | 'admin' | 'done';
 
 export default function SetupPage() {
   const router = useRouter();
+  const toastManager = useToastManager();
   const [step, setStep] = useState<Step>('intro');
   const { data: setupStatus, refetch } = trpc.setup.status.useQuery();
+  const [createdPassword, setCreatedPassword] = useState('');
+  const [copied, setCopied] = useState(false);
   
   // Identity form state
   const [vesselName, setVesselName] = useState('');
@@ -48,18 +52,32 @@ export default function SetupPage() {
       await refetch();
       setStep('admin');
     } catch (e) {
-      alert('Failed to enroll. Please check inputs.');
+      toastManager.add({ title: 'Failed to enroll', description: 'Please check your inputs and try again.', type: 'error' });
     }
   };
 
   const handleCreateAdmin = async () => {
     try {
       const res = await createUserMutation.mutateAsync({ username, role: 'master', canSubmit: true });
-      alert(`Master admin created! Temporary password: ${res.temporaryPassword}\nPlease save this password securely.`);
-      setStep('done');
+      // Establish a real session for the admin we just created, so they land
+      // on the dashboard already logged in instead of hitting the login wall
+      // the middleware now enforces on every other route.
+      await fetch('http://localhost:3003/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ username, password: res.temporaryPassword }),
+      });
+      setCreatedPassword(res.temporaryPassword);
     } catch (e) {
-      alert('Failed to create admin user.');
+      toastManager.add({ title: 'Failed to create admin user', type: 'error' });
     }
+  };
+
+  const handleCopyPassword = () => {
+    navigator.clipboard.writeText(createdPassword);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
@@ -173,20 +191,52 @@ export default function SetupPage() {
             <CardTitle className="text-sm font-semibold tracking-tight text-zinc-200 flex items-center"><User className="w-4 h-4 mr-2" /> Master Admin</CardTitle>
             <CardDescription className="text-xs text-zinc-500">Create the initial master user to manage this node.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4 pt-6">
-            <div className="space-y-2">
-              <Label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">Username</Label>
-              <Input value={username} onChange={e => setUsername(e.target.value)} className="bg-zinc-950/80 border-zinc-800/80 focus-visible:ring-zinc-700 text-zinc-100 text-sm h-10" />
-            </div>
-            <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 p-3 rounded-md">
-              A temporary password will be generated for this user. You will be required to change it on first login.
-            </p>
-          </CardContent>
-          <CardFooter className="bg-zinc-950/40 border-t border-zinc-800/60 p-4 flex justify-end">
-            <Button onClick={handleCreateAdmin} disabled={!username || createUserMutation.isPending} className="bg-blue-600 hover:bg-blue-500 text-white rounded-md h-9 text-sm font-semibold">
-              {createUserMutation.isPending ? 'Creating...' : 'Create Admin'}
-            </Button>
-          </CardFooter>
+          {!createdPassword ? (
+            <>
+              <CardContent className="space-y-4 pt-6">
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">Username</Label>
+                  <Input value={username} onChange={e => setUsername(e.target.value)} className="bg-zinc-950/80 border-zinc-800/80 focus-visible:ring-zinc-700 text-zinc-100 text-sm h-10" />
+                </div>
+                <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 p-3 rounded-md">
+                  A temporary password will be generated for this user. You will be required to change it on first login.
+                </p>
+              </CardContent>
+              <CardFooter className="bg-zinc-950/40 border-t border-zinc-800/60 p-4 flex justify-end">
+                <Button onClick={handleCreateAdmin} disabled={!username || createUserMutation.isPending} className="bg-blue-600 hover:bg-blue-500 text-white rounded-md h-9 text-sm font-semibold">
+                  {createUserMutation.isPending ? 'Creating...' : 'Create Admin'}
+                </Button>
+              </CardFooter>
+            </>
+          ) : (
+            <>
+              <CardContent className="space-y-4 pt-6 text-center">
+                <div className="bg-emerald-500/10 text-emerald-400 p-3 rounded-md border border-emerald-500/20 text-sm">
+                  Master admin created!
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm text-zinc-400">Temporary Password (reveal once):</p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 text-xl font-mono tracking-wider bg-zinc-900 p-4 rounded border border-zinc-800 select-all text-zinc-100">
+                      {createdPassword}
+                    </code>
+                    <Button variant="outline" onClick={handleCopyPassword} className="h-[52px] w-[52px] p-0 border-zinc-800 bg-zinc-950 text-zinc-300 hover:text-white shrink-0">
+                      {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                    </Button>
+                  </div>
+                </div>
+                <p className="text-xs text-amber-400 flex items-center justify-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  Make sure to copy this now. You won&apos;t be able to see it again.
+                </p>
+              </CardContent>
+              <CardFooter className="bg-zinc-950/40 border-t border-zinc-800/60 p-4 flex justify-end">
+                <Button onClick={() => setStep('done')} className="bg-blue-600 hover:bg-blue-500 text-white rounded-md h-9 text-sm font-semibold">
+                  Continue
+                </Button>
+              </CardFooter>
+            </>
+          )}
         </Card>
       )}
 

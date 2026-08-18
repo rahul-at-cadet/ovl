@@ -13,6 +13,7 @@ import { trpc } from '@/lib/trpc';
 import { useRouter } from 'next/navigation';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AttachmentsSection } from './AttachmentsSection';
+import { useToastManager } from '@/components/ui/toast';
 
 interface ReportFormProps {
   reportId: string;
@@ -20,6 +21,7 @@ interface ReportFormProps {
 
 export function ReportForm({ reportId }: ReportFormProps) {
   const router = useRouter();
+  const toastManager = useToastManager();
   const [serverErrors, setServerErrors] = useState<string[]>([]);
 
   // 1. Fetch Report Draft
@@ -149,8 +151,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
         onSuccess: () => {
           trpcUtils.reports.getReport.invalidate({ id: reportId });
           trpcUtils.reports.listReports.invalidate();
-          alert('Report Submitted to Shore!');
-          window.location.reload();
+          toastManager.add({ title: 'Report submitted', description: 'Submitted to shore.', type: 'success' });
         },
         onError: (err) => setServerErrors([err.message])
       });

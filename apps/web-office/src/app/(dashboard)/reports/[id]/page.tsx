@@ -5,11 +5,14 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, CheckCircle, XCircle, Clock, FileText, User, Ship } from 'lucide-react';
 import Link from 'next/link';
+import { useParams } from 'next/navigation';
 
 import { trpc } from '@/lib/trpc';
 
-export default function ReportDetailPage({ params }: { params: { id: string } }) {
-  const { data: report, isLoading, error } = trpc.reports.get.useQuery({ reportId: params.id });
+export default function ReportDetailPage() {
+  const params = useParams();
+  const id = params.id as string;
+  const { data: report, isLoading, error } = trpc.reports.get.useQuery({ reportId: id });
 
   if (isLoading) {
     return <div className="p-8 text-center text-slate-400">Loading report details...</div>;

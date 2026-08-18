@@ -1,14 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Upload, Plus, FileJson, Layers, Link as LinkIcon } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Upload, Plus, FileJson, Layers, Link as LinkIcon, ShieldAlert, ScrollText, Ship } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { FieldPolicyTab } from "./FieldPolicyTab";
+import { ComplianceTab } from "./ComplianceTab";
+import { VesselConfigsTab } from "./VesselConfigsTab";
+import { ScopeSelector } from "./ScopeSelector";
+import { scopeLabel, type Scope } from "@/lib/config/complianceLogic";
 
 export default function ConfigurationPage() {
   const [activeTab, setActiveTab] = useState("schemas");
@@ -28,6 +41,14 @@ export default function ConfigurationPage() {
             <FileJson className="w-4 h-4" />
             Schemas
           </TabsTrigger>
+          <TabsTrigger value="fieldPolicy" className="flex items-center gap-2">
+            <ShieldAlert className="w-4 h-4" />
+            Field Policy
+          </TabsTrigger>
+          <TabsTrigger value="compliance" className="flex items-center gap-2">
+            <ScrollText className="w-4 h-4" />
+            Compliance
+          </TabsTrigger>
           <TabsTrigger value="bundles" className="flex items-center gap-2">
             <Layers className="w-4 h-4" />
             Config Bundles
@@ -36,10 +57,22 @@ export default function ConfigurationPage() {
             <LinkIcon className="w-4 h-4" />
             Assignments
           </TabsTrigger>
+          <TabsTrigger value="vesselConfigs" className="flex items-center gap-2">
+            <Ship className="w-4 h-4" />
+            Vessel Configs
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="schemas">
           <SchemasTab />
+        </TabsContent>
+
+        <TabsContent value="fieldPolicy">
+          <FieldPolicyTab />
+        </TabsContent>
+
+        <TabsContent value="compliance">
+          <ComplianceTab />
         </TabsContent>
 
         <TabsContent value="bundles">
@@ -48,6 +81,10 @@ export default function ConfigurationPage() {
 
         <TabsContent value="assignments">
           <AssignmentsTab />
+        </TabsContent>
+
+        <TabsContent value="vesselConfigs">
+          <VesselConfigsTab />
         </TabsContent>
       </Tabs>
     </div>
@@ -181,43 +218,99 @@ function SchemasTab() {
 
 function BundlesTab() {
   const { data: bundles, isLoading, refetch } = trpc.configBundles.list.useQuery();
+  const { data: preview } = trpc.configBundles.preview.useQuery();
+  const { data: assignments } = trpc.configBundles.listAssignments.useQuery();
+  const { data: vessels = [] } = trpc.vessels.list.useQuery();
   const publishBundle = trpc.configBundles.publish.useMutation({
     onSuccess: () => refetch(),
   });
 
   const [label, setLabel] = useState("");
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const handleCompose = async () => {
-    // In a real app, this would open a composer modal to select schemas
-    await publishBundle.mutateAsync({
-      label: label || "New Config Bundle",
-      schemaVersions: [],
-    });
+  const assignedToByBundle = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const a of assignments ?? []) {
+      const list = map.get(a.bundleId) ?? [];
+      list.push(scopeLabel(a.scope as Scope, vessels as any));
+      map.set(a.bundleId, list);
+    }
+    return map;
+  }, [assignments, vessels]);
+
+  const handlePublish = async () => {
+    await publishBundle.mutateAsync({ label: label || "New Config Bundle" });
     setLabel("");
+    setConfirmOpen(false);
   };
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-heading font-medium text-slate-200">Config Bundles</h2>
-        <div className="flex gap-2">
-          <Input 
-            placeholder="Bundle Label" 
-            value={label}
-            onChange={e => setLabel(e.target.value)}
-            className="w-48 bg-slate-900 border-slate-800 text-slate-200"
-          />
-          <Button onClick={handleCompose} disabled={publishBundle.isPending} className="bg-emerald-600 hover:bg-emerald-700 text-white">
-            <Plus className="w-4 h-4 mr-2" />
-            Compose New
-          </Button>
-        </div>
       </div>
 
       <Card className="bg-slate-900 border-slate-800">
+        <CardHeader>
+          <CardTitle className="text-slate-100 text-base">Compose New Bundle</CardTitle>
+          <CardDescription>
+            Captures a snapshot of every published schema&apos;s latest version, field policy, regulatory
+            profile, cadence, and rule-severity setting right now. Publishing does not change what&apos;s
+            assigned to any vessel or group until you assign it below.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {preview && (
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="secondary">{preview.counts.schemaVersions} schemas</Badge>
+              <Badge variant="secondary">{preview.counts.fieldPolicies} field policy rows</Badge>
+              <Badge variant="secondary">{preview.counts.regulatoryProfiles} profile rows</Badge>
+              <Badge variant="secondary">{preview.counts.cadenceRules} cadence rows</Badge>
+              <Badge variant="secondary">{preview.counts.ruleSeverities} severity rows</Badge>
+            </div>
+          )}
+          <div className="flex gap-2">
+            <Input
+              placeholder="Bundle Label"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              className="w-64 bg-slate-950 border-slate-800 text-slate-200"
+            />
+            <Button onClick={() => setConfirmOpen(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+              <Plus className="w-4 h-4 mr-2" />
+              Publish Bundle
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Publish this configuration snapshot?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-slate-400">
+            This creates a new immutable configuration bundle from the current live settings. It will not be
+            applied to any vessel until you assign it in the Assignments tab.
+          </p>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handlePublish} disabled={publishBundle.isPending} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+              {publishBundle.isPending ? "Publishing..." : "Publish"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Card className="bg-slate-900 border-slate-800">
+        <CardHeader>
+          <CardTitle className="text-slate-100 text-base">Publish History</CardTitle>
+        </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
-             <div className="p-6 text-slate-400">Loading bundles...</div>
+            <div className="p-6 text-slate-400">Loading bundles...</div>
           ) : bundles?.length === 0 ? (
             <div className="text-center py-12 text-slate-500 border-dashed border-slate-800 rounded-lg">
               <Layers className="w-8 h-8 mx-auto mb-3 opacity-50" />
@@ -228,18 +321,40 @@ function BundlesTab() {
               <TableHeader>
                 <TableRow className="border-slate-800 hover:bg-transparent">
                   <TableHead>Label</TableHead>
-                  <TableHead>ID</TableHead>
-                  <TableHead>Schemas Included</TableHead>
-                  <TableHead>Published At</TableHead>
+                  <TableHead>Contents</TableHead>
+                  <TableHead>Published</TableHead>
+                  <TableHead>Assigned To</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {bundles?.map((b) => (
                   <TableRow key={b.id} className="border-slate-800 hover:bg-slate-800/50">
-                    <TableCell className="font-medium text-slate-200">{b.label}</TableCell>
-                    <TableCell className="text-slate-500 font-mono text-xs">{b.id}</TableCell>
-                    <TableCell className="text-slate-400">{(b.schemaVersions as any[]).length}</TableCell>
-                    <TableCell className="text-slate-400">{new Date(b.publishedAt).toLocaleDateString()}</TableCell>
+                    <TableCell>
+                      <div className="font-medium text-slate-200">{b.label || "(unlabeled)"}</div>
+                      <div className="text-xs text-slate-500">by {b.publishedBy}</div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        <Badge variant="outline">{b.counts.schemaVersions} schemas</Badge>
+                        <Badge variant="outline">{b.counts.fieldPolicies} policy</Badge>
+                        <Badge variant="outline">{b.counts.regulatoryProfiles} profiles</Badge>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-slate-400">{new Date(b.publishedAt).toLocaleString()}</TableCell>
+                    <TableCell>
+                      {assignedToByBundle.has(b.id) ? (
+                        <div className="flex flex-col gap-1">
+                          {assignedToByBundle.get(b.id)!.map((s, i) => (
+                            <span key={i} className="text-xs text-emerald-400">
+                              {s}
+                            </span>
+                          ))}
+                          <span className="text-xs text-slate-500">Pending next sync</span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-slate-500">Not assigned</span>
+                      )}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -252,22 +367,79 @@ function BundlesTab() {
 }
 
 function AssignmentsTab() {
-  const { data: assignments, isLoading } = trpc.configBundles.listAssignments.useQuery();
+  const { data: assignments, isLoading, refetch } = trpc.configBundles.listAssignments.useQuery();
+  const { data: bundles = [] } = trpc.configBundles.list.useQuery();
+  const { data: vessels = [] } = trpc.vessels.list.useQuery();
+
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [assignScope, setAssignScope] = useState<Scope>({ type: "fleet" });
+  const [bundleId, setBundleId] = useState("");
+
+  const assignBundle = trpc.configBundles.assign.useMutation({
+    onSuccess: () => {
+      refetch();
+      setDialogOpen(false);
+      setBundleId("");
+    },
+  });
+
+  const canAssign = !!bundleId && (assignScope.type === "fleet" || !!assignScope.key);
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-heading font-medium text-slate-200">Bundle Assignments</h2>
-        <Button className="bg-blue-600 hover:bg-blue-700 text-white">
+        <Button onClick={() => setDialogOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white">
           <LinkIcon className="w-4 h-4 mr-2" />
           Assign Bundle
         </Button>
       </div>
 
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assign a Bundle</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <ScopeSelector scope={assignScope} onChange={setAssignScope} vessels={vessels as any} />
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-400 uppercase font-semibold tracking-wider">Bundle</Label>
+              <select
+                value={bundleId}
+                onChange={(e) => setBundleId(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-md h-9 px-2 text-sm"
+              >
+                <option value="">Select a bundle…</option>
+                {bundles.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.label || b.id} ({new Date(b.publishedAt).toLocaleDateString()})
+                  </option>
+                ))}
+              </select>
+            </div>
+            {!canAssign && (
+              <p className="text-xs text-amber-400">Select both a bundle and a target scope to continue.</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!canAssign || assignBundle.isPending}
+              onClick={() => assignBundle.mutate({ scope: assignScope, bundleId })}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              {assignBundle.isPending ? "Assigning..." : "Assign"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Card className="bg-slate-900 border-slate-800">
         <CardContent className="p-0">
           {isLoading ? (
-             <div className="p-6 text-slate-400">Loading assignments...</div>
+            <div className="p-6 text-slate-400">Loading assignments...</div>
           ) : assignments?.length === 0 ? (
             <div className="text-center py-12 text-slate-500 border-dashed border-slate-800 rounded-lg">
               <LinkIcon className="w-8 h-8 mx-auto mb-3 opacity-50" />
@@ -278,18 +450,16 @@ function AssignmentsTab() {
               <TableHeader>
                 <TableRow className="border-slate-800 hover:bg-transparent">
                   <TableHead>Scope</TableHead>
-                  <TableHead>Target</TableHead>
-                  <TableHead>Bundle ID</TableHead>
+                  <TableHead>Bundle</TableHead>
                   <TableHead>Assigned At</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {assignments?.map((a, i) => (
                   <TableRow key={i} className="border-slate-800 hover:bg-slate-800/50">
-                    <TableCell className="capitalize text-slate-200">{a.scopeType}</TableCell>
-                    <TableCell className="text-slate-400">{a.vesselId || a.groupTag || 'Fleet Wide'}</TableCell>
-                    <TableCell className="text-slate-500 font-mono text-xs">{a.bundleId}</TableCell>
-                    <TableCell className="text-slate-400">{new Date(a.assignedAt).toLocaleDateString()}</TableCell>
+                    <TableCell className="text-slate-200">{scopeLabel(a.scope as Scope, vessels as any)}</TableCell>
+                    <TableCell className="text-slate-400">{a.bundleLabel || a.bundleId}</TableCell>
+                    <TableCell className="text-slate-400">{new Date(a.assignedAt).toLocaleString()}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
