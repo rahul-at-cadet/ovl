@@ -25,14 +25,22 @@ export function AppShell({ children }: AppShellProps) {
 
   useEffect(() => {
     let cancelled = false;
-    Session.doesSessionExist().then((exists) => {
-      if (cancelled) return;
-      if (!exists) {
-        router.replace('/login');
-      } else {
-        setSessionChecked(true);
-      }
-    });
+    Session.doesSessionExist()
+      .then((exists) => {
+        if (cancelled) return;
+        if (!exists) {
+          router.replace('/login');
+        } else {
+          setSessionChecked(true);
+        }
+      })
+      .catch((err) => {
+        // If the session check itself fails (e.g. a transient refresh
+        // error), fail safe to the login page rather than hanging on
+        // "Checking session..." forever.
+        console.error('Session check failed:', err);
+        if (!cancelled) router.replace('/login');
+      });
     return () => {
       cancelled = true;
     };
