@@ -14,6 +14,7 @@ import { useRouter } from 'next/navigation';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AttachmentsSection } from './AttachmentsSection';
 import { useToastManager } from '@/components/ui/toast';
+import { effectiveState, type SchemaField } from '@/lib/config/fieldPolicyLogic';
 
 interface ReportFormProps {
   reportId: string;
@@ -23,6 +24,12 @@ export function ReportForm({ reportId }: ReportFormProps) {
   const router = useRouter();
   const toastManager = useToastManager();
   const [serverErrors, setServerErrors] = useState<string[]>([]);
+  // Which section tab is active, so Save/autosave persists the section the
+  // user is actually looking at — this used to always write to sections[0]
+  // regardless of the selected tab (see the section: sections[0] comment
+  // this replaced), silently discarding edits to any other section on
+  // every autosave tick.
+  const [activeSection, setActiveSection] = useState<string | null>(null);
 
   // 1. Fetch Report Draft
   const { data: report, isLoading: isReportLoading, error: reportError } = trpc.reports.getReport.useQuery({
@@ -39,6 +46,41 @@ export function ReportForm({ reportId }: ReportFormProps) {
   const { data: telemetry, isLoading: telemetryLoading } = trpc.system.getTelemetry.useQuery(undefined, {
     enabled: !!schema,
   });
+
+  // Field-level policy (hidden/optional/recommended/mandatory, per-event
+  // narrowing) synced down from office in the config bundle — see
+  // reports.getFieldPolicy's own comment for where this data comes from.
+  // Hidden fields never render; mandatory ones get a required marker;
+  // fields scoped to other event types than this report's own don't show.
+  const { data: fieldPolicy } = trpc.reports.getFieldPolicy.useQuery(
+    { schemaName: report?.schemaName || '' },
+    { enabled: !!report?.schemaName }
+  );
+  const policy = fieldPolicy?.policy ?? {};
+  const policyEvents = fieldPolicy?.events ?? {};
+
+  // 3. Resolve curated enumRef fields (e.g. "fuel-types") to their real
+  // codes, mirroring the original's api.getEnum(ref) — an enum field
+  // with no resolvable enumRef (or an enumRef the registry doesn't know)
+  // falls back to unrestricted text entry rather than an empty dropdown.
+  const enumRefs = useMemo(
+    () => [...new Set(
+      (schema?.fields ?? [])
+        .filter((f) => f.type === 'enum' && f.enumRef)
+        .map((f) => f.enumRef as string)
+    )],
+    [schema]
+  );
+  const enumQueries = trpc.useQueries((t) =>
+    enumRefs.map((ref) => t.reports.getEnum({ name: ref }))
+  );
+  const enumValuesByRef = useMemo(() => {
+    const out: Record<string, string[]> = {};
+    enumRefs.forEach((ref, i) => {
+      out[ref] = enumQueries[i]?.data ?? [];
+    });
+    return out;
+  }, [enumRefs, enumQueries]);
 
   const submitReportMutation = trpc.reports.submitReport.useMutation();
   const saveSectionMutation = trpc.reports.saveSection.useMutation();
@@ -160,7 +202,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
       // In a robust implementation, we would track the active tab state
       saveSectionMutation.mutate({
         id: reportId,
-        section: sections[0], // Only saving first section for MVP
+        section: activeSection ?? sections[0],
         changes: parsedFields
       }, {
         onSuccess: () => {
@@ -215,7 +257,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
               {telemetryLoading ? 'Reading Sensors...' : 'Pre-fill from Sensors'}
             </Button>
           </div>
-          <Tabs defaultValue={sections[0]} className="w-full">
+          <Tabs value={activeSection ?? sections[0]} onValueChange={setActiveSection} className="w-full">
             {sections.length > 1 && (
               <CardHeader className="border-b border-border pb-0 pt-4 px-4">
                 <TabsList className="bg-background/50 border border-border w-full justify-start h-auto p-1 overflow-x-auto">
@@ -230,14 +272,45 @@ export function ReportForm({ reportId }: ReportFormProps) {
 
             <CardContent className="pt-6">
               <form onSubmit={(e) => e.preventDefault()} noValidate>
-                {sections.map(section => (
+                {sections.map(section => {
+                  const sectionFields = schema.fields
+                    .filter(f => f.section === section || (!f.section && section === sections[0]))
+                    .map(f => ({
+                      field: f,
+                      state: effectiveState(
+                        { ...f, section: f.section || section, relevance: f.relevance || '' } as SchemaField,
+                        policy,
+                        policyEvents,
+                        report?.eventType,
+                      ),
+                    }))
+                    .filter(({ state }) => state !== 'hidden');
+                  // "attachments" is a real schema section with no form
+                  // fields of its own — the upload widget belongs here,
+                  // not permanently visible below every other tab (it used
+                  // to render unconditionally under the card, so it showed
+                  // up regardless of which tab — including this one — was
+                  // selected).
+                  if (section === 'attachments' && sectionFields.length === 0) {
+                    return (
+                      <TabsContent key={section} value={section} className="space-y-6 mt-0">
+                        <AttachmentsSection reportId={reportId} />
+                      </TabsContent>
+                    );
+                  }
+                  return (
                   <TabsContent key={section} value={section} className="space-y-6 mt-0">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {schema.fields.filter(f => f.section === section || (!f.section && section === sections[0])).map((field) => (
+                      {sectionFields.map(({ field, state }) => (
                         <div key={field.name} className="space-y-2">
                           <Label htmlFor={field.name} className="text-foreground flex items-center">
                             {field.label || field.name}
-                            {field.schemaMandatory && <span className="text-red-400 ml-1">*</span>}
+                            {(state === 'schemaMandatory' || state === 'companyMandatory') && (
+                              <span className="text-red-400 ml-1">*</span>
+                            )}
+                            {state === 'recommended' && (
+                              <span className="ml-2 text-[10px] font-normal uppercase tracking-wide text-amber-500/80">Recommended</span>
+                            )}
                           </Label>
                           {field.description && (
                             <p className="text-[10px] text-muted-foreground">{field.description}</p>
@@ -245,18 +318,36 @@ export function ReportForm({ reportId }: ReportFormProps) {
                           <Controller
                             name={field.name}
                             control={control}
-                            rules={{ required: field.schemaMandatory }}
+                            rules={{ required: state === 'schemaMandatory' || state === 'companyMandatory' }}
                             render={({ field: controllerField }) => {
                               if (field.type === 'enum') {
+                                const enumValues = field.enumRef ? enumValuesByRef[field.enumRef] : undefined;
+                                // No resolvable enumRef (or the registry has no
+                                // file for it, e.g. "offshore-modes") — fall back
+                                // to unrestricted text entry rather than an
+                                // empty, unusable dropdown.
+                                if (!enumValues || enumValues.length === 0) {
+                                  return (
+                                    <Input
+                                      name={controllerField.name}
+                                      onBlur={controllerField.onBlur}
+                                      ref={controllerField.ref}
+                                      value={controllerField.value ?? ''}
+                                      onChange={(e) => controllerField.onChange(e.target.value)}
+                                      type="text"
+                                      className="bg-background/50 border-border focus-visible:ring-blue-500 text-foreground"
+                                    />
+                                  );
+                                }
                                 return (
-                                  <Select onValueChange={controllerField.onChange} value={controllerField.value}>
+                                  <Select onValueChange={controllerField.onChange} value={controllerField.value ?? ''}>
                                     <SelectTrigger className="bg-background/50 border-border text-foreground focus:ring-blue-500">
                                       <SelectValue placeholder="Select an option" />
                                     </SelectTrigger>
                                     <SelectContent className="bg-card border-border text-foreground">
-                                      {/* Note: In a full implementation, enum options would come from the schema or a registry */}
-                                      <SelectItem value="Option1">Option 1</SelectItem>
-                                      <SelectItem value="Option2">Option 2</SelectItem>
+                                      {enumValues.map((code) => (
+                                        <SelectItem key={code} value={code}>{code}</SelectItem>
+                                      ))}
                                     </SelectContent>
                                   </Select>
                                 );
@@ -293,22 +384,11 @@ export function ReportForm({ reportId }: ReportFormProps) {
                       ))}
                     </div>
                   </TabsContent>
-                ))}
+                  );
+                })}
               </form>
             </CardContent>
           </Tabs>
-        </Card>
-
-        <AttachmentsSection reportId={reportId} />
-        <Card className="bg-card/50 border-border mt-6">
-          <CardHeader>
-            <CardTitle className="text-sm text-muted-foreground">Debug: Form Values</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <pre className="text-xs text-foreground overflow-auto max-h-60">
-              {JSON.stringify(formValues, null, 2)}
-            </pre>
-          </CardContent>
         </Card>
       </div>
 

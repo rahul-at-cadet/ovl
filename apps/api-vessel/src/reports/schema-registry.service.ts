@@ -17,6 +17,8 @@ export type OvdField = {
   label?: string;
   section?: string;
   description?: string;
+  enumRef?: string | null;
+  relevance?: string;
 };
 
 export type OvdSchema = {
@@ -30,9 +32,11 @@ export class SchemaRegistryService implements OnModuleInit {
   private readonly logger = new Logger(SchemaRegistryService.name);
   private readonly compilers = new Map<string, TypeCheck<any>>();
   private readonly originalSchemas = new Map<string, OvdSchema>();
+  private readonly enums = new Map<string, string[]>();
 
   onModuleInit() {
     this.loadSchemas();
+    this.loadEnums();
   }
 
   private loadSchemas() {
@@ -64,6 +68,42 @@ export class SchemaRegistryService implements OnModuleInit {
         this.logger.error(`Failed to compile schema ${file}: ${err.message}`);
       }
     }
+  }
+
+  // Curated enumRef files (e.g. bunker-report's Fuel_Type field pointing
+  // at "fuel-types") — ported from the original's pkg/schema.ResolveEnum,
+  // same {"values":[{"code": "..."}, ...]} shape, code-only resolution.
+  // An enumRef with no matching file here (e.g. "offshore-modes", which
+  // uses an incompatible document shape) is left unresolved and the
+  // frontend falls back to unrestricted text entry, matching the
+  // original's behavior for enums with no generic resolver.
+  private loadEnums() {
+    const enumsDir = path.join(process.cwd(), 'src', 'schemas', 'enums');
+    if (!fs.existsSync(enumsDir)) {
+      this.logger.warn(`Enums directory not found at ${enumsDir}`);
+      return;
+    }
+
+    const files = fs.readdirSync(enumsDir).filter((f) => f.endsWith('.json'));
+    for (const file of files) {
+      try {
+        const content = fs.readFileSync(path.join(enumsDir, file), 'utf8');
+        const doc: { enumName?: string; values: { code: string }[] } = JSON.parse(content);
+        const name = doc.enumName || file.replace(/\.json$/, '');
+        this.enums.set(name, doc.values.map((v) => v.code));
+        this.logger.log(`Loaded enum: ${name} (${doc.values.length} codes)`);
+      } catch (err: any) {
+        this.logger.error(`Failed to load enum ${file}: ${err.message}`);
+      }
+    }
+  }
+
+  /**
+   * Resolves a curated field's enumRef to its valid codes, or undefined
+   * if enumRef isn't a known, generically-resolvable enum.
+   */
+  resolveEnum(enumRef: string): string[] | undefined {
+    return this.enums.get(enumRef);
   }
 
   private buildTypeBoxSchema(schemaDef: OvdSchema): TSchema {

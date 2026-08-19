@@ -52,7 +52,7 @@ export function AppShell({ children }: AppShellProps) {
   ];
 
   return (
-    <div className="min-h-screen bg-[#0a0a0c] text-foreground flex overflow-hidden font-sans selection:bg-indigo-500/30">
+    <div className="min-h-screen bg-background text-foreground flex overflow-hidden font-sans selection:bg-indigo-500/30">
       
       {/* Mobile Sidebar Overlay */}
       {isMobileSidebarOpen && (
@@ -70,7 +70,7 @@ export function AppShell({ children }: AppShellProps) {
       >
         <div className="h-16 flex items-center px-4 border-b border-border/40 relative">
           {isSidebarOpen && (
-            <span className="font-semibold text-[15px] tracking-wide whitespace-nowrap bg-clip-text text-transparent bg-gradient-to-r from-zinc-100 to-zinc-400">
+            <span className="font-semibold text-[15px] tracking-wide whitespace-nowrap bg-clip-text text-transparent bg-gradient-to-r from-zinc-900 to-zinc-600 dark:from-zinc-100 dark:to-zinc-400">
               Cadetlabs
             </span>
           )}
@@ -90,13 +90,13 @@ export function AppShell({ children }: AppShellProps) {
             return (
               <Link key={item.href} href={item.href} className="block group">
                 <div className={`flex items-center px-3 py-2.5 rounded-xl transition-all duration-200 relative overflow-hidden
-                  ${isActive 
-                    ? 'bg-indigo-500/10 text-indigo-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] ring-1 ring-inset ring-indigo-500/20' 
+                  ${isActive
+                    ? 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] ring-1 ring-inset ring-indigo-500/20'
                     : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'}`}>
                   {isActive && (
                     <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-1/2 bg-indigo-500 rounded-r-full shadow-[0_0_8px_rgba(99,102,241,0.8)]" />
                   )}
-                  <item.icon className={`w-[18px] h-[18px] shrink-0 z-10 transition-colors ${isActive ? 'text-indigo-400' : 'text-muted-foreground group-hover:text-foreground'}`} />
+                  <item.icon className={`w-[18px] h-[18px] shrink-0 z-10 transition-colors ${isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-muted-foreground group-hover:text-foreground'}`} />
                   {isSidebarOpen && (
                     <span className="ml-3.5 font-medium text-[13px] z-10 whitespace-nowrap tracking-wide">{item.label}</span>
                   )}
@@ -123,7 +123,7 @@ export function AppShell({ children }: AppShellProps) {
       </aside>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col h-screen overflow-hidden bg-gradient-to-br from-[#0a0a0c] to-[#121216]">
+      <div className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Top Header */}
         <header className="h-16 bg-background/60 backdrop-blur-xl border-b border-border/50 flex items-center justify-between px-4 lg:px-8 z-10 shrink-0 sticky top-0 shadow-sm">
           <div className="flex items-center gap-4">

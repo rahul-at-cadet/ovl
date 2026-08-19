@@ -70,7 +70,11 @@ export default function SetupPage() {
       });
       setCreatedPassword(res.temporaryPassword);
     } catch (e) {
-      toastManager.add({ title: 'Failed to create admin user', type: 'error' });
+      toastManager.add({
+        title: 'Failed to create admin user',
+        description: e instanceof Error ? e.message : undefined,
+        type: 'error',
+      });
     }
   };
 

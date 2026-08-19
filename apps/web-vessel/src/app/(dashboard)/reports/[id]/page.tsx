@@ -231,7 +231,7 @@ export default function ReportDetailPage() {
                 <input
                   type="text"
                   placeholder="Type a message..."
-                  className="flex-1 bg-card border border-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="flex-1 bg-card border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-blue-500"
                   value={chatInput}
                   onChange={e => setChatInput(e.target.value)}
                   onKeyDown={e => {

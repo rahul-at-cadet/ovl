@@ -104,13 +104,13 @@ export default function DashboardPage() {
           
           {/* Suggested Next Report moved into main column */}
           {suggestions && suggestions.length > 0 && (
-            <Card className="bg-gradient-to-r from-blue-900/20 to-zinc-900/50 border-blue-800/50 rounded-xl">
+            <Card className="bg-gradient-to-r from-blue-500/10 to-muted/50 border-blue-500/30 rounded-xl">
               <CardHeader className="pb-2 pt-4 px-5">
-                <CardTitle className="text-[11px] font-semibold text-blue-400 uppercase tracking-widest">Suggested Next Report</CardTitle>
+                <CardTitle className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-widest">Suggested Next Report</CardTitle>
               </CardHeader>
               <CardContent className="flex flex-row justify-between items-center px-5 pb-4">
                 <div>
-                  <div className="text-xl font-bold text-blue-100">{suggestions[0]}</div>
+                  <div className="text-xl font-bold text-foreground">{suggestions[0]}</div>
                   {isOverdue && <p className="text-[11px] text-red-400 font-semibold mt-0.5">Report overdue by {overdueByStr}</p>}
                 </div>
                 <Button size="sm" onClick={() => router.push('/reports/new')} className="bg-blue-600 hover:bg-blue-500 text-white rounded-lg h-8 px-4 text-xs font-medium">
@@ -155,7 +155,7 @@ export default function DashboardPage() {
           ) : (
             <div className="space-y-4">
               <Card className="bg-background/40 border-border/60 backdrop-blur-sm rounded-xl overflow-hidden shadow-xl">
-                <div className="divide-y divide-zinc-800/50">
+                <div className="divide-y divide-border">
                   {inProgress.map(report => (
                     <div 
                       key={report.reportId} 
@@ -222,7 +222,7 @@ export default function DashboardPage() {
             </Card>
           ) : (
             <Card className="bg-background/40 border-border/60 backdrop-blur-sm rounded-xl overflow-hidden">
-              <div className="divide-y divide-zinc-800/50">
+              <div className="divide-y divide-border">
                 {recent.map((report) => (
                   <div 
                     key={report.reportId} 

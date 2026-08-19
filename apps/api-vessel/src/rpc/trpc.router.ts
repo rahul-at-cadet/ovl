@@ -12,6 +12,7 @@ import { eq } from 'drizzle-orm';
 import * as schema from '@ovl/vessel-database';
 import { TRPCError } from '@trpc/server';
 import * as jwt from 'jsonwebtoken';
+import * as crypto from 'crypto';
 
 export interface Context {
   req: any;
@@ -93,6 +94,11 @@ const GetSchemaInputSchema = Type.Object({
 });
 const GetSchemaCompiler = TypeCompiler.Compile(GetSchemaInputSchema);
 
+const GetEnumInputSchema = Type.Object({
+  name: Type.String(),
+});
+const GetEnumCompiler = TypeCompiler.Compile(GetEnumInputSchema);
+
 const UpdateSettingsSchema = Type.Record(Type.String(), Type.String());
 const UpdateSettingsCompiler = TypeCompiler.Compile(UpdateSettingsSchema);
 
@@ -121,6 +127,7 @@ const AdminResetPasswordSchema = Type.Object({
 const AdminResetPasswordCompiler = TypeCompiler.Compile(AdminResetPasswordSchema);
 
 import { SyncService } from '../sync/sync.service';
+import { AuthService } from '../auth/auth.service';
 
 const SyncStatusSchema = Type.Object({
   enrolled: Type.Boolean(),
@@ -140,6 +147,7 @@ export class TrpcRouter {
     private readonly sensorsService: SensorsService,
     private readonly vmsService: VmsService,
     private readonly syncService: SyncService,
+    private readonly authService: AuthService,
     @Inject(DATABASE_CONNECTION)
     private readonly db: BetterSQLite3Database<typeof schema>,
   ) {}
@@ -238,6 +246,55 @@ export class TrpcRouter {
           // Hardcoded suggestions based on standard voyage events
           return ['NOON', 'ARRIVAL', 'DEPARTURE', 'BUNKER_OPERATION'];
         }),
+      // Resolves a curated field's enumRef (e.g. "fuel-types") to its
+      // valid codes. Returns an empty array for an enumRef with no
+      // generic resolver — the form falls back to unrestricted text
+      // entry for those, matching the original's behavior.
+      getEnum: publicProcedure
+        .input((val: unknown) => {
+          if (!GetEnumCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof GetEnumInputSchema>;
+        })
+        .query(async ({ input }) => {
+          return this.schemaRegistryService.resolveEnum(input.name) ?? [];
+        }),
+      // Field-level policy (hidden/optional/recommended/mandatory,
+      // prefill class, per-event narrowing) for one schema, read from the
+      // config bundle office already syncs down (SyncService.pullConfiguration
+      // -> configStore key "config_bundle") — no new sync plumbing needed,
+      // this just exposes what's already on the vessel. Mirrors office's
+      // fieldPolicies.get shape (policy/prefill/events maps keyed by field
+      // name) so the frontend's effectiveState/appliesToEvent logic, ported
+      // from apps/web-office/src/lib/config/fieldPolicyLogic.ts, works
+      // identically on both sides.
+      getFieldPolicy: publicProcedure
+        .input((val: unknown) => {
+          if (!GetSchemaCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof GetSchemaInputSchema>;
+        })
+        .query(async ({ input }) => {
+          const empty = { policy: {}, prefill: {}, events: {} };
+          const rows = await this.db.select().from(schema.configStore).where(eq(schema.configStore.key, 'config_bundle'));
+          if (rows.length === 0) return empty;
+          try {
+            const bundle = JSON.parse(rows[0].value);
+            // Reports store schemaName with a ".json" suffix (see
+            // reports.getReport's response) but the config bundle's own
+            // schema entries — and schemaRegistryService.getSchema's own
+            // normalization — use the bare name. Strip it the same way so
+            // this lookup doesn't silently miss.
+            const bareSchemaName = input.schemaName.replace(/\.json$/, '');
+            const match = (bundle.schemas || []).find((s: any) => s.schemaName === bareSchemaName);
+            if (!match) return empty;
+            return {
+              policy: match.policy || {},
+              prefill: match.prefill || {},
+              events: match.events || {},
+            };
+          } catch {
+            return empty;
+          }
+        }),
     }),
     sync: router({
       status: publicProcedure.query(async () => {
@@ -301,28 +358,17 @@ export class TrpcRouter {
             }
           }
 
-          const argon2 = await import('argon2');
-          const crypto = await import('crypto');
-
+          // Username-taken and role=master checks, temporary-password
+          // generation, and the insert itself now live in
+          // AuthService.createLocalUser — the shared core this mutation
+          // and applyUserCommand (office-queued remote commands, applied
+          // in SyncService) both call, so the two entry points can't drift
+          // on what's allowed the way two separate copies eventually would.
           const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$';
           const bytes = crypto.randomBytes(12);
           const temporaryPassword = Array.from(bytes).map((b: number) => chars[b % chars.length]).join('');
-          
-          const passwordHash = await argon2.hash(temporaryPassword);
-          const id = crypto.randomUUID();
-          
-          await this.db.insert(schema.users).values({
-            id,
-            username: input.username,
-            passwordHash,
-            role: input.role,
-            canSubmit: input.canSubmit,
-            mustChangePassword: true,
-            active: true,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          });
-          
+          const id = await this.authService.createLocalUser(input.username, input.role, temporaryPassword, input.canSubmit);
+
           return { id, temporaryPassword };
         }),
       updateStatus: protectedProcedure

@@ -20,7 +20,7 @@ export class AuthController {
       maxAge: 24 * 60 * 60 * 1000, // 1 day
     });
 
-    return { success: true, mustChangePassword: user.mustChangePassword === 1 };
+    return { success: true, mustChangePassword: !!user.mustChangePassword };
   }
 
   @Post('logout')

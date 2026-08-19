@@ -13,6 +13,7 @@ import { SchemaVersionsService } from '../config/schema-versions/schema-versions
 import { FieldPolicyService } from '../config/field-policy/field-policy.service';
 import { ComplianceService } from '../config/compliance/compliance.service';
 import { ConfigBundleService } from '../config/config-bundle/config-bundle.service';
+import { VesselUsersService } from '../vessels/vessel-users.service';
 import { Scope } from '../config/logic/scope';
 import { SupertokensService } from '../auth/supertokens.service';
 import Session from 'supertokens-node/recipe/session';
@@ -63,8 +64,60 @@ const PushEventsCompiler = TypeCompiler.Compile(PushEventsSchema);
 const PullConfigInputSchema = Type.Object({
   vesselId: Type.String(),
   lastSyncAt: Type.Optional(Type.String()),
+  // Architecture 9.3/12.4's remote user administration, piggybacked on
+  // this same check-in rather than a dedicated RPC (mirrors
+  // ovl/office/syncservice's SyncStatus fields of the same names): the
+  // vessel's full current roster (mirrored into vessel_users wholesale)
+  // and the command IDs it confirms applying since its last check-in.
+  users: Type.Optional(Type.Array(Type.Object({
+    username: Type.String(),
+    role: Type.String(),
+    active: Type.Boolean(),
+    canSubmit: Type.Boolean(),
+    updatedAt: Type.String(),
+  }))),
+  appliedUserCommandIds: Type.Optional(Type.Array(Type.String())),
 });
 const PullConfigInputCompiler = TypeCompiler.Compile(PullConfigInputSchema);
+
+const VesselIdInputSchema = Type.Object({
+  vesselId: Type.String(),
+});
+const VesselIdInputCompiler = TypeCompiler.Compile(VesselIdInputSchema);
+
+const QueueCreateUserSchema = Type.Object({
+  vesselId: Type.String(),
+  username: Type.String(),
+  role: Type.String(),
+});
+const QueueCreateUserCompiler = TypeCompiler.Compile(QueueCreateUserSchema);
+
+const QueueUsernameActionSchema = Type.Object({
+  vesselId: Type.String(),
+  username: Type.String(),
+});
+const QueueUsernameActionCompiler = TypeCompiler.Compile(QueueUsernameActionSchema);
+
+const QueueSetRoleSchema = Type.Object({
+  vesselId: Type.String(),
+  username: Type.String(),
+  role: Type.String(),
+});
+const QueueSetRoleCompiler = TypeCompiler.Compile(QueueSetRoleSchema);
+
+const QueueSetActiveSchema = Type.Object({
+  vesselId: Type.String(),
+  username: Type.String(),
+  active: Type.Boolean(),
+});
+const QueueSetActiveCompiler = TypeCompiler.Compile(QueueSetActiveSchema);
+
+const QueueSetCanSubmitSchema = Type.Object({
+  vesselId: Type.String(),
+  username: Type.String(),
+  canSubmit: Type.Boolean(),
+});
+const QueueSetCanSubmitCompiler = TypeCompiler.Compile(QueueSetCanSubmitSchema);
 
 const CreateVesselSchema = Type.Object({
   name: Type.String(),
@@ -261,6 +314,7 @@ export class TrpcRouter {
     private readonly fieldPolicyService: FieldPolicyService,
     private readonly complianceService: ComplianceService,
     private readonly configBundleService: ConfigBundleService,
+    private readonly vesselUsersService: VesselUsersService,
     private readonly supertokensService: SupertokensService,
   ) {}
 
@@ -397,9 +451,18 @@ export class TrpcRouter {
               },
             });
 
+          // Piggybacked on this same check-in rather than a dedicated RPC —
+          // see VesselUsersService.handleCheckIn's own comment.
+          const userCommands = await this.vesselUsersService.handleCheckIn(
+            input.vesselId,
+            input.users,
+            input.appliedUserCommandIds,
+          );
+
           return {
             bundle,
             syncedAt,
+            userCommands,
           };
         }),
     }),
@@ -467,6 +530,75 @@ export class TrpcRouter {
           await this.db.delete(schema.vessels).where(eq(schema.vessels.id, input.id));
           return { success: true };
         }),
+      // Remote vessel-user administration (architecture 9.3/12.4) — see
+      // VesselUsersService's own doc comment for the full design. Every
+      // mutation here queues a command the vessel applies on its own next
+      // sync cycle; nothing here writes to the vessel's local user table
+      // directly, since it may be offline for hours or days.
+      users: router({
+        list: protectedProcedure
+          .input((val: unknown) => {
+            if (!VesselIdInputCompiler.Check(val)) throw new Error('Invalid input');
+            return val as Static<typeof VesselIdInputSchema>;
+          })
+          .query(({ input }) => this.vesselUsersService.listRoster(input.vesselId)),
+        listCommands: protectedProcedure
+          .input((val: unknown) => {
+            if (!VesselIdInputCompiler.Check(val)) throw new Error('Invalid input');
+            return val as Static<typeof VesselIdInputSchema>;
+          })
+          .query(({ input }) => this.vesselUsersService.listCommands(input.vesselId)),
+        create: protectedProcedure
+          .input((val: unknown) => {
+            if (!QueueCreateUserCompiler.Check(val)) throw new Error('Invalid input');
+            return val as Static<typeof QueueCreateUserSchema>;
+          })
+          .mutation(async ({ input, ctx }) => {
+            const localUser = await this.supertokensService.getLocalUser(ctx.session.getUserId());
+            const issuedBy = localUser?.username || 'office';
+            return this.vesselUsersService.queueCreate(input.vesselId, input.username, input.role, issuedBy);
+          }),
+        resetPassword: protectedProcedure
+          .input((val: unknown) => {
+            if (!QueueUsernameActionCompiler.Check(val)) throw new Error('Invalid input');
+            return val as Static<typeof QueueUsernameActionSchema>;
+          })
+          .mutation(async ({ input, ctx }) => {
+            const localUser = await this.supertokensService.getLocalUser(ctx.session.getUserId());
+            const issuedBy = localUser?.username || 'office';
+            return this.vesselUsersService.queueResetPassword(input.vesselId, input.username, issuedBy);
+          }),
+        setRole: protectedProcedure
+          .input((val: unknown) => {
+            if (!QueueSetRoleCompiler.Check(val)) throw new Error('Invalid input');
+            return val as Static<typeof QueueSetRoleSchema>;
+          })
+          .mutation(async ({ input, ctx }) => {
+            const localUser = await this.supertokensService.getLocalUser(ctx.session.getUserId());
+            const issuedBy = localUser?.username || 'office';
+            return this.vesselUsersService.queueSetRole(input.vesselId, input.username, input.role, issuedBy);
+          }),
+        setActive: protectedProcedure
+          .input((val: unknown) => {
+            if (!QueueSetActiveCompiler.Check(val)) throw new Error('Invalid input');
+            return val as Static<typeof QueueSetActiveSchema>;
+          })
+          .mutation(async ({ input, ctx }) => {
+            const localUser = await this.supertokensService.getLocalUser(ctx.session.getUserId());
+            const issuedBy = localUser?.username || 'office';
+            return this.vesselUsersService.queueSetActive(input.vesselId, input.username, input.active, issuedBy);
+          }),
+        setCanSubmit: protectedProcedure
+          .input((val: unknown) => {
+            if (!QueueSetCanSubmitCompiler.Check(val)) throw new Error('Invalid input');
+            return val as Static<typeof QueueSetCanSubmitSchema>;
+          })
+          .mutation(async ({ input, ctx }) => {
+            const localUser = await this.supertokensService.getLocalUser(ctx.session.getUserId());
+            const issuedBy = localUser?.username || 'office';
+            return this.vesselUsersService.queueSetCanSubmit(input.vesselId, input.username, input.canSubmit, issuedBy);
+          }),
+      }),
     }),
     users: router({
       list: protectedProcedure.query(async () => {

@@ -4,9 +4,10 @@ import { SchemaVersionsModule } from '../config/schema-versions/schema-versions.
 import { FieldPolicyModule } from '../config/field-policy/field-policy.module';
 import { ComplianceModule } from '../config/compliance/compliance.module';
 import { ConfigBundleModule } from '../config/config-bundle/config-bundle.module';
+import { VesselsModule } from '../vessels/vessels.module';
 
 @Module({
-  imports: [SchemaVersionsModule, FieldPolicyModule, ComplianceModule, ConfigBundleModule],
+  imports: [SchemaVersionsModule, FieldPolicyModule, ComplianceModule, ConfigBundleModule, VesselsModule],
   providers: [TrpcRouter],
   exports: [TrpcRouter],
 })
