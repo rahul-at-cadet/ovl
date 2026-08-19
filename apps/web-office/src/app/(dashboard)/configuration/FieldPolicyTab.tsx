@@ -12,7 +12,6 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -313,16 +312,21 @@ export function FieldPolicyTab() {
             <div className="flex items-center gap-4">
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">Schema</label>
-                <Select value={selectedSchema} onValueChange={(val) => setSelectedSchema(val || "")} disabled={schemasLoading}>
-                  <SelectTrigger className="w-48 bg-background border-border">
-                    <SelectValue placeholder="Select Schema" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {schemas?.map(s => (
-                      <SelectItem key={s.schemaName} value={s.schemaName}>{s.schemaName}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {/* Native <select>, not the Select component: this sits directly
+                    above the 400+ row virtualized Field Policy table, and the
+                    Base UI Select's floating tree hung the whole tab on change
+                    (same root cause as the scope picker below). */}
+                <select
+                  value={selectedSchema}
+                  onChange={(e) => setSelectedSchema(e.target.value || "")}
+                  disabled={schemasLoading}
+                  className="w-48 bg-background border border-border text-foreground rounded-md h-9 px-2 text-sm disabled:opacity-50"
+                >
+                  {!selectedSchema && <option value="" disabled>Select Schema</option>}
+                  {schemas?.map(s => (
+                    <option key={s.schemaName} value={s.schemaName}>{s.schemaName}</option>
+                  ))}
+                </select>
               </div>
 
               <ScopeSelector scope={scope} onChange={setScope} vessels={vessels as any} />
