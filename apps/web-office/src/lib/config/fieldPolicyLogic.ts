@@ -2,9 +2,15 @@ export interface SchemaField {
   name: string;
   label: string;
   type: string;
-  section: string;
-  relevance: string;
+  unit?: string | null;
+  maxLength?: number | null;
+  enumRef?: string | null;
   schemaMandatory: boolean;
+  mandatoryNote?: string | null;
+  relevance: string;
+  section: string;
+  appliesToEvents?: string[];
+  description?: string;
 }
 
 export const POLICY_STATES = [

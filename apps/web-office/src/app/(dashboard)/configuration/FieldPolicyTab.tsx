@@ -1,17 +1,16 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useDeferredValue, useCallback, type CSSProperties } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   useReactTable,
   getCoreRowModel,
-  getFilteredRowModel,
   flexRender,
-  createColumnHelper
+  createColumnHelper,
+  type Row,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,17 +21,138 @@ import {
   PREFILL_CLASSES,
   effectiveState,
   effectivePrefill,
-  SchemaField
+  visibleFieldCount,
+  sectionsInOrder,
+  SchemaField,
 } from "@/lib/config/fieldPolicyLogic";
-import { scopesEqual, type Scope } from "@/lib/config/complianceLogic";
+import { scopesEqual, scopeLabel, type Scope } from "@/lib/config/complianceLogic";
 import { ScopeSelector } from "./ScopeSelector";
+import { SectionRail } from "./SectionRail";
+import { BulkActionsToolbar } from "./BulkActionsToolbar";
+
+// Stable references for the "no data yet" case — not `[]` inline at the
+// call site. `policyData?.fields || []` looks harmless but allocates a
+// brand-new array every render whenever policyData is undefined (e.g.
+// scope is "Vessel Group"/"Specific Vessel" with no key chosen yet, which
+// disables the query for as long as the user is on that screen). That
+// unstable reference flows into useReactTable's `data` option, and
+// react-table's own reconciliation reacts to `data` changing identity by
+// re-rendering — which recomputes `fields` as yet another new array,
+// forever. Since nothing about that state ever resolves on its own, the
+// loop never terminates: this was the actual cause of the schema/scope
+// "whole tab hangs" reports, not virtualization or any UI library.
+const EMPTY_FIELDS: SchemaField[] = [];
+const EMPTY_EVENT_TYPES: string[] = [];
+const EMPTY_VESSELS: { id: string; name: string; groups?: string[] | null }[] = [];
+const EMPTY_ASSIGNMENTS: { scope: unknown }[] = [];
+
+// This cell, the table markup below, and the row/table components it uses
+// are all plain HTML with no shared UI-kit wrapper and no ARIA attributes —
+// deliberately, since a `:has([aria-...])` selector on the shared table row
+// component turned out to be the cause of a severe hang on this screen's
+// 400+ row virtualized table (see table.tsx history), and a Base UI Select
+// caused a second, separate hang (see the notes on the native <select>s
+// below). Every other tRPC-backed screen in this app can use the shared
+// UI kit freely; this one specifically can't, because it's the only place
+// in the codebase that ever mounts controls for 400+ rows at once.
+//
+// Proof this table doesn't need to be virtualized to *survive* 409 rows —
+// only to feel smooth — lives in the pre-migration version of this same
+// screen: ovl/web/office/src/screens/configuration/FieldPolicyScreen.tsx
+// renders all 409 rows as plain <tr>s with no virtualization at all, and
+// has never hung, because its per-row controls are the same
+// button+popover pattern EventsCell uses below rather than a floating-ui
+// library. Virtualization here is defense-in-depth on top of that, not
+// the load-bearing fix — the load-bearing fix is staying off heavy
+// shared component libraries in this hot path.
+function EventsCell({
+  field,
+  selectedEvents,
+  eventTypes,
+  onToggleAll,
+  onToggleEvent,
+}: {
+  field: SchemaField;
+  selectedEvents: string[];
+  eventTypes: string[];
+  onToggleAll: () => void;
+  onToggleEvent: (ev: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const disabled = field.schemaMandatory;
+  const label = selectedEvents.length === 0 ? "All events" : `${selectedEvents.length} event${selectedEvents.length === 1 ? "" : "s"}`;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((o) => !o)}
+        className={`text-xs rounded-md border px-2 py-1 cursor-pointer inline-block ${
+          selectedEvents.length > 0 ? "border-blue-500 bg-blue-500/10 text-blue-300" : "border-border text-muted-foreground"
+        } ${disabled ? "opacity-50 pointer-events-none" : ""}`}
+      >
+        {label}
+      </button>
+      {open && (
+        <div className="absolute z-20 mt-1 max-h-64 w-48 overflow-y-auto rounded-md border border-border bg-popover p-2 shadow-md">
+          <label className="flex items-center gap-2 text-xs text-foreground py-1">
+            <input type="checkbox" checked={selectedEvents.length === 0} onChange={onToggleAll} />
+            All events
+          </label>
+          {eventTypes.map((ev) => (
+            <label key={ev} className="flex items-center gap-2 text-xs text-foreground py-1">
+              <input type="checkbox" checked={selectedEvents.includes(ev)} onChange={() => onToggleEvent(ev)} />
+              {ev}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Field Name is the one column that identifies which row you're looking
+// at, so it (and the checkbox beside it) stay pinned to the left while
+// the rest of the row scrolls horizontally — at six columns wide, this
+// table doesn't fit most viewports, and without this a click on a
+// right-hand control (e.g. focusing a Prefill <select>) can auto-scroll
+// the row's identity clean out of view.
+const STICKY_LEFT: Record<string, number> = { select: 0, name: 36 };
+function stickyCellStyle(columnId: string, width: number): CSSProperties {
+  const left = STICKY_LEFT[columnId];
+  if (left === undefined) return { width };
+  return { width, position: "sticky", left, zIndex: 1 };
+}
+
+// One entry in the virtualized list: either a real field row, or a
+// section-divider row inserted between runs of same-section field rows
+// (only while the section rail is on "All sections" — a single-section
+// filter needs no dividers since there's only one section on screen).
+// Both kinds share the virtualizer's row-height estimate, so the divider
+// itself is padded to match rather than measured, keeping the virtualizer
+// on a single fixed estimateSize with no per-row measurement needed.
+type VirtualRowEntry =
+  | { kind: "divider"; key: string; section: string }
+  | { kind: "field"; key: string; row: Row<SchemaField> };
 
 export function FieldPolicyTab() {
   const { data: schemas, isLoading: schemasLoading } = trpc.schemas.list.useQuery();
-  const { data: vessels = [] } = trpc.vessels.list.useQuery();
+  const { data: vessels = EMPTY_VESSELS } = trpc.vessels.list.useQuery();
   const [selectedSchema, setSelectedSchema] = useState<string>("");
   const [scope, setScope] = useState<Scope>({ type: "fleet" });
-  
+
   // Set default schema once loaded
   useEffect(() => {
     if (schemas?.length && !selectedSchema) {
@@ -48,13 +168,23 @@ export function FieldPolicyTab() {
   // nothing.
   const scopeReady = scope.type === "fleet" || !!scope.key;
 
+  // Memoized so the query input has a stable reference across renders —
+  // passing a fresh object literal here made the query observer treat every
+  // render as "the input changed," restarting the fetch before it could ever
+  // complete. That starved the actual network request indefinitely while
+  // each restart's state update triggered another render, which triggered
+  // another restart: a tight render loop with zero real fetches going out.
+  const fieldPoliciesGetInput = useMemo(
+    () => ({ schemaName: selectedSchema, scopeType: scope.type, scopeKey: scope.key }),
+    [selectedSchema, scope.type, scope.key]
+  );
+  const fieldPoliciesGetOptions = useMemo(
+    () => ({ enabled: !!selectedSchema && scopeReady }),
+    [selectedSchema, scopeReady]
+  );
   const { data: policyData, isLoading: policyLoading, refetch: refetchPolicy } = trpc.fieldPolicies.get.useQuery(
-    {
-      schemaName: selectedSchema,
-      scopeType: scope.type,
-      scopeKey: scope.key
-    },
-    { enabled: !!selectedSchema && scopeReady }
+    fieldPoliciesGetInput,
+    fieldPoliciesGetOptions
   );
 
   const savePolicy = trpc.fieldPolicies.save.useMutation({
@@ -64,9 +194,11 @@ export function FieldPolicyTab() {
     }
   });
 
-  const { data: assignments = [], refetch: refetchAssignments } = trpc.fieldPolicies.listAssignments.useQuery(
-    { schemaName: selectedSchema },
-    { enabled: !!selectedSchema },
+  const listAssignmentsInput = useMemo(() => ({ schemaName: selectedSchema }), [selectedSchema]);
+  const listAssignmentsOptions = useMemo(() => ({ enabled: !!selectedSchema }), [selectedSchema]);
+  const { data: assignments = EMPTY_ASSIGNMENTS, refetch: refetchAssignments } = trpc.fieldPolicies.listAssignments.useQuery(
+    listAssignmentsInput,
+    listAssignmentsOptions,
   );
   const overridesElsewhere = assignments.filter((a) => !scopesEqual(a.scope as Scope, scope));
 
@@ -74,6 +206,15 @@ export function FieldPolicyTab() {
   const [prefillOverrides, setPrefillOverrides] = useState<Record<string, string>>({});
   const [eventsOverrides, setEventsOverrides] = useState<Record<string, string[]>>({});
   const [search, setSearch] = useState("");
+  // The <input> below stays bound to `search` directly so every keystroke
+  // is instant; only the expensive part — refiltering up to 409 fields and
+  // rebuilding the table's row model — reads the deferred value, so React
+  // can let that lag a render behind on a big schema without the input
+  // itself ever feeling laggy.
+  const deferredSearch = useDeferredValue(search);
+  const [sectionFilter, setSectionFilter] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [reviewed, setReviewed] = useState<Set<string>>(new Set());
 
   // Sync state when policy data loads
   useEffect(() => {
@@ -89,6 +230,16 @@ export function FieldPolicyTab() {
       setEventsOverrides(policyData.events || {});
     }
   }, [policyData, scopeReady]);
+
+  // A schema or scope switch invalidates row selection, migration-review
+  // marks, and the section filter — all keyed on primitive deps (never the
+  // `scope` object itself) so this only fires on a genuine change, not on
+  // every render.
+  useEffect(() => {
+    setSelected(new Set());
+    setReviewed(new Set());
+    setSectionFilter(null);
+  }, [selectedSchema, scope.type, scope.key]);
 
   const isDirty = useMemo(() => {
     if (!policyData) return false;
@@ -114,20 +265,155 @@ export function FieldPolicyTab() {
     });
   };
 
-  const fields = policyData?.fields || [];
-  const eventTypes = policyData?.eventTypes || [];
+  const fields: SchemaField[] = policyData?.fields ?? EMPTY_FIELDS;
+  const eventTypes: string[] = policyData?.eventTypes ?? EMPTY_EVENT_TYPES;
+  const eventful = eventTypes.length > 0;
+  const migration = policyData?.migration;
+
+  const fieldsByName = useMemo(() => new Map(fields.map((f) => [f.name, f])), [fields]);
+
+  const sections = useMemo(() => sectionsInOrder(fields), [fields]);
+  const impact = useMemo(
+    () => visibleFieldCount(fields, policyOverrides, eventsOverrides),
+    [fields, policyOverrides, eventsOverrides]
+  );
+
+  const visibleFields = useMemo(() => {
+    const q = deferredSearch.trim().toLowerCase();
+    return fields.filter((f) => {
+      if (sectionFilter && f.section !== sectionFilter) return false;
+      if (q && !f.name.toLowerCase().includes(q) && !(f.label && f.label.toLowerCase().includes(q))) return false;
+      return true;
+    });
+  }, [fields, deferredSearch, sectionFilter]);
+
+  // Bulk actions and the header "select all" only ever touch fields
+  // actually on screen, and never a schemaMandatory one (the schema
+  // decides, not the company — same rule the per-row controls enforce).
+  const selectableVisibleNames = useMemo(
+    () => visibleFields.filter((f) => !f.schemaMandatory).map((f) => f.name),
+    [visibleFields]
+  );
+  const allVisibleSelected = selectableVisibleNames.length > 0 && selectableVisibleNames.every((n) => selected.has(n));
+  const editableSelectionSize = useMemo(
+    () => [...selected].filter((name) => !fieldsByName.get(name)?.schemaMandatory).length,
+    [selected, fieldsByName]
+  );
+
+  const toggleSelectAllVisible = useCallback(() => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      const shouldSelect = !(selectableVisibleNames.length > 0 && selectableVisibleNames.every((n) => next.has(n)));
+      for (const name of selectableVisibleNames) {
+        if (shouldSelect) next.add(name);
+        else next.delete(name);
+      }
+      return next;
+    });
+  }, [selectableVisibleNames]);
+
+  const toggleFieldSelected = useCallback((name: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }, []);
+
+  const applyBulkState = useCallback((state: string) => {
+    setPolicyOverrides((prev) => {
+      const next = { ...prev };
+      for (const name of selected) {
+        if (fieldsByName.get(name)?.schemaMandatory) continue;
+        next[name] = state;
+      }
+      return next;
+    });
+  }, [selected, fieldsByName]);
+
+  const applyBulkPrefill = useCallback((cls: string) => {
+    setPrefillOverrides((prev) => {
+      const next = { ...prev };
+      for (const name of selected) {
+        if (cls === "none") delete next[name];
+        else next[name] = cls;
+      }
+      return next;
+    });
+  }, [selected]);
+
+  const applyBulkEvents = useCallback((events: string[]) => {
+    setEventsOverrides((prev) => {
+      const next = { ...prev };
+      for (const name of selected) {
+        if (fieldsByName.get(name)?.schemaMandatory) continue;
+        if (events.length === 0) delete next[name];
+        else next[name] = events;
+      }
+      return next;
+    });
+  }, [selected, fieldsByName]);
 
   const columnHelper = useMemo(() => createColumnHelper<SchemaField>(), []);
   const columns = useMemo(() => [
+    columnHelper.display({
+      id: 'select',
+      size: 36,
+      header: () => (
+        <input
+          type="checkbox"
+          checked={allVisibleSelected}
+          onChange={toggleSelectAllVisible}
+          aria-label="Select all visible fields"
+        />
+      ),
+      cell: info => {
+        const field = info.row.original;
+        if (field.schemaMandatory) return null;
+        return (
+          <input
+            type="checkbox"
+            checked={selected.has(field.name)}
+            onChange={() => toggleFieldSelected(field.name)}
+            aria-label={`Select ${field.label || field.name}`}
+          />
+        );
+      },
+    }),
     columnHelper.accessor('name', {
       header: 'Field Name',
       size: 320,
-      cell: info => (
-        <div>
-          <div className="font-medium">{info.row.original.label || info.getValue()}</div>
-          <div className="text-xs text-muted-foreground font-mono">{info.getValue()}</div>
-        </div>
-      ),
+      cell: info => {
+        const field = info.row.original;
+        const isNew = migration?.newFields.includes(field.name) ?? false;
+        return (
+          <div>
+            <div className="font-medium flex items-center gap-2">
+              <span>{field.label || info.getValue()}</span>
+              {isNew && (
+                <button
+                  type="button"
+                  onClick={() => setReviewed(prev => {
+                    const next = new Set(prev);
+                    if (next.has(field.name)) next.delete(field.name);
+                    else next.add(field.name);
+                    return next;
+                  })}
+                  className={`text-[10px] px-1.5 py-0.5 rounded-full cursor-pointer whitespace-nowrap ${
+                    reviewed.has(field.name)
+                      ? "bg-emerald-500/10 text-emerald-400"
+                      : "bg-amber-500/10 text-amber-400"
+                  }`}
+                >
+                  {reviewed.has(field.name) ? "Reviewed" : "New — review"}
+                </button>
+              )}
+            </div>
+            <div className="text-xs text-muted-foreground font-mono">{info.getValue()}</div>
+          </div>
+        );
+      },
     }),
     columnHelper.accessor('section', {
       header: 'Section',
@@ -140,7 +426,6 @@ export function FieldPolicyTab() {
       size: 160,
       cell: info => {
         const field = info.row.original;
-        const currentEffective = info.getValue();
         const explicit = policyOverrides[field.name];
 
         // A plain <select> here rather than the Select component: with a
@@ -177,7 +462,7 @@ export function FieldPolicyTab() {
         )
       }
     }),
-    ...(eventTypes.length > 0
+    ...(eventful
       ? [
           columnHelper.display({
             id: 'events',
@@ -186,54 +471,26 @@ export function FieldPolicyTab() {
             cell: (info: any) => {
               const field = info.row.original as SchemaField;
               const selectedEvents = eventsOverrides[field.name] ?? [];
-              const disabled = field.schemaMandatory;
-              const label = selectedEvents.length === 0 ? 'All events' : `${selectedEvents.length} event${selectedEvents.length === 1 ? '' : 's'}`;
-              // A native <details> disclosure instead of the Popover component —
-              // same floating-element-overhead reasoning as the selects above.
               return (
-                <details className="relative">
-                  <summary
-                    className={`list-none text-xs rounded-md border px-2 py-1 cursor-pointer inline-block ${
-                      selectedEvents.length > 0
-                        ? 'border-blue-500 bg-blue-500/10 text-blue-300'
-                        : 'border-border text-muted-foreground'
-                    } ${disabled ? 'opacity-50 pointer-events-none' : ''}`}
-                  >
-                    {label}
-                  </summary>
-                  <div className="absolute z-20 mt-1 max-h-64 w-48 overflow-y-auto rounded-md border border-border bg-popover p-2 shadow-md">
-                    <label className="flex items-center gap-2 text-xs text-foreground py-1">
-                      <input
-                        type="checkbox"
-                        checked={selectedEvents.length === 0}
-                        onChange={() => {
-                          const next = { ...eventsOverrides };
-                          delete next[field.name];
-                          setEventsOverrides(next);
-                        }}
-                      />
-                      All events
-                    </label>
-                    {eventTypes.map((ev) => (
-                      <label key={ev} className="flex items-center gap-2 text-xs text-foreground py-1">
-                        <input
-                          type="checkbox"
-                          checked={selectedEvents.includes(ev)}
-                          onChange={() => {
-                            const next = { ...eventsOverrides };
-                            const list = new Set(selectedEvents);
-                            if (list.has(ev)) list.delete(ev);
-                            else list.add(ev);
-                            if (list.size === 0) delete next[field.name];
-                            else next[field.name] = [...list];
-                            setEventsOverrides(next);
-                          }}
-                        />
-                        {ev}
-                      </label>
-                    ))}
-                  </div>
-                </details>
+                <EventsCell
+                  field={field}
+                  selectedEvents={selectedEvents}
+                  eventTypes={eventTypes}
+                  onToggleAll={() => {
+                    const next = { ...eventsOverrides };
+                    delete next[field.name];
+                    setEventsOverrides(next);
+                  }}
+                  onToggleEvent={(ev) => {
+                    const next = { ...eventsOverrides };
+                    const list = new Set(selectedEvents);
+                    if (list.has(ev)) list.delete(ev);
+                    else list.add(ev);
+                    if (list.size === 0) delete next[field.name];
+                    else next[field.name] = [...list];
+                    setEventsOverrides(next);
+                  }}
+                />
               );
             },
           }),
@@ -270,22 +527,13 @@ export function FieldPolicyTab() {
         )
       }
     })
-  ], [columnHelper, policyOverrides, prefillOverrides, eventsOverrides, eventTypes]);
+  ], [columnHelper, policyOverrides, prefillOverrides, eventsOverrides, eventTypes, eventful, migration, reviewed, selected, allVisibleSelected, toggleSelectAllVisible, toggleFieldSelected]);
 
   const table = useReactTable({
-    data: fields,
+    data: visibleFields,
     columns,
     getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    state: {
-      globalFilter: search,
-    },
-    onGlobalFilterChange: setSearch,
-    globalFilterFn: (row: any, columnId: string, filterValue: any) => {
-      const q = (filterValue as string).toLowerCase();
-      const f = row.original as SchemaField;
-      return !!(f.name.toLowerCase().includes(q) || (f.label && f.label.toLowerCase().includes(q)));
-    }
+    getRowId: row => row.name,
   });
 
   // Schemas here run to 400+ fields; rendering every row's Select/Popover
@@ -293,16 +541,47 @@ export function FieldPolicyTab() {
   // (or near) the viewport get mounted.
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const { rows } = table.getRowModel();
+
+  // Section-divider entries only get interleaved in the "All sections"
+  // view — a single-section filter already shows one section, so there's
+  // nothing to divide. `fields` (and therefore `visibleFields`, which
+  // preserves its order) is already section-grouped by the schema itself,
+  // so a single pass suffices — no sorting needed.
+  const virtualEntries: VirtualRowEntry[] = useMemo(() => {
+    if (sectionFilter) {
+      return rows.map(row => ({ kind: "field" as const, key: row.id, row }));
+    }
+    const out: VirtualRowEntry[] = [];
+    let lastSection: string | undefined;
+    for (const row of rows) {
+      if (row.original.section !== lastSection) {
+        lastSection = row.original.section;
+        // Keyed by position, not just section name: a schema's fields
+        // aren't guaranteed to keep every section's rows in one
+        // contiguous run (log-abstract's 409 fields revisit "header" and
+        // "voyage" later in the list), so two divider entries can share a
+        // section name — a key derived only from that name would collide.
+        out.push({ kind: "divider" as const, key: `divider:${out.length}:${lastSection}`, section: lastSection });
+      }
+      out.push({ kind: "field" as const, key: row.id, row });
+    }
+    return out;
+  }, [rows, sectionFilter]);
+
+  // A stable callback, not a fresh arrow function per render: no reason to
+  // hand @tanstack/react-virtual a new function identity on every commit
+  // when a ref access needs no closed-over values to change.
+  const getScrollElement = useCallback(() => tableContainerRef.current, []);
   const rowVirtualizer = useVirtualizer({
-    count: rows.length,
-    getScrollElement: () => tableContainerRef.current,
+    count: virtualEntries.length,
+    getScrollElement,
     estimateSize: () => 57,
     overscan: 12,
   });
-  const virtualRows = rowVirtualizer.getVirtualItems();
+  const virtualItems = rowVirtualizer.getVirtualItems();
   const totalHeight = rowVirtualizer.getTotalSize();
-  const paddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
-  const paddingBottom = virtualRows.length > 0 ? totalHeight - virtualRows[virtualRows.length - 1].end : 0;
+  const paddingTop = virtualItems.length > 0 ? virtualItems[0].start : 0;
+  const paddingBottom = virtualItems.length > 0 ? totalHeight - virtualItems[virtualItems.length - 1].end : 0;
 
   return (
     <div className="space-y-6">
@@ -332,8 +611,8 @@ export function FieldPolicyTab() {
               <ScopeSelector scope={scope} onChange={setScope} vessels={vessels as any} />
             </div>
 
-            <Button 
-              onClick={handleSave} 
+            <Button
+              onClick={handleSave}
               disabled={!isDirty || savePolicy.isPending}
               className={isDirty ? "bg-blue-600 hover:bg-blue-700 text-white" : "bg-muted text-muted-foreground"}
             >
@@ -344,13 +623,13 @@ export function FieldPolicyTab() {
         </CardContent>
       </Card>
 
-      {policyData?.migration && (
+      {migration && (
         <div className="rounded-md border border-amber-300 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30 px-4 py-3 text-sm text-amber-700 dark:text-amber-300 flex items-start gap-2">
           <CalendarClock className="w-4 h-4 mt-0.5 shrink-0" />
           <div>
-            Migrating field policy from v{policyData.migration.fromVersion} to v{policyData.version} —{" "}
-            {policyData.migration.newFields.length} new field{policyData.migration.newFields.length === 1 ? "" : "s"},{" "}
-            {policyData.migration.removedFields.length} removed field{policyData.migration.removedFields.length === 1 ? "" : "s"}.
+            Migrating field policy from v{migration.fromVersion} to v{policyData?.version} —{" "}
+            {migration.newFields.length} new field{migration.newFields.length === 1 ? "" : "s"},{" "}
+            {migration.removedFields.length} removed field{migration.removedFields.length === 1 ? "" : "s"}.
             Review and save to persist this proposed carry-forward.
           </div>
         </div>
@@ -358,7 +637,7 @@ export function FieldPolicyTab() {
 
       {overridesElsewhere.length > 0 && (
         <p className="text-xs text-muted-foreground">
-          Overrides also exist for {overridesElsewhere.length} other scope{overridesElsewhere.length === 1 ? "" : "s"} on this schema.
+          Overrides also exist for: {overridesElsewhere.map(a => scopeLabel(a.scope as Scope, vessels as any)).join(", ")}
         </p>
       )}
 
@@ -367,8 +646,8 @@ export function FieldPolicyTab() {
           <CardTitle className="text-lg">Field Requirements Matrix</CardTitle>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input 
-              placeholder="Search fields..." 
+            <Input
+              placeholder="Search fields..."
               value={search}
               onChange={e => setSearch(e.target.value || "")}
               className="pl-9 w-64 bg-background border-border"
@@ -376,74 +655,143 @@ export function FieldPolicyTab() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {!scopeReady ? (
-            <div className="p-12 text-center text-muted-foreground">
-              <p>Select a {scope.type} to view and edit its field policy.</p>
-            </div>
-          ) : policyLoading ? (
-            <div className="p-12 text-center text-muted-foreground flex flex-col items-center">
-              <Loader2 className="w-8 h-8 animate-spin mb-4" />
-              <p>Loading schema policy matrix...</p>
-            </div>
-          ) : fields.length === 0 ? (
-            <div className="p-12 text-center text-muted-foreground">
-              <p>No fields found in this schema version.</p>
-            </div>
-          ) : (
-            <div ref={tableContainerRef} className="rounded-md border border-border overflow-auto m-4 max-h-[70vh]">
-              <Table>
-                <TableHeader className="bg-background/50 sticky top-0 z-10">
-                  {table.getHeaderGroups().map(headerGroup => (
-                    <TableRow key={headerGroup.id} className="border-border hover:bg-transparent">
-                      {headerGroup.headers.map(header => (
-                        <TableHead key={header.id} style={{ width: header.getSize() }} className="font-semibold text-foreground">
-                          {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
-                        </TableHead>
+          {/* The scroll container below stays mounted unconditionally —
+              only what's inside it swaps between a status message and the
+              table — so tableContainerRef always has a real element for
+              useVirtualizer to measure, instead of going null whenever
+              scope is "Vessel Group"/"Specific Vessel" with no key chosen
+              yet (which disables the fields query and would otherwise hide
+              this div). The schema/scope render-loop hang itself had a
+              different cause: see EMPTY_FIELDS/EMPTY_EVENT_TYPES above. */}
+          <div className="flex gap-4 p-4">
+            <SectionRail
+              fields={fields}
+              sections={sections}
+              sectionFilter={sectionFilter}
+              onSelect={setSectionFilter}
+              impact={impact}
+            />
+
+            <div className="flex-1 min-w-0 space-y-3">
+              {selected.size > 0 && (
+                <BulkActionsToolbar
+                  selectedCount={selected.size}
+                  editableCount={editableSelectionSize}
+                  eventful={eventful}
+                  eventTypes={eventTypes}
+                  onApplyState={applyBulkState}
+                  onApplyPrefill={applyBulkPrefill}
+                  onApplyEvents={applyBulkEvents}
+                  onClear={() => setSelected(new Set())}
+                />
+              )}
+
+              <div ref={tableContainerRef} className="rounded-md border border-border overflow-auto max-h-[70vh]">
+                {!scopeReady ? (
+                  <div className="p-12 text-center text-muted-foreground">
+                    <p>Select a {scope.type} to view and edit its field policy.</p>
+                  </div>
+                ) : policyLoading ? (
+                  <div className="p-12 text-center text-muted-foreground flex flex-col items-center">
+                    <Loader2 className="w-8 h-8 animate-spin mb-4" />
+                    <p>Loading schema policy matrix...</p>
+                  </div>
+                ) : fields.length === 0 ? (
+                  <div className="p-12 text-center text-muted-foreground">
+                    <p>No fields found in this schema version.</p>
+                  </div>
+                ) : (
+                  /* Plain <table>/<tr>/<td>, not the shared Table components: see
+                     the note above EventsCell — this screen stays fully clear of
+                     any shared styling that could reintroduce the same class of
+                     bug. */
+                  <table className="w-full caption-bottom text-sm">
+                    {/* Solid background, not bg-background/50: a translucent
+                        sticky header lets scrolled-under row text bleed
+                        through and visually collide with the header labels
+                        once there's enough content to actually scroll (easy
+                        to miss on a short table, obvious at 409 rows). */}
+                    <thead className="bg-card sticky top-0 z-10">
+                      {table.getHeaderGroups().map(headerGroup => (
+                        <tr key={headerGroup.id} className="border-b border-border">
+                          {headerGroup.headers.map(header => {
+                            const pinned = header.column.id in STICKY_LEFT;
+                            return (
+                              <th
+                                key={header.id}
+                                style={pinned ? { ...stickyCellStyle(header.column.id, header.getSize()), zIndex: 20 } : { width: header.getSize() }}
+                                className={`h-10 px-2 text-left align-middle font-semibold text-foreground whitespace-nowrap ${pinned ? "bg-card" : ""} ${header.column.id === "name" ? "border-r border-border" : ""}`}
+                              >
+                                {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                              </th>
+                            );
+                          })}
+                        </tr>
                       ))}
-                    </TableRow>
-                  ))}
-                </TableHeader>
-                <TableBody>
-                  {rows.length ? (
-                    <>
-                      {paddingTop > 0 && (
+                    </thead>
+                    <tbody>
+                      {virtualEntries.length ? (
+                        <>
+                          {paddingTop > 0 && (
+                            <tr>
+                              <td colSpan={columns.length} style={{ height: paddingTop }} />
+                            </tr>
+                          )}
+                          {virtualItems.map(virtualItem => {
+                            const entry = virtualEntries[virtualItem.index];
+                            if (entry.kind === "divider") {
+                              return (
+                                <tr key={entry.key}>
+                                  <td
+                                    colSpan={columns.length}
+                                    className="h-[57px] px-2 align-middle bg-muted/30 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
+                                  >
+                                    {entry.section}
+                                  </td>
+                                </tr>
+                              );
+                            }
+                            const row = entry.row;
+                            return (
+                              <tr key={entry.key} className="border-b border-border hover:bg-muted/50">
+                                {row.getVisibleCells().map(cell => {
+                                  const pinned = cell.column.id in STICKY_LEFT;
+                                  return (
+                                    <td
+                                      key={cell.id}
+                                      style={stickyCellStyle(cell.column.id, cell.column.getSize())}
+                                      className={`p-2 py-3 align-middle whitespace-nowrap ${pinned ? "bg-card" : ""} ${cell.column.id === "name" ? "border-r border-border" : ""}`}
+                                    >
+                                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            );
+                          })}
+                          {paddingBottom > 0 && (
+                            <tr>
+                              <td colSpan={columns.length} style={{ height: paddingBottom }} />
+                            </tr>
+                          )}
+                        </>
+                      ) : (
                         <tr>
-                          <td colSpan={columns.length} style={{ height: paddingTop }} />
+                          <td colSpan={columns.length} className="h-24 text-center text-muted-foreground">
+                            No fields match your search.
+                          </td>
                         </tr>
                       )}
-                      {virtualRows.map(virtualRow => {
-                        const row = rows[virtualRow.index];
-                        return (
-                          <TableRow
-                            key={row.id}
-                            data-state={row.getIsSelected() && "selected"}
-                            className="border-border hover:bg-muted/50"
-                          >
-                            {row.getVisibleCells().map(cell => (
-                              <TableCell key={cell.id} style={{ width: cell.column.getSize() }} className="py-3">
-                                {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                              </TableCell>
-                            ))}
-                          </TableRow>
-                        );
-                      })}
-                      {paddingBottom > 0 && (
-                        <tr>
-                          <td colSpan={columns.length} style={{ height: paddingBottom }} />
-                        </tr>
-                      )}
-                    </>
-                  ) : (
-                    <TableRow>
-                      <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">
-                        No fields match your search.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              <div className="flex items-center justify-end text-xs text-muted-foreground">
+                v{policyData?.version} · {fields.length} fields
+              </div>
             </div>
-          )}
+          </div>
         </CardContent>
       </Card>
     </div>
