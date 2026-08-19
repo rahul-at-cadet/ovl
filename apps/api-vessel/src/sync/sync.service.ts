@@ -107,16 +107,17 @@ export class SyncService {
 
   /**
    * Architecture 9.3/12.4's remote user administration, pull side —
-   * ported from ovl/vessel/httpapi/usercommands.go's applyUserCommand,
-   * called once per office-queued UserCommand returned by pullConfig.
-   * Every command is acked back to office on the *next* check-in
-   * regardless of outcome: a permanent failure (e.g. a role sent that
-   * this vessel binary doesn't recognize) would otherwise retry forever
-   * every 30s with no way to clear it, and a transient one (this vessel
-   * momentarily missing the target user for a resetPassword/setActive,
-   * because an earlier "create" command is still in flight) is rare
-   * enough at this scale that logging it beats an infinite redelivery
-   * loop for something an operator can just re-issue from office anyway.
+   * ported from ovl/vessel/httpapi/sync.go's applyPulledUserCommands.
+   * Applies each pulled UserCommand independently; a command that fails
+   * here is deliberately left OFF appliedIds so it is never acked as
+   * applied — office's Manage Users dialog keeps showing it as "Queued"
+   * forever, which is the correct signal for an Admin to notice and
+   * investigate (e.g. a duplicate username), rather than a failure being
+   * silently swallowed and misreported as success. This does mean a
+   * permanently-failing command (like a duplicate create) is redelivered
+   * and retried every cycle indefinitely — accepted per the original's
+   * own reasoning, since each retry is a harmless no-op until an
+   * operator resolves the underlying conflict from office.
    */
   private async applyUserCommands(commands: any[]): Promise<string[]> {
     const appliedIds: string[] = [];
@@ -124,10 +125,10 @@ export class SyncService {
       try {
         await this.authService.applyUserCommand(cmd);
         this.logger.log(`Applied user command ${cmd.id} (${cmd.action} ${cmd.username}).`);
+        appliedIds.push(cmd.id);
       } catch (err: any) {
         this.logger.error(`Failed to apply user command ${cmd.id} (${cmd.action} ${cmd.username}): ${err.message}`);
       }
-      appliedIds.push(cmd.id);
     }
     return appliedIds;
   }

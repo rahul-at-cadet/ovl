@@ -1,9 +1,10 @@
-import { Injectable, Inject, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject } from '@nestjs/common';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { eq, and, isNull, desc } from 'drizzle-orm';
 import * as schema from '@ovl/database';
 import { DATABASE_CONNECTION } from '../database/database.module';
 import * as crypto from 'crypto';
+import { TRPCError } from '@trpc/server';
 
 export interface VesselUserCheckIn {
   username: string;
@@ -74,12 +75,29 @@ export class VesselUsersService {
    */
   private assertNotMaster(role: string) {
     if (role.toLowerCase() === 'master') {
-      throw new BadRequestException('The Master account is created during vessel setup, not created remotely.');
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'The Master account is created during vessel setup, not created remotely.' });
     }
   }
 
+  /**
+   * Mirrors ovl/office/httpapi/vesselusers.go's handleCreateVesselUser:
+   * rejects a create for a username already present in the vessel's
+   * mirrored roster (as of its last sync) before ever queuing a command.
+   * This is a best-effort, last-known-state check only — the vessel
+   * itself is the final authority and re-checks independently at apply
+   * time (AuthService.createLocalUser), since the roster here can be
+   * stale for an offline vessel.
+   */
   async queueCreate(vesselId: string, username: string, role: string, issuedBy: string) {
     this.assertNotMaster(role);
+    const existing = await this.db
+      .select()
+      .from(schema.vesselUsers)
+      .where(and(eq(schema.vesselUsers.vesselId, vesselId), eq(schema.vesselUsers.username, username)))
+      .limit(1);
+    if (existing.length > 0) {
+      throw new TRPCError({ code: 'CONFLICT', message: 'That username already exists on this vessel as of its last sync.' });
+    }
     const temporaryPassword = generateTemporaryPassword();
     const command = await this.queue(vesselId, 'create', { username, role, temporaryPassword, issuedBy });
     return { command, temporaryPassword };

@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Ship, Search, ArrowUpDown, Filter, Plus, Activity, Wifi, WifiOff, Edit, Trash2 } from 'lucide-react';
+import { Ship, Search, ArrowUpDown, Filter, Plus, Activity, Wifi, WifiOff, Edit, Trash2, Users } from 'lucide-react';
+import { VesselUsersDialog } from './VesselUsersDialog';
 import {
   Dialog,
   DialogContent,
@@ -32,6 +33,7 @@ export default function VesselsPage() {
   const [imo, setImo] = useState('');
   const [type, setType] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [usersTarget, setUsersTarget] = useState<{ id: string; name: string } | null>(null);
 
   const utils = trpc.useUtils();
   const { data: vessels = [], isLoading } = trpc.vessels.list.useQuery();
@@ -197,6 +199,10 @@ export default function VesselsPage() {
                               <Edit className="mr-2 h-4 w-4" />
                               <span>Edit Vessel</span>
                             </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setUsersTarget({ id: vessel.id, name: vessel.name })} className="hover:bg-muted cursor-pointer text-foreground focus:bg-muted focus:text-white">
+                              <Users className="mr-2 h-4 w-4" />
+                              <span>Manage Users</span>
+                            </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleDelete(vessel.id, vessel.name)} className="text-red-400 hover:bg-red-500/10 cursor-pointer focus:bg-red-500/10 focus:text-red-400">
                               <Trash2 className="mr-2 h-4 w-4" />
                               <span>Delete Vessel</span>
@@ -294,6 +300,15 @@ export default function VesselsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {usersTarget ? (
+        <VesselUsersDialog
+          vesselId={usersTarget.id}
+          vesselName={usersTarget.name}
+          open={usersTarget !== null}
+          onOpenChange={(open) => !open && setUsersTarget(null)}
+        />
+      ) : null}
     </div>
   );
 }
