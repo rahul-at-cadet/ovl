@@ -191,6 +191,17 @@ const DeleteVesselSchema = Type.Object({
 });
 const DeleteVesselCompiler = TypeCompiler.Compile(DeleteVesselSchema);
 
+const RenameVesselGroupSchema = Type.Object({
+  from: Type.String(),
+  to: Type.String(),
+});
+const RenameVesselGroupCompiler = TypeCompiler.Compile(RenameVesselGroupSchema);
+
+const DeleteVesselGroupSchema = Type.Object({
+  group: Type.String(),
+});
+const DeleteVesselGroupCompiler = TypeCompiler.Compile(DeleteVesselGroupSchema);
+
 const UpdateOfficeUserSchema = Type.Object({
   id: Type.String(),
   roles: Type.Optional(Type.Array(Type.String())),
@@ -811,6 +822,49 @@ export class TrpcRouter {
         .mutation(async ({ input }) => {
           await this.db.delete(schema.vessels).where(eq(schema.vessels.id, input.id));
           return { success: true };
+        }),
+      // Groups are free-form JSONB tags on vessels.groups (architecture
+      // 12.4), not a first-class entity — no dedicated groups table, by
+      // design (ports ovl/office/httpapi/vesselgroups.go exactly,
+      // including its own reasoning for why one hasn't been introduced).
+      // The group catalog itself is just the union of every vessel's own
+      // groups array (vessels.list already returns it) — rename/delete
+      // below mutate that array directly, one vessel row at a time.
+      renameGroup: protectedProcedure
+        .input((val: unknown) => {
+          if (!RenameVesselGroupCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof RenameVesselGroupSchema>;
+        })
+        .mutation(async ({ input }) => {
+          if (!input.from || !input.to) throw new Error('from and to are both required');
+          const all = await this.db.select({ id: schema.vessels.id, groups: schema.vessels.groups }).from(schema.vessels);
+          let updated = 0;
+          for (const v of all) {
+            const groups = (v.groups as string[]) ?? [];
+            if (!groups.includes(input.from)) continue;
+            const next = groups.map((g) => (g === input.from ? input.to : g));
+            await this.db.update(schema.vessels).set({ groups: next, updatedAt: new Date().toISOString() }).where(eq(schema.vessels.id, v.id));
+            updated++;
+          }
+          return { vesselsUpdated: updated };
+        }),
+      deleteGroup: protectedProcedure
+        .input((val: unknown) => {
+          if (!DeleteVesselGroupCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof DeleteVesselGroupSchema>;
+        })
+        .mutation(async ({ input }) => {
+          if (!input.group) throw new Error('group is required');
+          const all = await this.db.select({ id: schema.vessels.id, groups: schema.vessels.groups }).from(schema.vessels);
+          let updated = 0;
+          for (const v of all) {
+            const groups = (v.groups as string[]) ?? [];
+            if (!groups.includes(input.group)) continue;
+            const next = groups.filter((g) => g !== input.group);
+            await this.db.update(schema.vessels).set({ groups: next, updatedAt: new Date().toISOString() }).where(eq(schema.vessels.id, v.id));
+            updated++;
+          }
+          return { vesselsUpdated: updated };
         }),
       // Remote vessel-user administration (architecture 9.3/12.4) — see
       // VesselUsersService's own doc comment for the full design. Every

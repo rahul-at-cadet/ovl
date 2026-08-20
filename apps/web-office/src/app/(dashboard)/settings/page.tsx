@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Settings, Globe, Shield, Key, Bell, KeyRound, Copy, CheckCircle2, Trash2 } from 'lucide-react';
+import { Settings, Globe, Shield, Key, Bell, KeyRound, Copy, CheckCircle2, Trash2, Ship, Pencil, X, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { trpc } from '@/lib/trpc';
 
@@ -39,6 +39,27 @@ export default function SettingsPage() {
     createMutation.mutate({ label: newKeyLabel.trim() || 'Sync Key' });
   };
 
+  // Groups are free-form tags on each vessel's own profile (architecture
+  // 12.4), not a first-class entity — there's no dedicated groups list
+  // to fetch, so the catalog is derived the same way the fleet's own
+  // group filter already derives it: the union of every vessel's tags.
+  const { data: vessels = [] } = trpc.vessels.list.useQuery();
+  const groupCounts = new Map<string, number>();
+  for (const v of vessels) for (const g of (v.groups as string[] | undefined) ?? []) groupCounts.set(g, (groupCounts.get(g) ?? 0) + 1);
+  const groupRows = [...groupCounts.entries()].map(([name, vesselCount]) => ({ name, vesselCount })).sort((a, b) => a.name.localeCompare(b.name));
+
+  const [renamingGroup, setRenamingGroup] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const renameGroupMutation = trpc.vessels.renameGroup.useMutation({
+    onSuccess: () => {
+      utils.vessels.list.invalidate();
+      setRenamingGroup(null);
+    },
+  });
+  const deleteGroupMutation = trpc.vessels.deleteGroup.useMutation({
+    onSuccess: () => utils.vessels.list.invalidate(),
+  });
+
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 max-w-6xl">
       <div className="border-b border-border/60 pb-6">
@@ -70,12 +91,19 @@ export default function SettingsPage() {
               <Key className="w-4 h-4 mr-3" />
               API Keys
             </TabsTrigger>
-            <TabsTrigger 
-              value="notifications" 
+            <TabsTrigger
+              value="notifications"
               className="w-full justify-start px-4 py-2.5 text-sm font-medium data-[state=active]:bg-muted/50 data-[state=active]:text-foreground text-muted-foreground hover:bg-card/50 transition-all rounded-md"
             >
               <Bell className="w-4 h-4 mr-3" />
               Notifications
+            </TabsTrigger>
+            <TabsTrigger
+              value="groups"
+              className="w-full justify-start px-4 py-2.5 text-sm font-medium data-[state=active]:bg-muted/50 data-[state=active]:text-foreground text-muted-foreground hover:bg-card/50 transition-all rounded-md"
+            >
+              <Ship className="w-4 h-4 mr-3" />
+              Vessel Groups
             </TabsTrigger>
           </TabsList>
 
@@ -207,6 +235,81 @@ export default function SettingsPage() {
                 <CardContent className="pt-12 pb-12 flex flex-col items-center justify-center text-center">
                   <Globe className="w-8 h-8 text-muted-foreground mb-3" />
                   <p className="text-sm font-medium text-muted-foreground">Notification settings coming soon.</p>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="groups" className="mt-0">
+              <Card className="bg-card/40 border-border/60 shadow-xl overflow-hidden rounded-xl backdrop-blur-md">
+                <CardHeader className="border-b border-border/60 pb-4 bg-card/20">
+                  <CardTitle className="text-sm font-semibold tracking-tight text-foreground">Vessel Groups</CardTitle>
+                  <CardDescription className="text-xs text-muted-foreground">
+                    Groups are tags on each vessel&apos;s own profile, not a separate list — used to scope cadence rules and regulatory profiles to a subset of the fleet.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="pt-6">
+                  {groupRows.length === 0 ? (
+                    <div className="text-center text-muted-foreground py-8 text-sm">
+                      No groups yet — add one from a vessel&apos;s profile in Vessel Management.
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-border/50">
+                      {groupRows.map((g) => (
+                        <div key={g.name} className="flex items-center justify-between gap-3 py-3">
+                          {renamingGroup === g.name ? (
+                            <div className="flex items-center gap-2 flex-1">
+                              <Input
+                                autoFocus
+                                value={renameValue}
+                                onChange={(e) => setRenameValue(e.target.value)}
+                                className="bg-background border-border h-8 text-sm max-w-xs"
+                              />
+                              <Button
+                                size="sm"
+                                disabled={!renameValue.trim() || renameGroupMutation.isPending}
+                                onClick={() => renameGroupMutation.mutate({ from: g.name, to: renameValue.trim() })}
+                                className="bg-primary hover:bg-primary/90 h-8"
+                              >
+                                {renameGroupMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Save'}
+                              </Button>
+                              <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground" onClick={() => setRenamingGroup(null)}>
+                                <X className="w-3.5 h-3.5" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex items-center gap-3">
+                                <Ship className="w-4 h-4 text-muted-foreground" />
+                                <span className="text-sm font-medium text-foreground">{g.name}</span>
+                                <span className="text-xs text-muted-foreground">{g.vesselCount} vessel{g.vesselCount === 1 ? '' : 's'}</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                  onClick={() => { setRenamingGroup(g.name); setRenameValue(g.name); }}
+                                  title="Rename"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-8 w-8 text-muted-foreground hover:text-red-400"
+                                  disabled={deleteGroupMutation.isPending}
+                                  onClick={() => deleteGroupMutation.mutate({ group: g.name })}
+                                  title="Remove this tag from every vessel"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </Button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
