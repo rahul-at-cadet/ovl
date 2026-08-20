@@ -104,9 +104,9 @@ export default function SetupPage() {
             (step === 'done' && i <= 2);
             
           return (
-            <div key={s} className={`flex flex-col items-center gap-2 ${isActive ? 'text-blue-400' : isPast ? 'text-foreground' : 'text-muted-foreground'}`}>
+            <div key={s} className={`flex flex-col items-center gap-2 ${isActive ? 'text-primary' : isPast ? 'text-foreground' : 'text-muted-foreground'}`}>
               <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 text-sm font-bold ${
-                isActive ? 'border-blue-400 bg-blue-400/10' : 
+                isActive ? 'border-primary bg-primary/10' : 
                 isPast ? 'border-zinc-300 bg-muted' : 
                 'border-border bg-card'
               }`}>
@@ -128,7 +128,7 @@ export default function SetupPage() {
             <p>All data is persisted locally in the configured SQLite database before being synchronized to shore. Ensure your host machine provides persistent storage for the data directory.</p>
           </CardContent>
           <CardFooter className="bg-background/40 border-t border-border/60 p-4 flex justify-end">
-            <Button onClick={() => setStep('identity')} className="bg-blue-600 hover:bg-blue-500 text-white rounded-md h-9 text-sm font-semibold">
+            <Button onClick={() => setStep('identity')} className="bg-primary hover:bg-primary/90 text-white rounded-md h-9 text-sm font-semibold">
               Continue
             </Button>
           </CardFooter>
@@ -176,7 +176,7 @@ export default function SetupPage() {
                 {setupStatus?.isConfigured ? 'Configured' : 'Pending Setup'}
               </span>
             </p>
-            <Button onClick={() => setupStatus?.isConfigured ? router.push('/') : handleEnroll()} disabled={(!vesselName || !imoNumber || !apiKey) && !setupStatus?.isConfigured || enrollMutation.isPending} className="bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20 rounded-md h-9 text-sm font-semibold transition-all">
+            <Button onClick={() => setupStatus?.isConfigured ? router.push('/') : handleEnroll()} disabled={(!vesselName || !imoNumber || !apiKey) && !setupStatus?.isConfigured || enrollMutation.isPending} className="bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 rounded-md h-9 text-sm font-semibold transition-all">
               <Save className="w-4 h-4 mr-2" />
               {enrollMutation.isPending ? 'Enrolling...' : setupStatus?.isConfigured ? 'Go to Dashboard' : 'Enroll & Continue'}
             </Button>
@@ -202,7 +202,7 @@ export default function SetupPage() {
                 </p>
               </CardContent>
               <CardFooter className="bg-background/40 border-t border-border/60 p-4 flex justify-end">
-                <Button onClick={handleCreateAdmin} disabled={!username || createUserMutation.isPending} className="bg-blue-600 hover:bg-blue-500 text-white rounded-md h-9 text-sm font-semibold">
+                <Button onClick={handleCreateAdmin} disabled={!username || createUserMutation.isPending} className="bg-primary hover:bg-primary/90 text-white rounded-md h-9 text-sm font-semibold">
                   {createUserMutation.isPending ? 'Creating...' : 'Create Admin'}
                 </Button>
               </CardFooter>
@@ -230,7 +230,7 @@ export default function SetupPage() {
                 </p>
               </CardContent>
               <CardFooter className="bg-background/40 border-t border-border/60 p-4 flex justify-end">
-                <Button onClick={() => setStep('done')} className="bg-blue-600 hover:bg-blue-500 text-white rounded-md h-9 text-sm font-semibold">
+                <Button onClick={() => setStep('done')} className="bg-primary hover:bg-primary/90 text-white rounded-md h-9 text-sm font-semibold">
                   Continue
                 </Button>
               </CardFooter>
@@ -242,7 +242,7 @@ export default function SetupPage() {
       {step === 'done' && (
         <Card className="bg-card/40 border-border/60 shadow-xl overflow-hidden rounded-xl backdrop-blur-md">
           <CardContent className="flex flex-col items-center justify-center p-12 text-center space-y-4">
-            <CheckCircle className="w-16 h-16 text-green-400" />
+            <CheckCircle className="w-16 h-16 text-emerald-400" />
             <h2 className="text-xl font-bold text-foreground">Setup Complete!</h2>
             <p className="text-sm text-muted-foreground">The edge node is successfully enrolled and your master admin has been created.</p>
             <Button onClick={() => router.push('/')} className="mt-4 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold">

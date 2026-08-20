@@ -150,7 +150,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
   if (isReportLoading || isSchemaLoading) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-4" />
+        <Loader2 className="w-8 h-8 animate-spin text-primary mb-4" />
         <p>Loading draft...</p>
       </div>
     );
@@ -231,12 +231,12 @@ export function ReportForm({ reportId }: ReportFormProps) {
             <h2 className="text-xl font-bold tracking-tight text-foreground">Drafting: {schema.schemaName}</h2>
           </div>
           <div className="flex gap-2">
-            <Button type="button" onClick={() => handleAction(getValues(), 'draft')} variant="outline" className="border-border bg-background/50 text-foreground hover:text-foreground" disabled={saveSectionMutation.isPending || submitReportMutation.isPending}>
-              <Save className="w-4 h-4 mr-2" />
+            <Button type="button" onClick={() => handleAction(getValues(), 'draft')} variant="outline" className="border-border bg-background/50 text-foreground hover:text-foreground h-11 text-base px-5" disabled={saveSectionMutation.isPending || submitReportMutation.isPending}>
+              <Save className="w-5 h-5 mr-2" />
               {saveSectionMutation.isPending ? 'Saving...' : 'Save Draft'}
             </Button>
-            <Button type="button" onClick={handleSubmit((d) => handleAction(d, 'submit'))} className="bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20" disabled={saveSectionMutation.isPending || submitReportMutation.isPending}>
-              <Send className="w-4 h-4 mr-2" />
+            <Button type="button" onClick={handleSubmit((d) => handleAction(d, 'submit'))} className="bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 h-11 text-base px-5" disabled={saveSectionMutation.isPending || submitReportMutation.isPending}>
+              <Send className="w-5 h-5 mr-2" />
               {submitReportMutation.isPending ? 'Processing...' : 'Submit to Shore'}
             </Button>
           </div>
@@ -249,7 +249,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
               type="button"
               variant="outline"
               size="sm"
-              className="text-xs bg-background border-border text-blue-400 hover:text-blue-300 hover:bg-muted"
+              className="text-xs bg-background border-border text-primary hover:text-primary hover:bg-muted"
               onClick={handlePrefillSensors}
               disabled={telemetryLoading || !telemetry}
             >
@@ -309,11 +309,11 @@ export function ReportForm({ reportId }: ReportFormProps) {
                               <span className="text-red-400 ml-1">*</span>
                             )}
                             {state === 'recommended' && (
-                              <span className="ml-2 text-[10px] font-normal uppercase tracking-wide text-amber-500/80">Recommended</span>
+                              <span className="ml-2 text-xs font-normal uppercase tracking-wide text-amber-500/80">Recommended</span>
                             )}
                           </Label>
                           {field.description && (
-                            <p className="text-[10px] text-muted-foreground">{field.description}</p>
+                            <p className="text-xs text-muted-foreground">{field.description}</p>
                           )}
                           <Controller
                             name={field.name}
@@ -335,7 +335,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
                                       value={controllerField.value ?? ''}
                                       onChange={(e) => controllerField.onChange(e.target.value)}
                                       type="text"
-                                      className="bg-background/50 border-border focus-visible:ring-blue-500 text-foreground"
+                                      className="bg-background/50 border-border focus-visible:ring-primary text-foreground"
                                     />
                                   );
                                 }
@@ -351,7 +351,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
                                     value={controllerField.value ?? ''}
                                     disabled={isLockedEventField}
                                   >
-                                    <SelectTrigger className="bg-background/50 border-border text-foreground focus:ring-blue-500 disabled:opacity-70 disabled:cursor-not-allowed">
+                                    <SelectTrigger className="bg-background/50 border-border text-foreground focus:ring-primary disabled:opacity-70 disabled:cursor-not-allowed">
                                       <SelectValue placeholder="Select an option" />
                                     </SelectTrigger>
                                     <SelectContent className="bg-card border-border text-foreground">
@@ -372,7 +372,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
                                     value={controllerField.value ?? ''}
                                     onChange={(e) => controllerField.onChange(e.target.value)}
                                     type="datetime-local"
-                                    className="bg-background/50 border-border focus-visible:ring-blue-500 text-foreground"
+                                    className="bg-background/50 border-border focus-visible:ring-primary text-foreground"
                                   />
                                 );
                               }
@@ -385,7 +385,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
                                   value={controllerField.value ?? ''}
                                   onChange={(e) => controllerField.onChange(e.target.value)}
                                   type={field.type === 'wholeNumber' || field.type === 'decimal' ? 'number' : 'text'}
-                                  className="bg-background/50 border-border focus-visible:ring-blue-500 text-foreground"
+                                  className="bg-background/50 border-border focus-visible:ring-primary text-foreground"
                                 />
                               );
                             }}
@@ -438,8 +438,8 @@ export function ReportForm({ reportId }: ReportFormProps) {
                   animate={{ opacity: 1 }}
                   className="flex flex-col items-center justify-center py-6 text-center space-y-3"
                 >
-                  <div className="p-3 bg-green-500/10 rounded-full">
-                    <CheckCircle2 className="w-6 h-6 text-green-400" />
+                  <div className="p-3 bg-emerald-500/10 rounded-full">
+                    <CheckCircle2 className="w-6 h-6 text-emerald-400" />
                   </div>
                   <div>
                     <h4 className="text-sm font-medium text-foreground">All checks passed</h4>

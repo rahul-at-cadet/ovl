@@ -57,7 +57,7 @@ export default function ReportDetailPage() {
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-4" />
+        <Loader2 className="w-8 h-8 animate-spin text-primary mb-4" />
         <p>Loading report data...</p>
       </div>
     );
@@ -68,7 +68,7 @@ export default function ReportDetailPage() {
       <div className="flex flex-col items-center justify-center h-64 text-red-400">
         <p>Error loading report: {error?.message || 'Not found'}</p>
         <Link href="/reports">
-          <Button variant="link" className="mt-4 text-blue-400">Return to Reports</Button>
+          <Button variant="link" className="mt-4 text-primary">Return to Reports</Button>
         </Link>
       </div>
     );
@@ -98,7 +98,7 @@ export default function ReportDetailPage() {
         <div className="flex-1">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold tracking-tight text-foreground">Report Details</h1>
-            <span className={`px-2.5 py-1 rounded-md text-[11px] font-semibold tracking-wide uppercase border ${
+            <span className={`px-2.5 py-1 rounded-md text-xs font-semibold tracking-wide uppercase border ${
               report.state === 'submitted' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
               report.state === 'draft' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
               report.state === 'remarked' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' :
@@ -116,9 +116,9 @@ export default function ReportDetailPage() {
             onClick={handleStartCorrection}
             disabled={startCorrectionMutation.isPending}
             variant="outline"
-            className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300"
+            className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300 h-11 text-base px-5"
           >
-            <Pencil className="w-4 h-4 mr-2" />
+            <Pencil className="w-5 h-5 mr-2" />
             {startCorrectionMutation.isPending ? 'Starting...' : 'Start Correction'}
           </Button>
         )}
@@ -138,7 +138,7 @@ export default function ReportDetailPage() {
           <TabsTrigger value="remarks" className="data-[state=active]:bg-muted data-[state=active]:text-foreground">
             <Flag className="w-4 h-4 mr-2 hidden sm:inline" /> Remarks
             {remarks && remarks.filter((r: any) => !r.resolved).length > 0 && (
-              <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-orange-500/20 text-orange-400 text-[10px] font-semibold">
+              <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-orange-500/20 text-orange-400 text-xs font-semibold">
                 {remarks.filter((r: any) => !r.resolved).length}
               </span>
             )}
@@ -235,10 +235,10 @@ export default function ReportDetailPage() {
                 ) : chatMessages?.length ? (
                   chatMessages.map((msg: any) => (
                     <div key={msg.id} className={`flex flex-col ${msg.direction === 'ship_to_shore' ? 'items-end' : 'items-start'}`}>
-                      <div className={`px-4 py-2 rounded-xl max-w-[80%] ${msg.direction === 'ship_to_shore' ? 'bg-blue-600 text-white' : 'bg-muted text-foreground'}`}>
+                      <div className={`px-4 py-2 rounded-xl max-w-[80%] ${msg.direction === 'ship_to_shore' ? 'bg-primary text-white' : 'bg-muted text-foreground'}`}>
                         <p className="text-sm">{msg.body}</p>
                       </div>
-                      <span className="text-[10px] text-muted-foreground mt-1">{msg.sender} • {new Date(msg.sentAt).toLocaleTimeString()}</span>
+                      <span className="text-xs text-muted-foreground mt-1">{msg.sender} • {new Date(msg.sentAt).toLocaleTimeString()}</span>
                     </div>
                   ))
                 ) : (
@@ -253,7 +253,7 @@ export default function ReportDetailPage() {
                 <input
                   type="text"
                   placeholder="Type a message..."
-                  className="flex-1 bg-card border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="flex-1 h-11 bg-card border border-border rounded-lg px-3 text-base text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                   value={chatInput}
                   onChange={e => setChatInput(e.target.value)}
                   onKeyDown={e => {
@@ -263,7 +263,7 @@ export default function ReportDetailPage() {
                     }
                   }}
                 />
-                <Button 
+                <Button
                   onClick={() => {
                     if (chatInput.trim()) {
                       chatMutation.mutate({ reportId: id, body: chatInput });
@@ -271,10 +271,9 @@ export default function ReportDetailPage() {
                     }
                   }}
                   disabled={!chatInput.trim() || chatMutation.isPending}
-                  size="sm"
-                  className="bg-blue-600 hover:bg-blue-500"
+                  className="bg-primary hover:bg-primary/90 h-11 w-11 shrink-0"
                 >
-                  <Send className="w-4 h-4" />
+                  <Send className="w-5 h-5" />
                 </Button>
               </div>
             </CardContent>
@@ -298,9 +297,9 @@ export default function ReportDetailPage() {
                         <div className="flex items-center gap-2">
                           <p className="text-sm font-medium text-foreground">{r.fieldName.replace(/_/g, ' ')}</p>
                           {r.resolved ? (
-                            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Resolved</span>
+                            <span className="text-xs uppercase tracking-wide text-muted-foreground">Resolved</span>
                           ) : (
-                            <span className="text-[10px] uppercase tracking-wide text-orange-400">Open</span>
+                            <span className="text-xs uppercase tracking-wide text-orange-400">Open</span>
                           )}
                         </div>
                         <p className="text-sm text-muted-foreground mt-1">{r.body}</p>

@@ -74,8 +74,8 @@ export default function ReportsPage() {
           <p className="text-muted-foreground mt-1">Manage and submit your vessel reports.</p>
         </div>
         <Link href="/reports/new">
-          <Button className="bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20">
-            <Plus className="w-4 h-4 mr-2" />
+          <Button className="bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 h-11 text-base px-5">
+            <Plus className="w-5 h-5 mr-2" />
             New Report
           </Button>
         </Link>
@@ -171,8 +171,10 @@ export default function ReportsPage() {
                       <TableCell className="text-muted-foreground">{(report as any).voyageNumber || '-'}</TableCell>
                       <TableCell>
                         <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${
-                          report.state === 'submitted' ? 'bg-green-500/10 text-green-400 border-green-500/20' :
-                          report.state === 'draft' ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' :
+                          report.state === 'submitted' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                          report.state === 'draft' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                          report.state === 'remarked' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' :
+                          report.state === 'invalidated' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
                           'bg-blue-500/10 text-blue-400 border-blue-500/20'
                         }`}>
                           {report.state.charAt(0).toUpperCase() + report.state.slice(1)}
@@ -180,7 +182,7 @@ export default function ReportsPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <Link href={`/reports/${report.reportId}`}>
-                          <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-blue-400">
+                          <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-primary">
                             View <ChevronRight className="w-4 h-4 ml-1" />
                           </Button>
                         </Link>

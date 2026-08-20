@@ -25,7 +25,7 @@ import {
 // comment on why only Log Abstract goes through this dialog.
 const availableReports = [
   { id: 'bunker-report.json', title: 'Bunker Report', description: 'Log fuel intake and quality metrics.', icon: Fuel, color: 'text-orange-400', bg: 'bg-orange-500/10 border-orange-500/20', needsEvent: false },
-  { id: 'edn-report.json', title: 'EDN Report', description: 'Daily noon reporting and engine diagnostics.', icon: ClipboardList, color: 'text-green-400', bg: 'bg-green-500/10 border-green-500/20', needsEvent: false },
+  { id: 'edn-report.json', title: 'EDN Report', description: 'Daily noon reporting and engine diagnostics.', icon: ClipboardList, color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20', needsEvent: false },
   { id: 'log-abstract.json', title: 'Log Abstract', description: 'End of voyage logging and speed performance.', icon: TrendingUp, color: 'text-purple-400', bg: 'bg-purple-500/10 border-purple-500/20', needsEvent: true },
 ];
 
@@ -106,7 +106,7 @@ export default function NewReportPage() {
               <Button
                 onClick={() => handleStartDraft(report)}
                 disabled={startingSchema === report.id}
-                className={cn(buttonVariants({ variant: 'secondary' }), "w-full sm:w-auto bg-muted hover:bg-zinc-700 text-foreground")}
+                className={cn(buttonVariants({ variant: 'secondary' }), "w-full sm:w-auto bg-muted hover:bg-accent text-foreground h-11 text-base px-5")}
               >
                 {startingSchema === report.id ? 'Starting...' : 'Start Draft'}
                 {startingSchema === report.id ? <Loader2 className="w-4 h-4 ml-2 shrink-0 animate-spin" /> : <ArrowRight className="w-4 h-4 ml-2 shrink-0" />}

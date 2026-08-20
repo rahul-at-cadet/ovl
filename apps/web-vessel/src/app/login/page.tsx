@@ -66,13 +66,13 @@ export default function LoginPage() {
               <div className="space-y-2">
                 <Label htmlFor="id" className="text-foreground text-xs uppercase tracking-wider font-medium">Crew ID</Label>
                 <div className="relative">
-                  <User className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input 
-                    id="id" 
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                  <Input
+                    id="id"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    placeholder="e.g. master" 
-                    className="pl-9 bg-background/50 border-border focus-visible:ring-ring text-foreground rounded-sm h-9 text-sm"
+                    placeholder="e.g. master"
+                    className="pl-10 bg-background/50 border-border focus-visible:ring-ring text-foreground rounded-sm h-12 text-base"
                     required
                   />
                 </div>
@@ -82,14 +82,14 @@ export default function LoginPage() {
                   <Label htmlFor="password" className="text-foreground text-xs uppercase tracking-wider font-medium">Passcode</Label>
                 </div>
                 <div className="relative">
-                  <KeyRound className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input 
-                    id="password" 
-                    type="password" 
+                  <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                  <Input
+                    id="password"
+                    type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••" 
-                    className="pl-9 bg-background/50 border-border focus-visible:ring-ring text-foreground rounded-sm h-9 text-sm"
+                    placeholder="••••••••"
+                    className="pl-10 bg-background/50 border-border focus-visible:ring-ring text-foreground rounded-sm h-12 text-base"
                     required
                   />
                 </div>
@@ -99,13 +99,18 @@ export default function LoginPage() {
                   {error}
                 </div>
               )}
-              <Button 
-                type="submit" 
-                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground transition-all rounded-sm h-9 text-sm font-medium mt-4"
+              {/* h-12 (48px) — a real touch target, not the app's usual
+                  h-9: this is the button every crew member taps first,
+                  possibly gloved and in a moving wheelhouse (maritime
+                  touch-target guidance runs well above the 24px web
+                  minimum for exactly that reason). */}
+              <Button
+                type="submit"
+                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground transition-all rounded-sm h-12 text-base font-medium mt-4"
                 disabled={isLoading}
               >
                 {isLoading ? (
-                  <ShieldCheck className="w-4 h-4 animate-spin" />
+                  <ShieldCheck className="w-5 h-5 animate-spin" />
                 ) : (
                   "Authenticate"
                 )}

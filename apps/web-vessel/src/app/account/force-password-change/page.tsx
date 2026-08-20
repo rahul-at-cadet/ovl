@@ -100,7 +100,7 @@ export default function ForcePasswordChangePage() {
               
               <Button 
                 type="submit" 
-                className="w-full bg-blue-600 hover:bg-blue-500 text-white transition-all rounded-sm h-9 text-sm font-medium mt-4 shadow-lg shadow-blue-500/20"
+                className="w-full bg-primary hover:bg-primary/90 text-white transition-all rounded-sm h-9 text-sm font-medium mt-4 shadow-lg shadow-primary/20"
                 disabled={changePasswordMutation.isPending}
               >
                 {changePasswordMutation.isPending ? 'Updating...' : 'Update & Continue'}

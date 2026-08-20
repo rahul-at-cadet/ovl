@@ -52,7 +52,7 @@ export function AppShell({ children }: AppShellProps) {
   ];
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex overflow-hidden font-sans selection:bg-indigo-500/30">
+    <div className="min-h-screen bg-background text-foreground flex overflow-hidden font-sans selection:bg-primary/30">
       
       {/* Mobile Sidebar Overlay */}
       {isMobileSidebarOpen && (
@@ -70,7 +70,7 @@ export function AppShell({ children }: AppShellProps) {
       >
         <div className="h-16 flex items-center px-4 border-b border-border/40 relative">
           {isSidebarOpen && (
-            <span className="font-semibold text-[15px] tracking-wide whitespace-nowrap bg-clip-text text-transparent bg-gradient-to-r from-zinc-900 to-zinc-600 dark:from-zinc-100 dark:to-zinc-400">
+            <span className="font-semibold text-base tracking-wide whitespace-nowrap bg-clip-text text-transparent bg-gradient-to-r from-zinc-900 to-zinc-600 dark:from-zinc-100 dark:to-zinc-400">
               Cadetlabs
             </span>
           )}
@@ -91,14 +91,14 @@ export function AppShell({ children }: AppShellProps) {
               <Link key={item.href} href={item.href} className="block group">
                 <div className={`flex items-center px-3 py-2.5 rounded-xl transition-all duration-200 relative overflow-hidden
                   ${isActive
-                    ? 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] ring-1 ring-inset ring-indigo-500/20'
+                    ? 'bg-primary/10 text-primary dark:text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] ring-1 ring-inset ring-primary/20'
                     : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'}`}>
                   {isActive && (
-                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-1/2 bg-indigo-500 rounded-r-full shadow-[0_0_8px_rgba(99,102,241,0.8)]" />
+                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-1/2 bg-primary rounded-r-full shadow-[0_0_8px_rgba(47,80,108,0.8)]" />
                   )}
-                  <item.icon className={`w-[18px] h-[18px] shrink-0 z-10 transition-colors ${isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-muted-foreground group-hover:text-foreground'}`} />
+                  <item.icon className={`w-[18px] h-[18px] shrink-0 z-10 transition-colors ${isActive ? 'text-primary dark:text-primary' : 'text-muted-foreground group-hover:text-foreground'}`} />
                   {isSidebarOpen && (
-                    <span className="ml-3.5 font-medium text-[13px] z-10 whitespace-nowrap tracking-wide">{item.label}</span>
+                    <span className="ml-3.5 font-medium text-sm z-10 whitespace-nowrap tracking-wide">{item.label}</span>
                   )}
                 </div>
               </Link>
@@ -117,7 +117,7 @@ export function AppShell({ children }: AppShellProps) {
             ) : (
               <LogOut className="w-[18px] h-[18px] shrink-0 group-hover:text-red-400 transition-colors" />
             )}
-            {isSidebarOpen && <span className="ml-3.5 font-medium text-[13px]">Sign Out</span>}
+            {isSidebarOpen && <span className="ml-3.5 font-medium text-sm">Sign Out</span>}
           </button>
         </div>
       </aside>
@@ -135,10 +135,10 @@ export function AppShell({ children }: AppShellProps) {
             </Button>
             {/* Search */}
             <div className="hidden md:flex relative max-w-md w-64 group">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-indigo-400 transition-colors" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
               <Input 
                 placeholder="Search resources..." 
-                className="pl-10 bg-card/50 border-border focus-visible:ring-1 focus-visible:ring-indigo-500/50 h-9 w-full text-[13px] rounded-xl shadow-inner placeholder:text-muted-foreground transition-all focus-visible:bg-card"
+                className="pl-10 bg-card/50 border-border focus-visible:ring-1 focus-visible:ring-primary/50 h-9 w-full text-sm rounded-xl shadow-inner placeholder:text-muted-foreground transition-all focus-visible:bg-card"
               />
             </div>
           </div>
@@ -150,25 +150,25 @@ export function AppShell({ children }: AppShellProps) {
                 render={
                   <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-foreground h-9 w-9 rounded-xl hover:bg-muted/50 transition-colors">
                     <Bell className="w-4 h-4" />
-                    <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-indigo-500 ring-2 ring-background shadow-[0_0_8px_rgba(99,102,241,0.8)]" />
+                    <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-primary ring-2 ring-background shadow-[0_0_8px_rgba(47,80,108,0.8)]" />
                   </Button>
                 }
               />
               <PopoverContent align="end" className="w-80 bg-card/95 backdrop-blur-xl border-border shadow-2xl rounded-2xl text-foreground p-0 overflow-hidden">
                 <div className="p-4 border-b border-border/50 bg-background/50">
-                  <h4 className="font-semibold text-[13px] tracking-wide text-foreground">Notifications</h4>
+                  <h4 className="font-semibold text-sm tracking-wide text-foreground">Notifications</h4>
                 </div>
                 <div className="p-6 flex flex-col items-center justify-center text-center space-y-2">
-                  <div className="w-10 h-10 rounded-full bg-indigo-500/10 flex items-center justify-center mb-1">
-                    <Bell className="w-5 h-5 text-indigo-400" />
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mb-1">
+                    <Bell className="w-5 h-5 text-primary" />
                   </div>
-                  <p className="text-[13px] font-medium text-foreground">You're all caught up</p>
+                  <p className="text-sm font-medium text-foreground">You're all caught up</p>
                   <p className="text-xs text-muted-foreground">No new alerts from shore.</p>
                 </div>
               </PopoverContent>
             </Popover>
 
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 p-[1px] shadow-lg cursor-pointer hover:shadow-indigo-500/25 transition-shadow">
+            <div className="w-9 h-9 rounded-xl bg-primary p-[1px] shadow-lg cursor-pointer hover:shadow-primary/25 transition-shadow">
               <div className="w-full h-full rounded-[11px] bg-card border border-white/10 flex items-center justify-center">
                 <User className="w-4 h-4 text-foreground" />
               </div>
@@ -179,7 +179,7 @@ export function AppShell({ children }: AppShellProps) {
         {/* Page Content */}
         <main className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth custom-scrollbar relative">
           <div className="absolute inset-0 bg-[url('/noise.png')] opacity-[0.015] pointer-events-none mix-blend-overlay" />
-          <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-indigo-500/10 blur-[120px] rounded-full pointer-events-none" />
+          <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-primary/10 blur-[120px] rounded-full pointer-events-none" />
           <div className="max-w-[1400px] mx-auto min-h-full pb-12 relative z-10">
             {children}
           </div>

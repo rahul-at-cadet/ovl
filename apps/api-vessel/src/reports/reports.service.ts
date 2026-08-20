@@ -71,18 +71,30 @@ export class ReportsService {
   }
 
   async listReports(schemaName?: string) {
-    // Return the latest versions of reports for a given schema
-    // In SQLite, we can just group by reportId or filter. For simplicity, we just fetch all drafts/ready for now
-    if (!schemaName) {
-      return this.db.query.reports.findMany({
-        orderBy: (reports, { desc }) => [desc(reports.updatedAt)],
-      });
+    // Every edit inserts a new (reportId, versionNo) row rather than
+    // updating in place (architecture 8.1's append-only version history),
+    // so a report edited more than once has multiple rows sharing the
+    // same reportId here. Keeping only the highest versionNo per
+    // reportId is required, not an optimization — without it the
+    // frontend's reportId-keyed lists render the same report twice and
+    // React logs a duplicate-key warning.
+    const rows = schemaName
+      ? await this.db.query.reports.findMany({
+          where: eq(schema.reports.schemaName, schemaName),
+          orderBy: (reports, { desc }) => [desc(reports.versionNo)],
+        })
+      : await this.db.query.reports.findMany({
+          orderBy: (reports, { desc }) => [desc(reports.versionNo)],
+        });
+
+    const latestByReportId = new Map<string, (typeof rows)[number]>();
+    for (const row of rows) {
+      if (!latestByReportId.has(row.reportId)) {
+        latestByReportId.set(row.reportId, row);
+      }
     }
-    
-    return this.db.query.reports.findMany({
-      where: eq(schema.reports.schemaName, schemaName),
-      orderBy: (reports, { desc }) => [desc(reports.updatedAt)],
-    });
+
+    return Array.from(latestByReportId.values()).sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
   }
 
   async getReport(reportId: string) {

@@ -116,12 +116,12 @@ export default function SettingsPage() {
                       <p className="text-xs text-muted-foreground">Temporarily halt all shore-side telemetry and reports syncing.</p>
                     </div>
                     <div onClick={() => setPauseSyncing(!pauseSyncing)} className="h-5 w-9 rounded-full bg-muted flex items-center p-0.5 cursor-pointer border border-border relative">
-                       <div className={`h-4 w-4 rounded-full bg-zinc-400 absolute shadow-sm transition-all ${pauseSyncing ? 'left-4 bg-blue-500' : 'left-0.5'}`} />
+                       <div className={`h-4 w-4 rounded-full bg-zinc-400 absolute shadow-sm transition-all ${pauseSyncing ? 'left-4 bg-primary' : 'left-0.5'}`} />
                     </div>
                   </div>
                 </CardContent>
                 <CardFooter className="bg-background/40 border-t border-border/60 p-4 flex justify-end">
-                  <Button onClick={handleApplyNetworkSettings} disabled={updateSettingsMutation.isPending} className="bg-blue-600 hover:bg-blue-500 text-white rounded-md h-9 text-sm font-semibold shadow-sm transition-all">
+                  <Button onClick={handleApplyNetworkSettings} disabled={updateSettingsMutation.isPending} className="bg-primary hover:bg-primary/90 text-white rounded-md h-9 text-sm font-semibold shadow-sm transition-all">
                     {updateSettingsMutation.isPending ? 'Applying...' : 'Apply Network Settings'}
                   </Button>
                 </CardFooter>
@@ -162,7 +162,7 @@ export default function SettingsPage() {
                     <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">NMEA Endpoint URL / Serial Port</Label>
                     <Input type="text" placeholder="tcp://192.168.1.100:10110" className="bg-background/80 border-border/80 focus-visible:ring-ring text-foreground text-sm h-10" />
                   </div>
-                  <Button className="bg-blue-600 hover:bg-blue-500 text-white rounded-md h-9 text-sm font-semibold shadow-sm transition-all mt-2">
+                  <Button className="bg-primary hover:bg-primary/90 text-white rounded-md h-9 text-sm font-semibold shadow-sm transition-all mt-2">
                     Save Sensor Config
                   </Button>
                 </CardContent>
@@ -175,7 +175,7 @@ export default function SettingsPage() {
                   <CardTitle className="text-sm font-semibold tracking-tight text-foreground">System Logs</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-6">
-                  <div className="bg-background border border-border/60 rounded-md p-4 font-mono text-[10px] text-muted-foreground h-64 overflow-y-auto">
+                  <div className="bg-background border border-border/60 rounded-md p-4 font-mono text-xs text-muted-foreground h-64 overflow-y-auto">
                     <div>[2026-08-16T12:00:01Z] INFO: Initializing edge node...</div>
                     <div>[2026-08-16T12:00:02Z] INFO: SQLite database connected.</div>
                     <div>[2026-08-16T12:05:00Z] INFO: Attempting shore sync...</div>

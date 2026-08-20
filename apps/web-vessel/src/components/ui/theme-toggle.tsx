@@ -43,7 +43,7 @@ export function ThemeToggle() {
           >
             <opt.icon className="w-4 h-4" />
             {opt.label}
-            {theme === opt.value && <span className="ml-auto text-xs text-blue-400">Active</span>}
+            {theme === opt.value && <span className="ml-auto text-xs text-primary">Active</span>}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>

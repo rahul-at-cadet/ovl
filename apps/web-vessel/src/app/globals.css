@@ -48,75 +48,96 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/*
+ * Vessel app theme — single source of truth for both palettes.
+ *
+ * Day (:root): "Anchor & Ivory Mist" — navy #13253a, steel blue
+ * #2f506c, mist #e2e7ef, ivory #f7f5f0. Chosen over a softer teal
+ * alternative ("Sea Glass Whisper") specifically because a bridge
+ * display has to fight direct sunlight glare: navy-on-ivory measures
+ * ~14.2:1 contrast (WCAG AAA) vs. the teal alternative's ~5.4:1
+ * (barely AA) — the higher-contrast option is the correct one for
+ * outdoor/glare legibility, not just the more "premium-looking" one.
+ *
+ * Night (.dark): NOT just the day palette inverted. Modeled on IHO
+ * S-52, the actual ECDIS standard for bridge chart displays, which
+ * mandates a dedicated Night palette built from low-saturation reds
+ * on near-black — long-wavelength red light is the one hue that
+ * doesn't disrupt rod-cell (scotopic) night vision, so a watchstander
+ * can read the screen without losing the ability to see through the
+ * bridge windows. Blue/indigo (this app's earlier dark-mode accent)
+ * is exactly the wrong hue for that reason — it's swapped for a muted
+ * brick-red accent here.
+ */
 :root {
   color-scheme: light;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  --background: #f7f5f0;
+  --foreground: #13253a;
+  --card: #ffffff;
+  --card-foreground: #13253a;
+  --popover: #ffffff;
+  --popover-foreground: #13253a;
+  --primary: #2f506c;
+  --primary-foreground: #f7f5f0;
+  --secondary: #e2e7ef;
+  --secondary-foreground: #13253a;
+  --muted: #e2e7ef;
+  --muted-foreground: #5b7186;
+  --accent: #e2e7ef;
+  --accent-foreground: #13253a;
+  --destructive: #b3312c;
+  --border: #d3dbe5;
+  --input: #d3dbe5;
+  --ring: #2f506c;
+  --chart-1: #2f506c;
+  --chart-2: #5b7186;
+  --chart-3: #8a9bab;
+  --chart-4: #13253a;
+  --chart-5: #b8c3d0;
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar: #f7f5f0;
+  --sidebar-foreground: #13253a;
+  --sidebar-primary: #2f506c;
+  --sidebar-primary-foreground: #f7f5f0;
+  --sidebar-accent: #e2e7ef;
+  --sidebar-accent-foreground: #13253a;
+  --sidebar-border: #d3dbe5;
+  --sidebar-ring: #2f506c;
 }
 
 .dark {
   color-scheme: dark;
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: #0b0e11;
+  --foreground: #e8ddd8;
+  --card: #15191d;
+  --card-foreground: #e8ddd8;
+  --popover: #15191d;
+  --popover-foreground: #e8ddd8;
+  --primary: #7a3530;
+  --primary-foreground: #f3e9e6;
+  --secondary: #221b19;
+  --secondary-foreground: #e8ddd8;
+  --muted: #1e1a19;
+  --muted-foreground: #a8938d;
+  --accent: #241c1a;
+  --accent-foreground: #e8ddd8;
+  --destructive: #b8453d;
+  --border: rgba(232, 221, 216, 0.1);
+  --input: rgba(232, 221, 216, 0.14);
+  --ring: #7a3530;
+  --chart-1: #7a3530;
+  --chart-2: #a8938d;
+  --chart-3: #8a6b64;
+  --chart-4: #e8ddd8;
+  --chart-5: #4a3a37;
+  --sidebar: #0e1114;
+  --sidebar-foreground: #e8ddd8;
+  --sidebar-primary: #7a3530;
+  --sidebar-primary-foreground: #f3e9e6;
+  --sidebar-accent: #221b19;
+  --sidebar-accent-foreground: #e8ddd8;
+  --sidebar-border: rgba(232, 221, 216, 0.1);
+  --sidebar-ring: #7a3530;
 }
 
 @layer base {

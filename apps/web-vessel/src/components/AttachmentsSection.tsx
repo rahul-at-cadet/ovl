@@ -91,7 +91,7 @@ export function AttachmentsSection({ reportId }: AttachmentsSectionProps) {
           {attachments.map((file) => (
             <div key={file.fileId} className="flex items-center justify-between p-3 bg-background border border-border rounded-md">
               <div className="flex items-center space-x-3 overflow-hidden">
-                <div className="p-2 bg-blue-500/10 text-blue-400 rounded-md shrink-0">
+                <div className="p-2 bg-primary/10 text-primary rounded-md shrink-0">
                   <File className="w-4 h-4" />
                 </div>
                 <div className="overflow-hidden">
@@ -114,7 +114,7 @@ export function AttachmentsSection({ reportId }: AttachmentsSectionProps) {
             disabled={isUploading}
           />
           {isUploading ? (
-            <Loader2 className="w-8 h-8 text-blue-500 animate-spin mb-3" />
+            <Loader2 className="w-8 h-8 text-primary animate-spin mb-3" />
           ) : (
             <UploadCloud className="w-8 h-8 text-muted-foreground mb-3" />
           )}

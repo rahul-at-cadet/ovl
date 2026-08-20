@@ -52,11 +52,20 @@ export class SyncService {
   async getStatus() {
     const result = await this.db.select().from(schema.configStore).where(eq(schema.configStore.key, 'vessel_id'));
     const enrolled = result.length > 0;
-    
+
+    // Real outbox depth, not a placeholder: the same isNull(processedAt)
+    // filter pushOutboxEvents itself uses to find what still needs
+    // pushing to shore.
+    const pending = await this.db
+      .select()
+      .from(schema.syncOutbox)
+      .where(isNull(schema.syncOutbox.processedAt));
+
     return {
       enrolled,
       lastSuccess: this.lastSuccess,
-      lastError: this.lastError
+      lastError: this.lastError,
+      pendingCount: pending.length,
     };
   }
 

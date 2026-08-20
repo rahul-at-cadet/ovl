@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Shield, UserPlus, Search, MoreHorizontal, UserCheck, ShieldAlert, ArrowUpDown, Filter, UserX } from 'lucide-react';
+import { Shield, UserPlus, Search, MoreHorizontal, UserCheck, ShieldAlert, ArrowUpDown, Users as UsersIcon, UserX } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { trpc } from '@/lib/trpc';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -20,12 +20,12 @@ export default function UsersPage() {
 
   const utils = trpc.useUtils();
   const { data: users = [], isLoading } = trpc.users.list.useQuery();
-  
+
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newUsername, setNewUsername] = useState('');
   const [newRole, setNewRole] = useState('Chief Engineer');
   const [generatedPassword, setGeneratedPassword] = useState('');
-  
+
   const createUser = trpc.users.create.useMutation({
     onSuccess: (data) => {
       setGeneratedPassword(data.temporaryPassword);
@@ -72,34 +72,44 @@ export default function UsersPage() {
     onError: (err) => toastManager.add({ title: 'Failed to reset password', description: err.message, type: 'error' })
   });
 
-  const filteredUsers = users.filter((user: any) => 
-    user.username.toLowerCase().includes(searchQuery.toLowerCase()) || 
+  const filteredUsers = users.filter((user: any) =>
+    user.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
     user.role.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const activeCount = users.filter((u: any) => u.active).length;
+  const inactiveCount = users.length - activeCount;
+  const adminCount = users.filter((u: any) => u.role.includes('Master') || u.role.includes('Admin')).length;
+
+  const stats = [
+    { label: 'Total Crew', value: users.length.toString(), icon: UsersIcon, color: 'text-foreground' },
+    { label: 'Active', value: activeCount.toString(), icon: UserCheck, color: 'text-emerald-400' },
+    { label: 'Inactive', value: inactiveCount.toString(), icon: UserX, color: 'text-muted-foreground' },
+    { label: 'Admin / Master', value: adminCount.toString(), icon: ShieldAlert, color: 'text-amber-400' },
+  ];
+
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border/60 pb-6">
+    // Fixed to the viewport, same as Dashboard — a crew roster shouldn't
+    // require scrolling the whole page to find the onboarding button;
+    // only the directory table scrolls internally.
+    <div className="h-[calc(100vh-140px)] flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border pb-4 shrink-0">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Crew & Access Management</h1>
-          <p className="text-muted-foreground mt-1.5 text-sm font-medium">Control local node access and crew permissions.</p>
+          <p className="text-muted-foreground mt-1 text-sm">Control local node access and crew permissions.</p>
         </div>
         <div className="flex gap-3 w-full md:w-auto">
-          <div className="relative w-full md:w-72 shadow-sm">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input 
-              placeholder="Search by username or role..." 
+          <div className="relative w-full md:w-72">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by username or role..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 bg-background/80 border-border/80 focus-visible:ring-ring text-foreground rounded-md h-9 text-sm w-full transition-all"
+              className="pl-9 bg-background/80 border-border/80 focus-visible:ring-ring text-foreground rounded-md h-10 text-sm w-full transition-all"
             />
           </div>
-          <Button variant="outline" className="border-border bg-background text-foreground hover:text-foreground hover:bg-card rounded-md h-9 shadow-sm shrink-0">
-            <Filter className="w-4 h-4 mr-2" />
-            Filter
-          </Button>
           <Dialog open={isCreateOpen} onOpenChange={handleCloseCreate}>
-            <DialogTrigger className="inline-flex items-center justify-center bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-9 px-4 py-2 text-sm font-semibold shadow-sm shrink-0 transition-all">
+            <DialogTrigger className="inline-flex items-center justify-center bg-primary hover:bg-primary/90 text-primary-foreground rounded-sm h-10 px-4 py-2 text-sm font-medium shadow-sm shrink-0 transition-all">
               <UserPlus className="w-4 h-4 mr-2" />
               Onboard Crew
             </DialogTrigger>
@@ -110,7 +120,7 @@ export default function UsersPage() {
                   Create a local offline account for the edge node.
                 </DialogDescription>
               </DialogHeader>
-              
+
               {!generatedPassword ? (
                 <div className="grid gap-4 py-4">
                   <div className="grid gap-2">
@@ -164,17 +174,36 @@ export default function UsersPage() {
         </div>
       </div>
 
-      <Card className="bg-card/40 border-border/60 shadow-xl overflow-hidden rounded-xl backdrop-blur-md">
-        <CardHeader className="border-b border-border/60 pb-4 bg-card/20">
+      {/* Stat strip — mirrors Dashboard's KPI row so both screens read
+          as one consistent instrument-panel layout. Always visible,
+          never part of the scrolling directory below. */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 shrink-0">
+        {stats.map((stat) => (
+          <Card key={stat.label} className="bg-card/50 border-border rounded-md">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-xs font-medium text-muted-foreground">
+                {stat.label}
+              </CardTitle>
+              <stat.icon className={`w-4 h-4 ${stat.color}`} />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-foreground">{stat.value}</div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <Card className="flex-1 min-h-0 flex flex-col bg-card/40 border-border/60 shadow-xl overflow-hidden rounded-xl backdrop-blur-md">
+        <CardHeader className="border-b border-border/60 pb-4 bg-card/20 shrink-0">
           <CardTitle className="text-sm font-semibold tracking-tight text-foreground">Local Directory</CardTitle>
           <CardDescription className="text-xs text-muted-foreground">Personnel authorized for edge-node access.</CardDescription>
         </CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
+        <CardContent className="flex-1 min-h-0 p-0 overflow-hidden">
+          <div className="h-full overflow-auto">
             <table className="w-full text-sm text-left text-muted-foreground">
-              <thead className="text-xs text-muted-foreground uppercase tracking-wider bg-background/40 border-b border-border/60">
+              <thead className="text-xs text-muted-foreground uppercase tracking-wider bg-background/90 backdrop-blur-sm border-b border-border/60 sticky top-0 z-10">
                 <tr>
-                  <th scope="col" className="px-6 py-3 font-semibold flex items-center gap-2">User <ArrowUpDown className="w-3 h-3" /></th>
+                  <th scope="col" className="px-6 py-3 font-semibold"><div className="flex items-center gap-2">User <ArrowUpDown className="w-3 h-3" /></div></th>
                   <th scope="col" className="px-6 py-3 font-semibold">Security Role</th>
                   <th scope="col" className="px-6 py-3 font-semibold">Account Status</th>
                   <th scope="col" className="px-6 py-3 text-right font-semibold">Manage</th>
@@ -208,8 +237,8 @@ export default function UsersPage() {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div 
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold tracking-wide uppercase border cursor-pointer hover:opacity-80 transition-opacity ${user.active ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-muted/50 text-muted-foreground border-border/50'}`}
+                        <div
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold tracking-wide uppercase border cursor-pointer hover:opacity-80 transition-opacity ${user.active ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-muted/50 text-muted-foreground border-border/50'}`}
                           onClick={() => updateStatus.mutate({ id: user.id, active: !user.active })}
                         >
                           {user.active ? <UserCheck className="w-3 h-3" /> : <UserX className="w-3 h-3" />}
@@ -218,26 +247,26 @@ export default function UsersPage() {
                       </td>
                       <td className="px-6 py-4 text-right">
                         <DropdownMenu>
-                          <DropdownMenuTrigger className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-muted hover:text-foreground h-8 w-8 text-muted-foreground">
+                          <DropdownMenuTrigger className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-muted hover:text-foreground h-9 w-9 text-muted-foreground">
                             <MoreHorizontal className="w-4 h-4" />
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="bg-background border-border text-foreground">
                             <DropdownMenuGroup>
                               <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                              <DropdownMenuItem 
+                              <DropdownMenuItem
                                 className="focus:bg-card focus:text-foreground cursor-pointer"
                                 onClick={() => { setSelectedUserForRole(user); setEditRoleValue(user.role); }}
                               >
                                 Edit Profile / Role
                               </DropdownMenuItem>
-                              <DropdownMenuItem 
+                              <DropdownMenuItem
                                 className="focus:bg-card focus:text-foreground cursor-pointer"
                                 onClick={() => { setSelectedUserForPassword(user); setResetPasswordGenerated(''); }}
                               >
                                 Reset Password
                               </DropdownMenuItem>
                               <DropdownMenuSeparator className="bg-muted" />
-                              <DropdownMenuItem 
+                              <DropdownMenuItem
                                 className="focus:bg-card focus:text-foreground cursor-pointer text-red-400 focus:text-red-300"
                                 onClick={() => updateStatus.mutate({ id: user.id, active: !user.active })}
                               >
@@ -289,10 +318,10 @@ export default function UsersPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSelectedUserForRole(null)} className="border-border bg-background text-foreground hover:bg-card hover:text-foreground">Cancel</Button>
-            <Button 
+            <Button
               onClick={() => updateRole.mutate({ id: selectedUserForRole.id, role: editRoleValue })}
               disabled={updateRole.isPending}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white"
+              className="bg-primary hover:bg-primary/90 text-white"
             >
               {updateRole.isPending ? 'Saving...' : 'Save Changes'}
             </Button>
@@ -314,7 +343,7 @@ export default function UsersPage() {
               Generate a new temporary password for {selectedUserForPassword?.username}.
             </DialogDescription>
           </DialogHeader>
-          
+
           {!resetPasswordGenerated ? (
             <div className="py-4">
               <p className="text-sm text-foreground mb-4">
@@ -322,7 +351,7 @@ export default function UsersPage() {
               </p>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setSelectedUserForPassword(null)} className="border-border bg-background text-foreground hover:bg-card hover:text-foreground">Cancel</Button>
-                <Button 
+                <Button
                   onClick={() => adminResetPassword.mutate({ id: selectedUserForPassword.id })}
                   disabled={adminResetPassword.isPending}
                   className="bg-red-600 hover:bg-red-500 text-white"
@@ -334,7 +363,7 @@ export default function UsersPage() {
           ) : (
             <div className="py-4">
               <div className="bg-card border border-border rounded-md p-4 mt-2">
-                <p className="text-sm text-muted-foreground mb-1 font-medium uppercase tracking-wider text-[10px]">New Temporary Password</p>
+                <p className="text-sm text-muted-foreground mb-1 font-medium uppercase tracking-wider text-xs">New Temporary Password</p>
                 <div className="flex items-center justify-between">
                   <code className="text-xl font-mono text-emerald-400">{resetPasswordGenerated}</code>
                 </div>
