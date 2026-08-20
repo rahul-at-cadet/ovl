@@ -15,6 +15,8 @@ import { ComplianceService } from '../config/compliance/compliance.service';
 import { ConfigBundleService } from '../config/config-bundle/config-bundle.service';
 import { VesselUsersService } from '../vessels/vessel-users.service';
 import { Scope } from '../config/logic/scope';
+import { effectiveSeverities } from '../config/logic/compliance';
+import { continuityConfigFor, revalidate, type ContinuityReport, type Severity } from '../config/logic/continuity';
 import { SupertokensService } from '../auth/supertokens.service';
 import Session from 'supertokens-node/recipe/session';
 import { TRPCError } from '@trpc/server';
@@ -89,6 +91,13 @@ const PullConfigInputSchema = Type.Object({
   // Postgres bigserial, so this arrives as a string (see the userCommand
   // seq BigInt-serialization comment on VesselUsersService).
   lastChatSeq: Type.Optional(Type.String()),
+  // Remarks' pull-down cursor, same shape as lastChatSeq — remarks are
+  // office-authored only (a Reviewer flags a submitted report), so there
+  // is no equivalent upstream direction to worry about.
+  lastRemarkSeq: Type.Optional(Type.String()),
+  // Invalidation notices' pull-down cursor, same shape — computed
+  // office-side only (cascade revalidation), no upstream direction.
+  lastInvalidationSeq: Type.Optional(Type.String()),
 });
 const PullConfigInputCompiler = TypeCompiler.Compile(PullConfigInputSchema);
 
@@ -102,6 +111,21 @@ const SendChatMessageCompiler = TypeCompiler.Compile(SendChatMessageSchema);
 // path on both sides (mirrors pkg/domain.MaxChatBodyBytes), so the cap
 // can't drift between office's and the vessel's send paths.
 const MAX_CHAT_BODY_BYTES = 4096;
+
+// Design handoff B4's "send remark set" — a Reviewer flags one or more
+// fields on a report in a single call (mirrors ovl/office/httpapi/remarks.go's
+// createRemarkSetRequest).
+const CreateRemarkSetSchema = Type.Object({
+  reportId: Type.String(),
+  remarks: Type.Array(Type.Object({ fieldName: Type.String(), body: Type.String() }), { minItems: 1 }),
+});
+const CreateRemarkSetCompiler = TypeCompiler.Compile(CreateRemarkSetSchema);
+
+const ListRemarksSchema = Type.Object({ reportId: Type.String() });
+const ListRemarksCompiler = TypeCompiler.Compile(ListRemarksSchema);
+
+const SetRemarkResolvedSchema = Type.Object({ id: Type.String(), resolved: Type.Boolean() });
+const SetRemarkResolvedCompiler = TypeCompiler.Compile(SetRemarkResolvedSchema);
 
 const VesselIdInputSchema = Type.Object({
   vesselId: Type.String(),
@@ -341,6 +365,106 @@ export class TrpcRouter {
     private readonly supertokensService: SupertokensService,
   ) {}
 
+  /**
+   * Re-checks every report in (vesselId, schemaName)'s chain against the
+   * continuity rules (architecture 8.3) after a report version lands —
+   * ports office/syncservice/cascade.go's runCascade near-verbatim. Any
+   * newly (or differently) broken report flips to state "invalidated",
+   * gets an audit event, and gets an invalidation_notices row for the
+   * vessel to later pull. A cascade failure must not reject the outbox
+   * item that already landed successfully — callers should log and
+   * continue, matching PushOutbox's own "the item is accepted" contract.
+   */
+  private async runCascade(vesselId: string, schemaName: string): Promise<void> {
+    // ListChain: the latest version of every report for (vesselId,
+    // schemaName), ascending by event time — corrections replace their
+    // earlier version in the chain rather than adding a second entry.
+    const allVersions = await this.db
+      .select()
+      .from(schema.reportVersions)
+      .where(and(eq(schema.reportVersions.vesselId, vesselId), eq(schema.reportVersions.schemaKind, schemaName)));
+
+    const latestByReportId = new Map<string, typeof allVersions[number]>();
+    for (const r of allVersions) {
+      const existing = latestByReportId.get(r.reportId);
+      if (!existing || r.versionNo > existing.versionNo) latestByReportId.set(r.reportId, r);
+    }
+    // The office should never hold a draft/ready row in the first place
+    // (nothing is enqueued before submit), so this is a guard, not a
+    // real behavior change — kept for parity with the original's own
+    // filter, since both sides must compute cascade over the same chain.
+    const chainRows = Array.from(latestByReportId.values()).filter((r) => r.state !== 'draft' && r.state !== 'ready');
+
+    // schemaKind is stored as the vessel's own schema-id convention
+    // (e.g. "bunker-report.json") — stripped only here, for resolving
+    // the continuity config, same normalization FieldPolicyService
+    // already does; the chain query above must keep matching the
+    // column's actual stored form.
+    const bareSchemaName = schemaName.replace(/\.json$/, '');
+
+    const chain: ContinuityReport[] = chainRows.map((r) => ({
+      reportId: r.reportId,
+      versionNo: r.versionNo,
+      schemaName: bareSchemaName,
+      eventType: r.eventType,
+      eventTime: new Date(r.eventTime),
+      fields: (r.fields as Record<string, unknown>) || {},
+    }));
+
+    const vesselRows = await this.db.select().from(schema.vessels).where(eq(schema.vessels.id, vesselId)).limit(1);
+    const vesselGroups = (vesselRows[0]?.groups as string[] | null) ?? [];
+
+    const assignments = await this.complianceService.listRuleSeverities();
+    const cfg = continuityConfigFor(bareSchemaName);
+    cfg.severities = effectiveSeverities(assignments, vesselId, vesselGroups) as Record<string, Severity>;
+
+    const result = revalidate(chain, cfg);
+    const now = new Date().toISOString();
+
+    for (const row of chainRows) {
+      const brokenRules = result.invalidated.get(row.reportId);
+      if (!brokenRules || brokenRules.length === 0) continue;
+
+      if (row.state === 'invalidated') {
+        const prevNotice = await this.db
+          .select()
+          .from(schema.invalidationNotices)
+          .where(and(eq(schema.invalidationNotices.vesselId, vesselId), eq(schema.invalidationNotices.reportId, row.reportId), eq(schema.invalidationNotices.versionNo, row.versionNo)))
+          .orderBy(desc(schema.invalidationNotices.seq))
+          .limit(1);
+        const prevRules = (prevNotice[0]?.brokenRules as string[] | undefined) ?? [];
+        if (prevRules.length === brokenRules.length && prevRules.every((r, i) => r === brokenRules[i])) {
+          continue; // already recorded with the same broken rules
+        }
+      }
+
+      await this.db
+        .update(schema.reportVersions)
+        .set({ state: 'invalidated' })
+        .where(and(eq(schema.reportVersions.vesselId, vesselId), eq(schema.reportVersions.reportId, row.reportId), eq(schema.reportVersions.versionNo, row.versionNo)));
+
+      await this.db.insert(schema.reportAuditEvents).values({
+        vesselId,
+        reportId: row.reportId,
+        versionNo: row.versionNo,
+        eventType: 'invalidated',
+        actor: '',
+        occurredAt: now,
+        detail: { brokenRules, fromState: row.state },
+        receivedAt: now,
+        origin: 'office',
+      });
+
+      await this.db.insert(schema.invalidationNotices).values({
+        vesselId,
+        reportId: row.reportId,
+        versionNo: row.versionNo,
+        brokenRules,
+        computedAt: now,
+      });
+    }
+  }
+
   appRouter = router({
     ping: publicProcedure
       .input((val: unknown) => {
@@ -437,6 +561,22 @@ export class TrpcRouter {
                   receivedAt: new Date().toISOString(),
                   origin: 'vessel',
                 });
+
+                // Cascade revalidation (architecture 8.3) runs
+                // synchronously right after landing, so a dependent
+                // later report's invalidation is visible within this
+                // same push call. A failure here must not reject an
+                // item that already landed successfully. Passed as
+                // stored (schema_kind carries the vessel's own
+                // "bunker-report.json"-style id, .json suffix and all)
+                // — runCascade strips it only where it actually matters
+                // (resolving the continuity config), not for the chain
+                // query itself, which must match what's in the column.
+                try {
+                  await this.runCascade(input.vesselId, payload.schemaName || 'unknown');
+                } catch (err: any) {
+                  console.error(`Cascade revalidation failed for vessel ${input.vesselId}:`, err);
+                }
               } catch (err: any) {
                 console.error('Failed to parse or save report event:', err);
               }
@@ -461,6 +601,30 @@ export class TrpcRouter {
                 }).onConflictDoNothing();
               } catch (err: any) {
                 console.error('Failed to parse or save chat message:', err);
+              }
+            } else if (event.eventType === 'correction_started') {
+              // Architecture 8.1/8.2's "Start correction" — the vessel
+              // already has version N+1 as a new local draft; this only
+              // records the audit trail entry against the *old* version
+              // office already has (mirrors pkg/domain.Report.NewCorrection's
+              // own event placement). The new draft itself lands later,
+              // as its own ordinary report_submitted push once the
+              // vessel actually submits it.
+              try {
+                const payload = JSON.parse(event.payload);
+                await this.db.insert(schema.reportAuditEvents).values({
+                  vesselId: input.vesselId,
+                  reportId: payload.reportId,
+                  versionNo: payload.versionNo,
+                  eventType: 'correction_started',
+                  actor: payload.actor,
+                  occurredAt: payload.at || new Date().toISOString(),
+                  detail: { newVersionNo: payload.newVersionNo },
+                  receivedAt: new Date().toISOString(),
+                  origin: 'vessel',
+                });
+              } catch (err: any) {
+                console.error('Failed to parse or save correction_started event:', err);
               }
             } else {
               console.warn(`Unrecognized outbox eventType "${event.eventType}" from vessel ${input.vesselId} — dropped.`);
@@ -527,11 +691,35 @@ export class TrpcRouter {
             .orderBy(schema.chatMessages.seq);
           const chatMessages = newChatRows.map((m) => ({ ...m, seq: m.seq.toString(), direction: 'shore_to_ship' }));
 
+          // Remarks' pull-down half, same seq-cursor shape as chat —
+          // remarks are always office-authored, so there's no push
+          // direction to handle.
+          const lastRemarkSeq = input.lastRemarkSeq ? BigInt(input.lastRemarkSeq) : BigInt(0);
+          const newRemarkRows = await this.db
+            .select()
+            .from(schema.remarks)
+            .where(and(eq(schema.remarks.vesselId, input.vesselId), gt(schema.remarks.seq, lastRemarkSeq)))
+            .orderBy(schema.remarks.seq);
+          const remarks = newRemarkRows.map((r) => ({ ...r, seq: r.seq.toString() }));
+
+          // Invalidation notices' pull-down half, same seq-cursor shape
+          // — computed office-side only (cascade revalidation), no
+          // upstream direction.
+          const lastInvalidationSeq = input.lastInvalidationSeq ? BigInt(input.lastInvalidationSeq) : BigInt(0);
+          const newInvalidationRows = await this.db
+            .select()
+            .from(schema.invalidationNotices)
+            .where(and(eq(schema.invalidationNotices.vesselId, input.vesselId), gt(schema.invalidationNotices.seq, lastInvalidationSeq)))
+            .orderBy(schema.invalidationNotices.seq);
+          const invalidationNotices = newInvalidationRows.map((n) => ({ ...n, seq: n.seq.toString() }));
+
           return {
             bundle,
             syncedAt,
             userCommands,
             chatMessages,
+            remarks,
+            invalidationNotices,
           };
         }),
     }),
@@ -750,19 +938,31 @@ export class TrpcRouter {
               eq(schema.reportReviews.vesselId, schema.reportVersions.vesselId),
               eq(schema.reportReviews.reportId, schema.reportVersions.reportId),
             ),
-          )
-          .limit(100);
+          );
 
-        return reports.map(r => ({
-          id: r.id,
-          vessel: r.vesselName || 'Unknown',
-          imo: r.vesselImo || 'Unknown',
-          type: r.type,
-          status: r.status,
-          date: new Date(r.date).toISOString().split('T')[0],
-          by: 'System',
-          reviewed: !!r.reviewedBy,
-        }));
+        // Corrections (Report.startCorrection) mean a reportId can now
+        // have more than one row here — keep only the highest versionNo
+        // per reportId, so a corrected report shows once, as its current
+        // state, not once per historical version.
+        const latestByReportId = new Map<string, typeof reports[number]>();
+        for (const r of reports) {
+          const existing = latestByReportId.get(r.id);
+          if (!existing || r.versionNo > existing.versionNo) latestByReportId.set(r.id, r);
+        }
+
+        return Array.from(latestByReportId.values())
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+          .slice(0, 100)
+          .map(r => ({
+            id: r.id,
+            vessel: r.vesselName || 'Unknown',
+            imo: r.vesselImo || 'Unknown',
+            type: r.type,
+            status: r.status,
+            date: new Date(r.date).toISOString().split('T')[0],
+            by: 'System',
+            reviewed: !!r.reviewedBy,
+          }));
       }),
       get: protectedProcedure
         .input((val: unknown) => {
@@ -794,6 +994,12 @@ export class TrpcRouter {
 
           const r = report[0];
 
+          // Specifically the submit event, not just "whatever audit event
+          // happened most recently" — a report can pick up later event
+          // types (remarked, invalidated, ...) against the same
+          // reportId+versionNo, and the most recent one isn't necessarily
+          // who submitted it. Found via Remarks: after a Reviewer flagged
+          // a field, this used to relabel "Submitted By" as the Reviewer.
           const submitEvent = await this.db
             .select({ actor: schema.reportAuditEvents.actor })
             .from(schema.reportAuditEvents)
@@ -801,6 +1007,7 @@ export class TrpcRouter {
               and(
                 eq(schema.reportAuditEvents.reportId, r.id),
                 eq(schema.reportAuditEvents.versionNo, r.versionNo),
+                eq(schema.reportAuditEvents.eventType, 'submitted'),
               ),
             )
             .orderBy(desc(schema.reportAuditEvents.occurredAt))
@@ -817,6 +1024,28 @@ export class TrpcRouter {
             )
             .limit(1);
 
+          // report_versions carries no invalidatedRules column of its
+          // own (unlike the vessel's local schema) — the
+          // invalidation_notices log is the source of truth, so the
+          // latest one for this exact version is looked up only when
+          // actually needed for display.
+          let brokenRules: string[] | null = null;
+          if (r.status === 'invalidated') {
+            const notice = await this.db
+              .select({ brokenRules: schema.invalidationNotices.brokenRules })
+              .from(schema.invalidationNotices)
+              .where(
+                and(
+                  eq(schema.invalidationNotices.vesselId, r.vesselId),
+                  eq(schema.invalidationNotices.reportId, r.id),
+                  eq(schema.invalidationNotices.versionNo, r.versionNo),
+                ),
+              )
+              .orderBy(desc(schema.invalidationNotices.seq))
+              .limit(1);
+            brokenRules = (notice[0]?.brokenRules as string[] | undefined) ?? null;
+          }
+
           return {
             id: r.id,
             vesselId: r.vesselId,
@@ -830,6 +1059,7 @@ export class TrpcRouter {
             reviewed: review.length > 0,
             reviewedBy: review[0]?.reviewedBy ?? null,
             reviewedAt: review[0]?.reviewedAt ?? null,
+            brokenRules,
           };
         }),
       // Mirrors the original OVL product's reviewer workflow: office staff can
@@ -919,6 +1149,134 @@ export class TrpcRouter {
             })
             .returning();
           return { ...rows[0], seq: rows[0].seq.toString() };
+        }),
+      // Design handoff B4's "send remark set" (architecture 12.3): a
+      // Reviewer flags one or more fields on the report's latest version
+      // with comments, in a single call — mirrors
+      // ovl/office/httpapi/remarks.go's handleCreateRemarkSet, minus the
+      // human-readable field-label resolution (this port's office side
+      // has no schema registry to resolve labels from; the chat summary
+      // falls back to raw field names, same as the original does when a
+      // schema can't be loaded).
+      createRemarkSet: protectedProcedure
+        .input((val: unknown) => {
+          if (!CreateRemarkSetCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof CreateRemarkSetSchema>;
+        })
+        .mutation(async ({ input, ctx }) => {
+          const localUser = await this.supertokensService.getLocalUser(ctx.session.getUserId());
+          if (!localUser || !(localUser.roles as string[]).includes('reviewer')) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Only a Reviewer may flag fields with remarks.' });
+          }
+
+          const latest = await this.db
+            .select({ vesselId: schema.reportVersions.vesselId, versionNo: schema.reportVersions.versionNo, state: schema.reportVersions.state })
+            .from(schema.reportVersions)
+            .where(eq(schema.reportVersions.reportId, input.reportId))
+            .orderBy(desc(schema.reportVersions.versionNo))
+            .limit(1);
+          if (!latest.length) throw new TRPCError({ code: 'NOT_FOUND', message: 'Report not found' });
+          const { vesselId, versionNo, state } = latest[0];
+          // Mirrors pkg/domain.Report.MarkRemarked's own guard: a report
+          // still in draft/ready hasn't been submitted for review yet.
+          if (state === 'draft' || state === 'ready') {
+            throw new TRPCError({ code: 'CONFLICT', message: `Cannot remark a report in state "${state}"; it must be submitted first.` });
+          }
+
+          const author = localUser.username;
+          const now = new Date().toISOString();
+          const remarkSetId = crypto.randomUUID();
+          const fieldNames = input.remarks.map((r) => r.fieldName);
+
+          const insertedRemarks = await this.db
+            .insert(schema.remarks)
+            .values(
+              input.remarks.map((r) => ({
+                id: crypto.randomUUID(),
+                remarkSetId,
+                vesselId,
+                reportId: input.reportId,
+                versionNo,
+                fieldName: r.fieldName,
+                body: r.body,
+                author,
+                createdAt: now,
+                resolved: false,
+              })),
+            )
+            .returning();
+
+          await this.db
+            .update(schema.reportVersions)
+            .set({ state: 'remarked' })
+            .where(and(eq(schema.reportVersions.vesselId, vesselId), eq(schema.reportVersions.reportId, input.reportId), eq(schema.reportVersions.versionNo, versionNo)));
+
+          await this.db.insert(schema.reportAuditEvents).values({
+            vesselId,
+            reportId: input.reportId,
+            versionNo,
+            eventType: 'remarked',
+            actor: author,
+            occurredAt: now,
+            detail: { fields: fieldNames },
+            receivedAt: now,
+            origin: 'office',
+          });
+
+          // Phase 5 restructure: since the standalone Remarks tab is
+          // gone client-side, a remark set also auto-posts a linking
+          // chat message — otherwise a remark would land with no trace
+          // in the surface that replaced it (see reports.sendChatMessage
+          // above for the same insert shape).
+          const shown = fieldNames.slice(0, 3);
+          const suffix = fieldNames.length > 3 ? ` (+${fieldNames.length - 3} more)` : '';
+          let summary = `Flagged: ${shown.join(', ')}${suffix}`;
+          if (input.remarks.length === 1) summary += `\n${input.remarks[0].body}`;
+          if (Buffer.byteLength(summary, 'utf8') > MAX_CHAT_BODY_BYTES) {
+            summary = Buffer.from(summary, 'utf8').subarray(0, MAX_CHAT_BODY_BYTES).toString('utf8');
+          }
+          await this.db.insert(schema.chatMessages).values({
+            id: crypto.randomUUID(),
+            vesselId,
+            reportId: input.reportId,
+            sender: author,
+            body: summary,
+            sentAt: now,
+            direction: 'office',
+          });
+
+          return insertedRemarks.map((r) => ({ ...r, seq: r.seq.toString() }));
+        }),
+      listRemarks: protectedProcedure
+        .input((val: unknown) => {
+          if (!ListRemarksCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof ListRemarksSchema>;
+        })
+        .query(async ({ input }) => {
+          const rows = await this.db
+            .select()
+            .from(schema.remarks)
+            .where(eq(schema.remarks.reportId, input.reportId))
+            .orderBy(schema.remarks.createdAt);
+          return rows.map((r) => ({ ...r, seq: r.seq.toString() }));
+        }),
+      // Reviewer-only manual toggle (Phase 5 open question 2's resolved
+      // default: no auto-infer from a later synced value).
+      setRemarkResolved: protectedProcedure
+        .input((val: unknown) => {
+          if (!SetRemarkResolvedCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof SetRemarkResolvedSchema>;
+        })
+        .mutation(async ({ input, ctx }) => {
+          const localUser = await this.supertokensService.getLocalUser(ctx.session.getUserId());
+          if (!localUser || !(localUser.roles as string[]).includes('reviewer')) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Only a Reviewer may resolve remarks.' });
+          }
+          await this.db
+            .update(schema.remarks)
+            .set({ resolved: input.resolved, resolvedAt: input.resolved ? new Date().toISOString() : null })
+            .where(eq(schema.remarks.id, input.id));
+          return { resolved: input.resolved };
         }),
     }),
     apiKeys: router({

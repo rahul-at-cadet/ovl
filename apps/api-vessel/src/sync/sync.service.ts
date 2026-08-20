@@ -2,7 +2,7 @@ import { Injectable, Inject, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { TrpcService } from '../rpc/trpc.service';
 import { DATABASE_CONNECTION } from '../database/database.module';
-import { isNull, eq } from 'drizzle-orm';
+import { isNull, eq, and } from 'drizzle-orm';
 import * as schema from '@ovl/vessel-database';
 import { AuthService } from '../auth/auth.service';
 
@@ -167,6 +167,104 @@ export class SyncService {
     return maxSeq === null ? null : maxSeq.toString();
   }
 
+  /**
+   * Remarks' pull-down half — office is the only author, so this is
+   * pure apply, no push side. Mirrors pkg/domain.Report.MarkRemarked:
+   * inserting a remark also flips the local report version's state to
+   * "remarked" (per that exact reportId+versionNo, not necessarily the
+   * report's current latest version — a correction may have already
+   * moved on since the reviewer flagged this older version). ON
+   * CONFLICT DO NOTHING on id keeps a re-pull idempotent. createdAt/
+   * resolvedAt are normalized to ISO 8601 for the same reason
+   * applyChatMessages normalizes sentAt — see that method's own comment.
+   */
+  private async applyRemarks(remarks: any[]): Promise<string | null> {
+    let maxSeq: bigint | null = null;
+    const touchedVersions = new Set<string>();
+    for (const r of remarks) {
+      await this.db.insert(schema.remarks).values({
+        id: r.id,
+        remarkSetId: r.remarkSetId,
+        reportId: r.reportId,
+        versionNo: r.versionNo,
+        fieldName: r.fieldName,
+        body: r.body,
+        author: r.author,
+        createdAt: new Date(r.createdAt).toISOString(),
+        resolved: r.resolved,
+        resolvedAt: r.resolvedAt ? new Date(r.resolvedAt).toISOString() : null,
+      }).onConflictDoNothing();
+      touchedVersions.add(`${r.reportId}::${r.versionNo}`);
+      const seq = BigInt(r.seq);
+      if (maxSeq === null || seq > maxSeq) maxSeq = seq;
+    }
+    for (const key of touchedVersions) {
+      const [reportId, versionNoStr] = key.split('::');
+      await this.db
+        .update(schema.reports)
+        .set({ state: 'remarked' })
+        .where(and(eq(schema.reports.reportId, reportId), eq(schema.reports.versionNo, Number(versionNoStr))));
+    }
+    return maxSeq === null ? null : maxSeq.toString();
+  }
+
+  /**
+   * Invalidation notices' pull-down half — office is the only author
+   * (cascade revalidation), pure apply. Mirrors vessel/store/inbox.go's
+   * InsertInvalidationNotice + applyInvalidationNotice: stores the
+   * append-only notice (ON CONFLICT DO NOTHING on seq keeps a re-pull
+   * idempotent), then applies it to that exact reportId+versionNo's own
+   * row — not necessarily the report's current latest version, since a
+   * correction may have already moved on. Skips the transition (but
+   * still records the notice) if that version no longer exists locally,
+   * or is already invalidated with the identical broken-rules set.
+   */
+  private async applyInvalidationNotices(notices: any[]): Promise<string | null> {
+    let maxSeq: bigint | null = null;
+    for (const n of notices) {
+      await this.db.insert(schema.invalidationNotices).values({
+        seq: n.seq,
+        reportId: n.reportId,
+        versionNo: n.versionNo,
+        brokenRules: n.brokenRules,
+        computedAt: new Date(n.computedAt).toISOString(),
+      }).onConflictDoNothing();
+
+      const existing = (await this.db
+        .select()
+        .from(schema.reports)
+        .where(and(eq(schema.reports.reportId, n.reportId), eq(schema.reports.versionNo, n.versionNo))))[0];
+      if (existing) {
+        const alreadySame = existing.state === 'invalidated'
+          && JSON.stringify(existing.invalidatedRules) === JSON.stringify(n.brokenRules);
+        if (!alreadySame) {
+          const computedAt = new Date(n.computedAt).toISOString();
+          await this.db
+            .update(schema.reports)
+            .set({
+              state: 'invalidated',
+              invalidatedFrom: existing.state === 'invalidated' ? existing.invalidatedFrom : existing.state,
+              invalidatedRules: n.brokenRules,
+              updatedAt: computedAt,
+            })
+            .where(and(eq(schema.reports.reportId, n.reportId), eq(schema.reports.versionNo, n.versionNo)));
+
+          await this.db.insert(schema.reportEvents).values({
+            reportId: n.reportId,
+            versionNo: n.versionNo,
+            type: 'invalidated',
+            at: computedAt,
+            detail: { brokenRules: n.brokenRules, fromState: existing.state === 'invalidated' ? existing.invalidatedFrom : existing.state },
+          });
+        }
+      }
+
+      const seq = BigInt(n.seq);
+      if (maxSeq === null || seq > maxSeq) maxSeq = seq;
+    }
+    return maxSeq === null ? null : maxSeq.toString();
+  }
+
   private async pullConfiguration() {
     try {
       this.logger.log('Requesting downstream config sync from shore...');
@@ -186,8 +284,12 @@ export class SyncService {
       const users = await this.authService.listRosterSummary();
       const chatCursorRow = (await this.db.select().from(schema.configStore).where(eq(schema.configStore.key, 'chat_seq_cursor')))[0];
       const lastChatSeq = chatCursorRow?.value;
+      const remarkCursorRow = (await this.db.select().from(schema.configStore).where(eq(schema.configStore.key, 'remark_seq_cursor')))[0];
+      const lastRemarkSeq = remarkCursorRow?.value;
+      const invalidationCursorRow = (await this.db.select().from(schema.configStore).where(eq(schema.configStore.key, 'invalidation_seq_cursor')))[0];
+      const lastInvalidationSeq = invalidationCursorRow?.value;
 
-      const response = await this.trpc.client.sync.pullConfig.query({ vesselId, users, appliedUserCommandIds, lastChatSeq });
+      const response = await this.trpc.client.sync.pullConfig.query({ vesselId, users, appliedUserCommandIds, lastChatSeq, lastRemarkSeq, lastInvalidationSeq });
 
       if (appliedUserCommandIds.length > 0) {
         await this.db.delete(schema.configStore).where(eq(schema.configStore.key, 'pending_user_command_acks'));
@@ -212,6 +314,34 @@ export class SyncService {
           await this.db
             .insert(schema.configStore)
             .values({ key: 'chat_seq_cursor', value: newMaxSeq, updatedAt: new Date().toISOString() })
+            .onConflictDoUpdate({
+              target: schema.configStore.key,
+              set: { value: newMaxSeq, updatedAt: new Date().toISOString() },
+            });
+        }
+      }
+
+      if (response.remarks && response.remarks.length > 0) {
+        this.logger.log(`Received ${response.remarks.length} remark(s) from shore.`);
+        const newMaxSeq = await this.applyRemarks(response.remarks);
+        if (newMaxSeq) {
+          await this.db
+            .insert(schema.configStore)
+            .values({ key: 'remark_seq_cursor', value: newMaxSeq, updatedAt: new Date().toISOString() })
+            .onConflictDoUpdate({
+              target: schema.configStore.key,
+              set: { value: newMaxSeq, updatedAt: new Date().toISOString() },
+            });
+        }
+      }
+
+      if (response.invalidationNotices && response.invalidationNotices.length > 0) {
+        this.logger.log(`Received ${response.invalidationNotices.length} invalidation notice(s) from shore.`);
+        const newMaxSeq = await this.applyInvalidationNotices(response.invalidationNotices);
+        if (newMaxSeq) {
+          await this.db
+            .insert(schema.configStore)
+            .values({ key: 'invalidation_seq_cursor', value: newMaxSeq, updatedAt: new Date().toISOString() })
             .onConflictDoUpdate({
               target: schema.configStore.key,
               set: { value: newMaxSeq, updatedAt: new Date().toISOString() },

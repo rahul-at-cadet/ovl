@@ -204,6 +204,14 @@ export class TrpcRouter {
         .mutation(async ({ input, ctx }) => {
           return this.reportsService.submitReport(input.id, ctx.user.username);
         }),
+      startCorrection: protectedProcedure
+        .input((val: unknown) => {
+          if (!SubmitReportCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof SubmitReportSchema>;
+        })
+        .mutation(async ({ input, ctx }) => {
+          return this.reportsService.startCorrection(input.id, ctx.user.username);
+        }),
       listEvents: publicProcedure
         .input((val: unknown) => {
           if (!ListEventsCompiler.Check(val)) throw new Error('Invalid input');
@@ -228,6 +236,14 @@ export class TrpcRouter {
         .mutation(async ({ input }) => {
           const username = 'vessel-admin';
           return this.reportsService.sendChatMessage(input.reportId, input.body, username);
+        }),
+      getRemarks: publicProcedure
+        .input((val: unknown) => {
+          if (!GetChatCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof GetChatSchema>;
+        })
+        .query(async ({ input }) => {
+          return this.reportsService.getRemarks(input.reportId);
         }),
       getSchema: publicProcedure
         .input((val: unknown) => {

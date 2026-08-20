@@ -339,9 +339,19 @@ export function ReportForm({ reportId }: ReportFormProps) {
                                     />
                                   );
                                 }
+                                // Log Abstract's "Event" field is chosen once, at
+                                // creation (see reports/new/page.tsx's event picker),
+                                // and locked from then on — mirrors the original's
+                                // FieldRow.tsx LOCKED_FIELDS: "no way to ever set it
+                                // afterward, start a new report to change it."
+                                const isLockedEventField = field.name === 'Event' && field.enumRef === 'event-types' && !!report.eventType;
                                 return (
-                                  <Select onValueChange={controllerField.onChange} value={controllerField.value ?? ''}>
-                                    <SelectTrigger className="bg-background/50 border-border text-foreground focus:ring-blue-500">
+                                  <Select
+                                    onValueChange={controllerField.onChange}
+                                    value={controllerField.value ?? ''}
+                                    disabled={isLockedEventField}
+                                  >
+                                    <SelectTrigger className="bg-background/50 border-border text-foreground focus:ring-blue-500 disabled:opacity-70 disabled:cursor-not-allowed">
                                       <SelectValue placeholder="Select an option" />
                                     </SelectTrigger>
                                     <SelectContent className="bg-card border-border text-foreground">

@@ -4,7 +4,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { trpc } from '@/lib/trpc';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Loader2, ArrowLeft, Send, MessageSquare, History, FileText, Pencil } from 'lucide-react';
+import { Loader2, ArrowLeft, Send, MessageSquare, History, FileText, Pencil, Flag } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import Link from 'next/link';
 import { useState } from 'react';
@@ -21,6 +21,7 @@ export default function ReportDetailPage() {
   const { data: report, isLoading, error } = trpc.reports.getReport.useQuery({ id });
   const { data: events, isLoading: eventsLoading } = trpc.reports.listEvents.useQuery({ reportId: id }, { enabled: !!report });
   const { data: chatMessages, isLoading: chatLoading } = trpc.reports.getChat.useQuery({ reportId: id }, { enabled: !!report });
+  const { data: remarks, isLoading: remarksLoading } = trpc.reports.getRemarks.useQuery({ reportId: id }, { enabled: !!report });
   const chatMutation = trpc.reports.sendChatMessage.useMutation({
     onSuccess: () => {
       // Refresh chat messages
@@ -39,6 +40,18 @@ export default function ReportDetailPage() {
     onSettled: () => {
       setIsSubmitting(false);
     }
+  });
+
+  const startCorrectionMutation = trpc.reports.startCorrection.useMutation({
+    onSuccess: (newDraft: any) => {
+      toastManager.add({ title: 'Correction started', description: `Editing version ${newDraft.versionNo} as a new draft.`, type: 'info' });
+      // Same reportId, new versionNo — the URL doesn't change, so
+      // invalidate rather than navigate to pick up the new draft.
+      utils.reports.getReport.invalidate({ id });
+    },
+    onError: (err) => {
+      toastManager.add({ title: 'Could not start correction', description: err.message, type: 'error' });
+    },
   });
 
   if (isLoading) {
@@ -66,9 +79,7 @@ export default function ReportDetailPage() {
   }
 
   const handleStartCorrection = () => {
-    // In a real implementation, this would call an API to clone the report into a new draft
-    toastManager.add({ title: 'Correction workflow started', description: 'A new draft has been created.', type: 'info' });
-    router.push(`/reports/new`);
+    startCorrectionMutation.mutate({ id });
   };
 
   const handleSubmit = () => {
@@ -90,6 +101,8 @@ export default function ReportDetailPage() {
             <span className={`px-2.5 py-1 rounded-md text-[11px] font-semibold tracking-wide uppercase border ${
               report.state === 'submitted' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
               report.state === 'draft' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+              report.state === 'remarked' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' :
+              report.state === 'invalidated' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
               'bg-blue-500/10 text-blue-400 border-blue-500/20'
             }`}>
               {report.state}
@@ -99,19 +112,20 @@ export default function ReportDetailPage() {
         </div>
         
         {report.state !== 'draft' && (
-          <Button 
+          <Button
             onClick={handleStartCorrection}
+            disabled={startCorrectionMutation.isPending}
             variant="outline"
             className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300"
           >
             <Pencil className="w-4 h-4 mr-2" />
-            Start Correction
+            {startCorrectionMutation.isPending ? 'Starting...' : 'Start Correction'}
           </Button>
         )}
       </div>
 
       <Tabs defaultValue="report" className="w-full">
-        <TabsList className="bg-background/50 border border-border w-full md:w-auto grid grid-cols-3 md:flex p-1 mb-6">
+        <TabsList className="bg-background/50 border border-border w-full md:w-auto grid grid-cols-4 md:flex p-1 mb-6">
           <TabsTrigger value="report" className="data-[state=active]:bg-muted data-[state=active]:text-foreground">
             <FileText className="w-4 h-4 mr-2 hidden sm:inline" /> Report Data
           </TabsTrigger>
@@ -120,6 +134,14 @@ export default function ReportDetailPage() {
           </TabsTrigger>
           <TabsTrigger value="chat" className="data-[state=active]:bg-muted data-[state=active]:text-foreground">
             <MessageSquare className="w-4 h-4 mr-2 hidden sm:inline" /> Shore Chat
+          </TabsTrigger>
+          <TabsTrigger value="remarks" className="data-[state=active]:bg-muted data-[state=active]:text-foreground">
+            <Flag className="w-4 h-4 mr-2 hidden sm:inline" /> Remarks
+            {remarks && remarks.filter((r: any) => !r.resolved).length > 0 && (
+              <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-orange-500/20 text-orange-400 text-[10px] font-semibold">
+                {remarks.filter((r: any) => !r.resolved).length}
+              </span>
+            )}
           </TabsTrigger>
         </TabsList>
 
@@ -254,6 +276,41 @@ export default function ReportDetailPage() {
                 >
                   <Send className="w-4 h-4" />
                 </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="remarks" className="mt-0">
+          <Card className="bg-card/40 border-border/60 shadow-xl overflow-hidden rounded-xl backdrop-blur-md">
+            <CardHeader className="border-b border-border/60 pb-4 bg-card/20">
+              <CardTitle className="text-sm font-semibold tracking-tight text-foreground">Reviewer Remarks</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-6">
+              <div className="space-y-4">
+                {remarksLoading ? (
+                  <div className="text-muted-foreground text-sm">Loading remarks...</div>
+                ) : remarks?.length ? (
+                  remarks.map((r: any) => (
+                    <div key={r.id} className="flex gap-3 items-start p-3 rounded-lg bg-muted/20 border border-border/40">
+                      <Flag className={`w-4 h-4 mt-0.5 shrink-0 ${r.resolved ? 'text-muted-foreground' : 'text-orange-400'}`} />
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-foreground">{r.fieldName.replace(/_/g, ' ')}</p>
+                          {r.resolved ? (
+                            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Resolved</span>
+                          ) : (
+                            <span className="text-[10px] uppercase tracking-wide text-orange-400">Open</span>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground mt-1">{r.body}</p>
+                        <p className="text-xs text-muted-foreground mt-1.5">{r.author} • {new Date(r.createdAt).toLocaleString()}</p>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-muted-foreground text-sm">No remarks on this report.</div>
+                )}
               </div>
             </CardContent>
           </Card>

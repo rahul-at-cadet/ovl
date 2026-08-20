@@ -65,3 +65,30 @@ export const chatMessages = sqliteTable('chat_messages', {
   sentAt: text('sent_at').notNull(), // ISO string
   direction: text('direction').notNull(), // 'shore_to_ship' or 'ship_to_shore'
 });
+
+// Office-authored only (a Reviewer flags a submitted report's fields) —
+// pulled down via sync, never written locally by the vessel itself.
+export const remarks = sqliteTable('remarks', {
+  id: text('id').primaryKey(),
+  remarkSetId: text('remark_set_id').notNull(),
+  reportId: text('report_id').notNull(),
+  versionNo: integer('version_no').notNull(),
+  fieldName: text('field_name').notNull(),
+  body: text('body').notNull(),
+  author: text('author').notNull(),
+  createdAt: text('created_at').notNull(), // ISO string
+  resolved: integer('resolved', { mode: 'boolean' }).notNull().default(false),
+  resolvedAt: text('resolved_at'),
+});
+
+// Computed office-side only (cascade revalidation) — pulled down via
+// sync, never written locally. Primary key is the office seq (a
+// Postgres bigserial arriving as a string), already globally unique per
+// vessel's channel, so no separate local id is needed.
+export const invalidationNotices = sqliteTable('invalidation_notices', {
+  seq: text('seq').primaryKey(),
+  reportId: text('report_id').notNull(),
+  versionNo: integer('version_no').notNull(),
+  brokenRules: text('broken_rules', { mode: 'json' }).notNull(),
+  computedAt: text('computed_at').notNull(), // ISO string
+});

@@ -200,7 +200,7 @@ export class ReportsService {
         .values({
           id: randomUUID(),
           eventType: 'report_submitted',
-          payload: JSON.stringify({ ...report, submittedBy: username, submittedAt: now, eventType: 'ReportSubmitted' }),
+          payload: JSON.stringify({ ...report, state: 'submitted', submittedBy: username, submittedAt: now }),
           createdAt: now,
         })
         .run();
@@ -211,6 +211,79 @@ export class ReportsService {
         submittedAt: now,
         submittedBy: username,
       };
+    });
+  }
+
+  /**
+   * Creates version N+1 of a submitted-or-later report as a new draft
+   * (architecture 8.1/8.2, design handoff A7's "Start correction") —
+   * mirrors pkg/domain.Report.NewCorrection + vessel/httpapi's
+   * handleStartCorrection. Same reportId, fields cloned from the current
+   * version, state reset to draft. No submit-permission check: any
+   * vessel user may self-initiate a correction (architecture 8.1), same
+   * as any other draft edit. The correction_started event is attached to
+   * the *old* version (matching NewCorrection's own event placement) and
+   * separately pushed to office immediately — office already has that
+   * old version and needs to know a correction started against it,
+   * independent of whenever the new draft itself eventually gets
+   * submitted.
+   */
+  async startCorrection(reportId: string, username: string) {
+    const report = await this.getReport(reportId);
+    if (report.state === 'draft' || report.state === 'ready') {
+      throw new TRPCError({ code: 'CONFLICT', message: `Cannot correct a report in state "${report.state}"; edit it directly instead.` });
+    }
+
+    const now = new Date().toISOString();
+    const newVersionNo = report.versionNo + 1;
+    let currentFields: Record<string, any> = {};
+    if (typeof report.fields === 'string') {
+      try {
+        currentFields = JSON.parse(report.fields);
+      } catch {
+        currentFields = {};
+      }
+    } else if (report.fields) {
+      currentFields = report.fields as Record<string, any>;
+    }
+
+    const next = {
+      reportId,
+      versionNo: newVersionNo,
+      schemaName: report.schemaName,
+      eventType: report.eventType,
+      eventTime: report.eventTime,
+      fields: { ...currentFields },
+      state: 'draft',
+      createdAt: now,
+      createdBy: username,
+      updatedAt: now,
+    };
+
+    return this.db.transaction((tx) => {
+      tx.insert(schema.reports).values(next).run();
+
+      tx.insert(schema.reportEvents)
+        .values({
+          reportId,
+          versionNo: report.versionNo,
+          type: 'correction_started',
+          at: now,
+          actor: username,
+          detail: { newVersionNo },
+        })
+        .run();
+
+      tx.insert(schema.syncOutbox)
+        .values({
+          id: randomUUID(),
+          eventType: 'correction_started',
+          payload: JSON.stringify({ reportId, versionNo: report.versionNo, newVersionNo, actor: username, at: now }),
+          createdAt: now,
+        })
+        .run();
+
+      return next;
     });
   }
 
@@ -256,6 +329,15 @@ export class ReportsService {
       }).run();
       
       return message;
+    });
+  }
+
+  // Office-authored only — pulled down via sync (SyncService.applyRemarks),
+  // never written locally. Read-only from the vessel's side.
+  async getRemarks(reportId: string) {
+    return this.db.query.remarks.findMany({
+      where: eq(schema.remarks.reportId, reportId),
+      orderBy: (r, { asc }) => [asc(r.createdAt)],
     });
   }
 }
