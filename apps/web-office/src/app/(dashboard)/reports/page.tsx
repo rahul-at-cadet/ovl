@@ -8,8 +8,21 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, Filter, FileText, ChevronRight, CheckCircle2 } from 'lucide-react';
+import { Search, Filter, FileText, ChevronRight, CheckCircle2, Download, Loader2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+
+// See apps/web-office/src/app/(dashboard)/page.tsx's own comment on
+// why this can't be a plain <a href>/window.open download — this
+// app's session transport is header-based, not cookie-based.
+function downloadCsv(csv: string, filename: string) {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 const STATUS_LABEL: Record<string, string> = {
   draft: 'Draft',
@@ -30,6 +43,17 @@ export default function GlobalReportsPage() {
   const markReviewed = trpc.reports.markReviewed.useMutation({
     onSuccess: () => utils.reports.list.invalidate(),
   });
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      const { csv, filename } = await utils.reports.exportCsv.fetch();
+      downloadCsv(csv, filename);
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const filteredReports = reports.filter((report: any) => {
     const matchesSearch = report.vessel.toLowerCase().includes(searchQuery.toLowerCase()) || report.imo.includes(searchQuery);
@@ -75,6 +99,15 @@ export default function GlobalReportsPage() {
               </Select>
               <Button variant="outline" size="icon" className="h-9 w-9 border-border bg-background/50 text-muted-foreground hover:text-foreground">
                 <Filter className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleExport}
+                disabled={isExporting}
+                className="h-9 border-border bg-background/50 text-muted-foreground hover:text-foreground shrink-0"
+              >
+                {isExporting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+                Export CSV
               </Button>
             </div>
           </div>

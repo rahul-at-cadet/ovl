@@ -1,14 +1,43 @@
 'use client';
 
+import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Ship, Database, AlertCircle, Activity } from 'lucide-react';
+import { Ship, Database, AlertCircle, Activity, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { trpc } from '@/lib/trpc';
+
+// This app's SuperTokens session transport is header-based
+// (getTokenTransferMethod: 'header'), so a plain <a href> or
+// window.open download can't carry the auth header — only requests
+// through the SuperTokens-patched fetch (which the tRPC client uses)
+// are authenticated. Fetch the CSV as text via tRPC, then trigger the
+// actual file save client-side via a throwaway object URL.
+function downloadCsv(csv: string, filename: string) {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 export default function OfficeDashboardPage() {
   const pingQuery = trpc.ping.useQuery({ vesselId: 'office-dashboard' });
   const { data: dashboard, isLoading: isDashboardLoading } = trpc.dashboard.getOverview.useQuery();
+  const utils = trpc.useUtils();
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      const { csv, filename } = await utils.reports.exportCsv.fetch();
+      downloadCsv(csv, filename);
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const kpis = [
     { label: 'Active Vessels', value: dashboard?.activeVessels ?? '...', icon: Ship, color: 'text-muted-foreground' },
@@ -27,8 +56,14 @@ export default function OfficeDashboardPage() {
           <p className="text-muted-foreground mt-1 text-sm">Real-time telemetry and aggregated reporting from all vessels.</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" className="border-border bg-card text-foreground hover:text-foreground rounded-sm h-8 text-xs">
-            Export Report
+          <Button
+            variant="outline"
+            onClick={handleExport}
+            disabled={isExporting}
+            className="border-border bg-card text-foreground hover:text-foreground rounded-sm h-8 text-xs"
+          >
+            {isExporting ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : null}
+            {isExporting ? 'Exporting...' : 'Export Report'}
           </Button>
           <Link href="/reports">
             <Button className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-sm h-8 text-xs font-medium shadow-sm">

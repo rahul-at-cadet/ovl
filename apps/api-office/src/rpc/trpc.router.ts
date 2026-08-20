@@ -1028,6 +1028,69 @@ export class TrpcRouter {
             reviewed: !!r.reviewedBy,
           }));
       }),
+      // The original's own CSV export (office/httpapi/csvexport.go) is
+      // API-key-gated for external/compliance tooling, not a dashboard
+      // button — it has no UI trigger anywhere in the original app. This
+      // is the session-authenticated equivalent of what a user clicking
+      // "Export Report" would actually expect: the full ledger (not
+      // capped at 100 rows like the list view) as a CSV, returned as
+      // text rather than a file download since this app's session
+      // transport is header-based (getTokenTransferMethod: 'header') —
+      // a plain <a href> or window.open download couldn't carry the
+      // auth header, but the tRPC client's fetch already does.
+      exportCsv: protectedProcedure.query(async () => {
+        const reports = await this.db
+          .select({
+            id: schema.reportVersions.reportId,
+            versionNo: schema.reportVersions.versionNo,
+            type: schema.reportVersions.eventType,
+            status: schema.reportVersions.state,
+            date: schema.reportVersions.receivedAt,
+            vesselName: schema.vessels.name,
+            vesselImo: schema.vessels.imo,
+            reviewedBy: schema.reportReviews.reviewedBy,
+          })
+          .from(schema.reportVersions)
+          .leftJoin(schema.vessels, eq(schema.reportVersions.vesselId, schema.vessels.id))
+          .leftJoin(
+            schema.reportReviews,
+            and(
+              eq(schema.reportReviews.vesselId, schema.reportVersions.vesselId),
+              eq(schema.reportReviews.reportId, schema.reportVersions.reportId),
+            ),
+          );
+
+        const latestByReportId = new Map<string, typeof reports[number]>();
+        for (const r of reports) {
+          const existing = latestByReportId.get(r.id);
+          if (!existing || r.versionNo > existing.versionNo) latestByReportId.set(r.id, r);
+        }
+
+        const rows = Array.from(latestByReportId.values()).sort(
+          (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+        );
+
+        const escapeCsv = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+        const header = ['Report ID', 'Vessel', 'IMO', 'Type', 'Status', 'Date Received', 'Reviewed'];
+        const lines = [header.join(',')];
+        for (const r of rows) {
+          lines.push(
+            [
+              r.id,
+              r.vesselName || 'Unknown',
+              r.vesselImo || 'Unknown',
+              r.type,
+              r.status,
+              new Date(r.date).toISOString().split('T')[0],
+              r.reviewedBy ? 'Yes' : 'No',
+            ]
+              .map((v) => escapeCsv(String(v)))
+              .join(','),
+          );
+        }
+
+        return { csv: lines.join('\n'), filename: `fleet-reports-${new Date().toISOString().split('T')[0]}.csv` };
+      }),
       get: protectedProcedure
         .input((val: unknown) => {
           if (!GetReportCompiler.Check(val)) throw new Error('Invalid input');
