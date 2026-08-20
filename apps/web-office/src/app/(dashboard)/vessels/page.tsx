@@ -101,8 +101,10 @@ export default function VesselsPage() {
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border/60 pb-6">
+    // Fixed to the viewport, not the page — same fix as Reports/Users:
+    // only the vessel table scrolls internally.
+    <div className="h-[calc(100vh-140px)] flex flex-col space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 overflow-hidden">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border/60 pb-6 shrink-0">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Fleet Management</h1>
           <p className="text-muted-foreground mt-1.5 text-sm font-medium">Monitor vessel telemetry, edge node status, and sync operations.</p>
@@ -124,15 +126,15 @@ export default function VesselsPage() {
         </div>
       </div>
 
-      <Card className="bg-card/40 border-border/60 shadow-xl overflow-hidden rounded-xl backdrop-blur-md">
-        <CardHeader className="border-b border-border/60 pb-4 bg-card/20">
+      <Card className="flex-1 flex flex-col bg-card/40 border-border/60 shadow-xl min-h-0 overflow-hidden rounded-xl backdrop-blur-md">
+        <CardHeader className="border-b border-border/60 pb-4 bg-card/20 shrink-0">
           <CardTitle className="text-sm font-semibold tracking-tight text-foreground">Registered Vessels</CardTitle>
           <CardDescription className="text-xs text-muted-foreground">Live overview of edge infrastructure across the fleet.</CardDescription>
         </CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
+        <CardContent className="flex-1 min-h-0 p-0 overflow-hidden">
+          <div className="h-full overflow-auto">
             <table className="w-full text-sm text-left text-muted-foreground">
-              <thead className="text-xs text-muted-foreground uppercase tracking-wider bg-background/40 border-b border-border/60">
+              <thead className="text-xs text-muted-foreground uppercase tracking-wider bg-background/90 backdrop-blur-sm border-b border-border/60 sticky top-0 z-10">
                 <tr>
                   <th scope="col" className="px-4 py-2 font-semibold flex items-center gap-2">Vessel Details <ArrowUpDown className="w-3 h-3" /></th>
                   <th scope="col" className="px-4 py-2 font-semibold">IMO Number</th>

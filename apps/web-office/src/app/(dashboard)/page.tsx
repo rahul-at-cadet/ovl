@@ -18,8 +18,10 @@ export default function OfficeDashboardPage() {
   ];
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border pb-6 mb-6">
+    // Fixed to the viewport, not the page — same fix already applied to
+    // Reports/Users: only the Live Sync Stream list scrolls internally.
+    <div className="h-[calc(100vh-140px)] flex flex-col gap-6 overflow-hidden">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border pb-6 shrink-0">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Fleet Overview</h1>
           <p className="text-muted-foreground mt-1 text-sm">Real-time telemetry and aggregated reporting from all vessels.</p>
@@ -36,7 +38,7 @@ export default function OfficeDashboardPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 shrink-0">
         {kpis.map((kpi) => (
           <div key={kpi.label}>
             <Card className="bg-card/50 border-border backdrop-blur-sm">
@@ -54,14 +56,14 @@ export default function OfficeDashboardPage() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <Card className="xl:col-span-2 bg-card/50 border-border">
-          <CardHeader>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 flex-1 min-h-0">
+        <Card className="xl:col-span-2 bg-card/50 border-border flex flex-col min-h-0 overflow-hidden">
+          <CardHeader className="shrink-0">
             <CardTitle className="text-lg">Live Sync Stream</CardTitle>
             <CardDescription>Incoming events from the edge network</CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
+          <CardContent className="flex-1 min-h-0 overflow-hidden">
+            <div className="h-full space-y-3 overflow-y-auto pr-2">
               {isDashboardLoading ? (
                 <p className="text-sm text-muted-foreground text-center py-4">Loading stream...</p>
               ) : dashboard?.liveStream && dashboard.liveStream.length > 0 ? (
