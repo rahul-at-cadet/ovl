@@ -79,8 +79,10 @@ export default function UsersPage() {
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border/60 pb-6">
+    // Fixed to the viewport, not the page — same fix as Global Reports
+    // Ledger: only the directory table scrolls internally.
+    <div className="h-[calc(100vh-140px)] flex flex-col space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 overflow-hidden">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border/60 pb-6 shrink-0">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">User Access Management</h1>
           <p className="text-muted-foreground mt-1.5 text-sm font-medium">Control roles, permissions, and security policies across the fleet.</p>
@@ -88,8 +90,8 @@ export default function UsersPage() {
         <div className="flex gap-3 w-full md:w-auto">
           <div className="relative w-full md:w-72 shadow-sm">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input 
-              placeholder="Search by username or role..." 
+            <Input
+              placeholder="Search by username or role..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9 bg-background/80 border-border/80 focus-visible:ring-ring text-foreground rounded-md h-9 text-sm w-full transition-all"
@@ -98,15 +100,15 @@ export default function UsersPage() {
         </div>
       </div>
 
-      <Card className="bg-card/40 border-border/60 shadow-xl overflow-hidden rounded-xl backdrop-blur-md">
-        <CardHeader className="border-b border-border/60 pb-4 bg-card/20">
+      <Card className="flex-1 flex flex-col bg-card/40 border-border/60 shadow-xl min-h-0 overflow-hidden rounded-xl backdrop-blur-md">
+        <CardHeader className="border-b border-border/60 pb-4 bg-card/20 shrink-0">
           <CardTitle className="text-sm font-semibold tracking-tight text-foreground">Active Directory</CardTitle>
           <CardDescription className="text-xs text-muted-foreground">All registered personnel and service accounts.</CardDescription>
         </CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
+        <CardContent className="flex-1 min-h-0 p-0 overflow-hidden">
+          <div className="h-full overflow-auto">
             <table className="w-full text-sm text-left text-muted-foreground">
-              <thead className="text-xs text-muted-foreground uppercase tracking-wider bg-background/40 border-b border-border/60">
+              <thead className="text-xs text-muted-foreground uppercase tracking-wider bg-background/90 backdrop-blur-sm border-b border-border/60 sticky top-0 z-10">
                 <tr>
                   <th scope="col" className="px-4 py-2 font-semibold flex items-center gap-2">User <ArrowUpDown className="w-3 h-3" /></th>
                   <th scope="col" className="px-4 py-2 font-semibold">Security Role</th>
