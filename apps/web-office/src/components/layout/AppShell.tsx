@@ -118,7 +118,7 @@ export function AppShell({ children }: AppShellProps) {
       <aside
         className={`h-screen bg-card border-r border-border flex flex-col relative z-20 shrink-0 hidden md:flex transition-all duration-200 ${isSidebarOpen ? 'w-[260px]' : 'w-[70px]'}`}
       >
-        <div className="h-14 flex items-center px-4 border-b border-border/50">
+        <div className="h-16 flex items-center px-4 border-b border-border/50">
           {isSidebarOpen && (
             <span className="font-medium text-sm tracking-tight whitespace-nowrap text-foreground">
               Cadetlabs
@@ -168,7 +168,7 @@ export function AppShell({ children }: AppShellProps) {
                   <Menu className="w-5 h-5" />
                 </SheetTrigger>
                 <SheetContent side="left" className="w-[260px] bg-card border-r border-border p-0 flex flex-col">
-                  <div className="h-14 flex items-center px-4 border-b border-border/50 shrink-0">
+                  <div className="h-16 flex items-center px-4 border-b border-border/50 shrink-0">
                     <span className="font-medium text-sm tracking-tight whitespace-nowrap text-foreground">
                       Cadetlabs
                     </span>

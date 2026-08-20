@@ -86,7 +86,7 @@ export function AppShell({ children }: AppShellProps) {
           ${isSidebarOpen ? 'w-[260px]' : 'md:w-[80px] w-[260px]'}`}
       >
         <div className="h-16 flex items-center px-4 border-b border-border/40 relative">
-          {isSidebarOpen && (
+          {(isSidebarOpen || isMobileSidebarOpen) && (
             <span className="font-semibold text-base tracking-wide whitespace-nowrap bg-clip-text text-transparent bg-gradient-to-r from-zinc-900 to-zinc-600 dark:from-zinc-100 dark:to-zinc-400">
               Cadetlabs
             </span>
@@ -114,7 +114,7 @@ export function AppShell({ children }: AppShellProps) {
                     <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-1/2 bg-primary rounded-r-full shadow-[0_0_8px_rgba(47,80,108,0.8)]" />
                   )}
                   <item.icon className={`w-[18px] h-[18px] shrink-0 z-10 transition-colors ${isActive ? 'text-primary dark:text-primary' : 'text-muted-foreground group-hover:text-foreground'}`} />
-                  {isSidebarOpen && (
+                  {(isSidebarOpen || isMobileSidebarOpen) && (
                     <span className="ml-3.5 font-medium text-sm z-10 whitespace-nowrap tracking-wide">{item.label}</span>
                   )}
                 </div>
@@ -134,7 +134,7 @@ export function AppShell({ children }: AppShellProps) {
             ) : (
               <LogOut className="w-[18px] h-[18px] shrink-0 group-hover:text-red-400 transition-colors" />
             )}
-            {isSidebarOpen && <span className="ml-3.5 font-medium text-sm">Sign Out</span>}
+            {(isSidebarOpen || isMobileSidebarOpen) && <span className="ml-3.5 font-medium text-sm">Sign Out</span>}
           </button>
         </div>
       </aside>

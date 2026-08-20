@@ -47,9 +47,16 @@ export default function OfficeDashboardPage() {
   ];
 
   return (
-    // Fixed to the viewport, not the page — same fix already applied to
-    // Reports/Users: only the Live Sync Stream list scrolls internally.
-    <div className="h-[calc(100vh-136px)] lg:h-[calc(100vh-168px)] flex flex-col gap-6 overflow-hidden">
+    // Fixed to the viewport on desktop, not the page — same fix already
+    // applied to Reports/Users. Below lg, the Live Sync Stream / System
+    // Integrity row below stacks to 1 column (matching that row's own
+    // lg:grid-cols-3), so the same fixed total height would squeeze both
+    // into the space meant for one and clip them — mobile/tablet get the
+    // page's natural scroll instead. Only one height value is needed
+    // (not the 136/168 split Reports/Users use) because this page's own
+    // layout switch and AppShell's p-4→lg:p-8 padding switch both land
+    // on the same lg breakpoint.
+    <div className="flex flex-col gap-6 lg:h-[calc(100vh-168px)] lg:overflow-hidden">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border pb-6 shrink-0">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Fleet Overview</h1>
@@ -91,14 +98,14 @@ export default function OfficeDashboardPage() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 flex-1 min-h-0">
-        <Card className="xl:col-span-2 bg-card/50 border-border flex flex-col min-h-0 overflow-hidden">
+      <div className="grid grid-cols-1 gap-6 lg:flex-1 lg:min-h-0 lg:grid-cols-3">
+        <Card className="bg-card/50 border-border flex flex-col lg:col-span-2 lg:min-h-0 lg:overflow-hidden">
           <CardHeader className="shrink-0">
             <CardTitle className="text-lg">Live Sync Stream</CardTitle>
             <CardDescription>Incoming events from the edge network</CardDescription>
           </CardHeader>
-          <CardContent className="flex-1 min-h-0 overflow-hidden">
-            <div className="h-full space-y-3 overflow-y-auto pr-2">
+          <CardContent className="lg:flex-1 lg:min-h-0 lg:overflow-hidden">
+            <div className="space-y-3 pr-2 lg:h-full lg:overflow-y-auto">
               {isDashboardLoading ? (
                 <p className="text-sm text-muted-foreground text-center py-4">Loading stream...</p>
               ) : dashboard?.liveStream && dashboard.liveStream.length > 0 ? (

@@ -119,14 +119,14 @@ export default function ReportsPage() {
               <TableHeader className="bg-background/90 backdrop-blur-sm sticky top-0 z-10">
                 <TableRow className="border-border hover:bg-transparent">
                   <TableHead className="text-muted-foreground font-medium">Type</TableHead>
-                  <TableHead className="text-muted-foreground font-medium">Event</TableHead>
-                  <TableHead className="text-muted-foreground font-medium cursor-pointer hover:text-foreground transition-colors" onClick={toggleSort}>
+                  <TableHead className="hidden md:table-cell text-muted-foreground font-medium">Event</TableHead>
+                  <TableHead className="hidden lg:table-cell text-muted-foreground font-medium cursor-pointer hover:text-foreground transition-colors" onClick={toggleSort}>
                     <div className="flex items-center">
                       UTC Timestamp
                       <ArrowUpDown className="w-3 h-3 ml-2" />
                     </div>
                   </TableHead>
-                  <TableHead className="text-muted-foreground font-medium">Voyage</TableHead>
+                  <TableHead className="hidden lg:table-cell text-muted-foreground font-medium">Voyage</TableHead>
                   <TableHead className="text-muted-foreground font-medium">State</TableHead>
                   <TableHead className="text-right text-muted-foreground font-medium">Action</TableHead>
                 </TableRow>
@@ -137,9 +137,9 @@ export default function ReportsPage() {
                   Array.from({ length: ITEMS_PER_PAGE }).map((_, i) => (
                     <TableRow key={i} className="border-border">
                       <TableCell><div className="h-4 w-32 bg-muted/50 animate-pulse rounded"></div></TableCell>
-                      <TableCell><div className="h-4 w-24 bg-muted/50 animate-pulse rounded"></div></TableCell>
-                      <TableCell><div className="h-4 w-36 bg-muted/50 animate-pulse rounded"></div></TableCell>
-                      <TableCell><div className="h-4 w-20 bg-muted/50 animate-pulse rounded"></div></TableCell>
+                      <TableCell className="hidden md:table-cell"><div className="h-4 w-24 bg-muted/50 animate-pulse rounded"></div></TableCell>
+                      <TableCell className="hidden lg:table-cell"><div className="h-4 w-36 bg-muted/50 animate-pulse rounded"></div></TableCell>
+                      <TableCell className="hidden lg:table-cell"><div className="h-4 w-20 bg-muted/50 animate-pulse rounded"></div></TableCell>
                       <TableCell><div className="h-5 w-20 bg-muted/50 animate-pulse rounded-full"></div></TableCell>
                       <TableCell className="text-right"><div className="h-8 w-16 bg-muted/50 animate-pulse rounded ml-auto"></div></TableCell>
                     </TableRow>
@@ -166,9 +166,9 @@ export default function ReportsPage() {
                           <span className="ml-2 text-xs text-muted-foreground font-mono">#{report.reportId.slice(0, 8)}</span>
                         </div>
                       </TableCell>
-                      <TableCell className="text-muted-foreground">{report.eventType || '-'}</TableCell>
-                      <TableCell className="text-muted-foreground font-mono text-sm">{new Date(report.createdAt).toISOString().replace('T', ' ').slice(0, 19)}</TableCell>
-                      <TableCell className="text-muted-foreground">{(report as any).voyageNumber || '-'}</TableCell>
+                      <TableCell className="hidden md:table-cell text-muted-foreground">{report.eventType || '-'}</TableCell>
+                      <TableCell className="hidden lg:table-cell text-muted-foreground font-mono text-sm">{new Date(report.createdAt).toISOString().replace('T', ' ').slice(0, 19)}</TableCell>
+                      <TableCell className="hidden lg:table-cell text-muted-foreground">{(report as any).voyageNumber || '-'}</TableCell>
                       <TableCell>
                         <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${
                           report.state === 'submitted' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :

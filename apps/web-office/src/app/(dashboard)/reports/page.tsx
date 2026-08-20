@@ -117,12 +117,12 @@ export default function GlobalReportsPage() {
             <Table>
               <TableHeader className="bg-background/90 backdrop-blur-sm sticky top-0 z-10">
               <TableRow className="border-border hover:bg-transparent">
-                <TableHead className="text-muted-foreground font-medium">Report ID</TableHead>
+                <TableHead className="hidden md:table-cell text-muted-foreground font-medium">Report ID</TableHead>
                 <TableHead className="text-muted-foreground font-medium">Vessel / IMO</TableHead>
-                <TableHead className="text-muted-foreground font-medium">Type</TableHead>
+                <TableHead className="hidden md:table-cell text-muted-foreground font-medium">Type</TableHead>
                 <TableHead className="text-muted-foreground font-medium">Status</TableHead>
-                <TableHead className="text-muted-foreground font-medium">Date Received</TableHead>
-                <TableHead className="text-muted-foreground font-medium">Reviewed</TableHead>
+                <TableHead className="hidden md:table-cell text-muted-foreground font-medium">Date Received</TableHead>
+                <TableHead className="hidden md:table-cell text-muted-foreground font-medium">Reviewed</TableHead>
                 <TableHead className="text-right text-muted-foreground font-medium">Action</TableHead>
               </TableRow>
             </TableHeader>
@@ -136,7 +136,7 @@ export default function GlobalReportsPage() {
               ) : filteredReports.length > 0 ? (
                 filteredReports.map((report: any) => (
                   <TableRow key={report.id} className="border-border hover:bg-muted/30 transition-colors group">
-                  <TableCell className="font-medium text-foreground font-mono text-sm">
+                  <TableCell className="hidden md:table-cell font-medium text-foreground font-mono text-sm">
                     {report.id}
                   </TableCell>
                   <TableCell>
@@ -145,7 +145,7 @@ export default function GlobalReportsPage() {
                       <span className="text-xs text-muted-foreground">IMO {report.imo}</span>
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="hidden md:table-cell">
                     <div className="flex items-center text-foreground">
                       <FileText className="w-4 h-4 text-muted-foreground mr-2" />
                       {report.type}
@@ -156,8 +156,8 @@ export default function GlobalReportsPage() {
                       {STATUS_LABEL[report.status] ?? (report.status.charAt(0).toUpperCase() + report.status.slice(1))}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{report.date}</TableCell>
-                  <TableCell>
+                  <TableCell className="hidden md:table-cell text-muted-foreground">{report.date}</TableCell>
+                  <TableCell className="hidden md:table-cell">
                     {report.reviewed ? (
                       <span className="flex items-center gap-1.5 text-xs text-emerald-400">
                         <CheckCircle2 className="w-3.5 h-3.5" /> Reviewed

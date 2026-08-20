@@ -137,10 +137,10 @@ export default function VesselsPage() {
               <thead className="text-xs text-muted-foreground uppercase tracking-wider bg-background/90 backdrop-blur-sm border-b border-border/60 sticky top-0 z-10">
                 <tr>
                   <th scope="col" className="px-4 py-2 font-semibold flex items-center gap-2">Vessel Details <ArrowUpDown className="w-3 h-3" /></th>
-                  <th scope="col" className="px-4 py-2 font-semibold">IMO Number</th>
-                  <th scope="col" className="px-4 py-2 font-semibold">Vessel Type</th>
+                  <th scope="col" className="hidden md:table-cell px-4 py-2 font-semibold">IMO Number</th>
+                  <th scope="col" className="hidden lg:table-cell px-4 py-2 font-semibold">Vessel Type</th>
                   <th scope="col" className="px-4 py-2 font-semibold">Edge Node Status</th>
-                  <th scope="col" className="px-4 py-2 font-semibold">Last Sync</th>
+                  <th scope="col" className="hidden lg:table-cell px-4 py-2 font-semibold">Last Sync</th>
                   <th scope="col" className="px-4 py-2 text-right font-semibold">Manage</th>
                 </tr>
               </thead>
@@ -165,10 +165,10 @@ export default function VesselsPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-2.5 font-mono text-xs tracking-wider text-foreground">
+                      <td className="hidden md:table-cell px-4 py-2.5 font-mono text-xs tracking-wider text-foreground">
                         {vessel.imo}
                       </td>
-                      <td className="px-4 py-2.5 text-foreground font-medium">
+                      <td className="hidden lg:table-cell px-4 py-2.5 text-foreground font-medium">
                         {vessel.type}
                       </td>
                       <td className="px-4 py-2.5">
@@ -177,14 +177,14 @@ export default function VesselsPage() {
                           {vessel.edgeStatus === 'Syncing' && <Activity className="w-4 h-4 text-blue-400 animate-pulse" />}
                           {vessel.edgeStatus === 'Offline' && <WifiOff className="w-4 h-4 text-red-400" />}
                           <span className={`font-semibold text-xs uppercase tracking-wider ${
-                            vessel.edgeStatus === 'Online' ? 'text-emerald-400' : 
+                            vessel.edgeStatus === 'Online' ? 'text-emerald-400' :
                             vessel.edgeStatus === 'Syncing' ? 'text-blue-400' : 'text-red-400'
                           }`}>
                             {vessel.edgeStatus}
                           </span>
                         </div>
                       </td>
-                      <td className="px-4 py-2.5 text-muted-foreground text-xs font-medium">
+                      <td className="hidden lg:table-cell px-4 py-2.5 text-muted-foreground text-xs font-medium">
                         {vessel.lastSync}
                       </td>
                       <td className="px-4 py-2.5 text-right">

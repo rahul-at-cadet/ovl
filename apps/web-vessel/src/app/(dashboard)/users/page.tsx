@@ -204,7 +204,7 @@ export default function UsersPage() {
               <thead className="text-xs text-muted-foreground uppercase tracking-wider bg-background/90 backdrop-blur-sm border-b border-border/60 sticky top-0 z-10">
                 <tr>
                   <th scope="col" className="px-6 py-3 font-semibold"><div className="flex items-center gap-2">User <ArrowUpDown className="w-3 h-3" /></div></th>
-                  <th scope="col" className="px-6 py-3 font-semibold">Security Role</th>
+                  <th scope="col" className="hidden md:table-cell px-6 py-3 font-semibold">Security Role</th>
                   <th scope="col" className="px-6 py-3 font-semibold">Account Status</th>
                   <th scope="col" className="px-6 py-3 text-right font-semibold">Manage</th>
                 </tr>
@@ -230,7 +230,7 @@ export default function UsersPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="hidden md:table-cell px-6 py-4">
                         <div className="flex items-center gap-2">
                           {user.role.includes('Master') || user.role.includes('Admin') ? <ShieldAlert className="w-4 h-4 text-amber-500/80" /> : <Shield className="w-4 h-4 text-muted-foreground" />}
                           <span className="text-foreground font-medium">{user.role}</span>

@@ -19,7 +19,14 @@ export default function DashboardPage() {
   const { data: suggestions } = trpc.reports.listEventSuggestions.useQuery({ schemaName: 'log-abstract' });
   const syncNowMutation = trpc.sync.now.useMutation();
 
-  const inProgress = reports.filter(r => r.state === 'draft');
+  // Full count feeds the KPI card; the list itself shows only the most
+  // recent few with "View all" for the rest — otherwise a vessel with
+  // many open drafts turns this into an unbounded list, invisible on
+  // desktop behind the panel's own internal scroll but, once that
+  // panel-level scroll goes away below lg (mobile stacks to one
+  // column), it just makes the whole page arbitrarily long instead.
+  const allInProgress = reports.filter(r => r.state === 'draft');
+  const inProgress = allInProgress.slice(0, 5);
   const recent = reports.filter(r => r.state !== 'draft').slice(0, 6);
 
   let isOverdue = false;
@@ -38,19 +45,20 @@ export default function DashboardPage() {
   }
 
   const kpis = [
-    { label: 'Unsynced Drafts', value: inProgress.length.toString(), icon: FileText, color: 'text-amber-400' },
+    { label: 'Unsynced Drafts', value: allInProgress.length.toString(), icon: FileText, color: 'text-amber-400' },
     { label: 'Pending Sync', value: (syncStatus?.pendingCount ?? 0).toString(), icon: CloudOff, color: (syncStatus?.pendingCount ?? 0) > 0 ? 'text-amber-400' : 'text-muted-foreground' },
     { label: 'System Health', value: pingQuery.isSuccess ? 'Good' : 'Error', icon: CheckCircle, color: pingQuery.isSuccess ? 'text-emerald-400' : 'text-muted-foreground' },
     { label: 'Network', value: pingQuery.isSuccess ? 'Online' : 'Offline', icon: Wifi, color: pingQuery.isSuccess ? 'text-emerald-400' : 'text-muted-foreground' },
   ];
 
   return (
-    // Fixed to the viewport, not the page — a bridge display shouldn't
-    // need scrolling to see fleet status at a glance. -140px matches
-    // the header + page padding this app already uses on the Reports
-    // list (the one other screen with the same constraint). Every
-    // panel below scrolls internally instead of the page as a whole.
-    <div className="h-[calc(100vh-140px)] flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    // Fixed to the viewport on desktop, not the page — a bridge display
+    // shouldn't need scrolling to see fleet status at a glance. Below
+    // lg, the 3-column instrument panel stacks to 1 column, so the same
+    // fixed total height would squeeze 3x the content into the space
+    // meant for one column and clip it — mobile gets the page's natural
+    // scroll instead, matching how every other page on a phone works.
+    <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500 lg:h-[calc(100vh-140px)] lg:overflow-hidden">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border pb-4 shrink-0">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Terminal Dashboard</h1>
@@ -108,16 +116,16 @@ export default function DashboardPage() {
           of the viewport. Each has its own internal scroll — a long
           drafts list never pushes Voyage/Sync status off-screen, and
           the page itself never grows taller than the window. */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1.3fr_1fr_1fr] gap-4">
+      <div className="grid grid-cols-1 gap-4 lg:flex-1 lg:min-h-0 lg:grid-cols-[1.3fr_1fr_1fr]">
         {/* Column 1: In Progress */}
-        <Card className="bg-background/40 border-border/60 backdrop-blur-sm rounded-xl flex flex-col min-h-0 overflow-hidden">
+        <Card className="bg-background/40 border-border/60 backdrop-blur-sm rounded-xl flex flex-col lg:min-h-0 lg:overflow-hidden">
           <CardHeader className="pb-3 pt-4 border-b border-border/50 shrink-0 flex-row items-center justify-between space-y-0">
             <CardTitle className="text-sm font-semibold tracking-wide text-foreground">In Progress</CardTitle>
             <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground" onClick={() => router.push('/reports')}>
               View all <ArrowRight className="w-3 h-3 ml-1" />
             </Button>
           </CardHeader>
-          <CardContent className="flex-1 min-h-0 overflow-y-auto p-0">
+          <CardContent className="p-0 lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
             {reportsLoading ? (
               <div className="p-8 flex flex-col items-center justify-center space-y-3">
                 <Loader2 className="w-6 h-6 animate-spin text-primary" />
@@ -159,7 +167,7 @@ export default function DashboardPage() {
         </Card>
 
         {/* Column 2: Suggested Next Report + Active Voyage */}
-        <div className="flex flex-col gap-4 min-h-0">
+        <div className="flex flex-col gap-4 lg:min-h-0">
           {suggestions && suggestions.length > 0 && (
             <Card className="bg-gradient-to-r from-primary/10 to-muted/50 border-primary/30 rounded-xl shrink-0">
               <CardHeader className="pb-2 pt-3 px-4">
@@ -177,7 +185,7 @@ export default function DashboardPage() {
             </Card>
           )}
 
-          <Card className="bg-background/40 border-border/60 backdrop-blur-sm rounded-xl flex-1 min-h-0 overflow-hidden relative flex flex-col">
+          <Card className="bg-background/40 border-border/60 backdrop-blur-sm rounded-xl relative flex flex-col lg:flex-1 lg:min-h-0 lg:overflow-hidden">
             <div className="absolute top-0 right-0 w-24 h-24 bg-primary/10 rounded-full blur-[30px] pointer-events-none" />
             <CardHeader className="pb-3 pt-4 border-b border-border/30 bg-background/20 shrink-0">
               <CardTitle className="text-sm font-semibold tracking-wide text-foreground flex items-center gap-2">
@@ -252,7 +260,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Column 3: Sync Status + Recent Reports */}
-        <div className="flex flex-col gap-4 min-h-0">
+        <div className="flex flex-col gap-4 lg:min-h-0">
           <Card className="bg-background/40 border-border/60 backdrop-blur-sm rounded-xl shrink-0 relative overflow-hidden">
             <div className="absolute bottom-0 right-0 w-24 h-24 bg-emerald-500/10 rounded-full blur-[30px] pointer-events-none" />
             <CardHeader className="pb-3 pt-4 border-b border-border/30 bg-background/20">
@@ -294,14 +302,14 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="bg-background/40 border-border/60 backdrop-blur-sm rounded-xl flex-1 min-h-0 overflow-hidden flex flex-col">
+          <Card className="bg-background/40 border-border/60 backdrop-blur-sm rounded-xl flex flex-col lg:flex-1 lg:min-h-0 lg:overflow-hidden">
             <CardHeader className="pb-3 pt-4 border-b border-border/50 shrink-0 flex-row items-center justify-between space-y-0">
               <CardTitle className="text-sm font-semibold tracking-wide text-foreground">Recent Reports</CardTitle>
               <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground" onClick={() => router.push('/reports')}>
                 View all <ArrowRight className="w-3 h-3 ml-1" />
               </Button>
             </CardHeader>
-            <CardContent className="flex-1 min-h-0 overflow-y-auto p-0">
+            <CardContent className="p-0 lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
               {reportsLoading ? (
                 <div className="p-6 flex flex-col items-center justify-center space-y-2">
                   <Loader2 className="w-5 h-5 animate-spin text-primary" />
