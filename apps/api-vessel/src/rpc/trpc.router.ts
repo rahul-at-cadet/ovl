@@ -103,6 +103,19 @@ const GetEnumCompiler = TypeCompiler.Compile(GetEnumInputSchema);
 const UpdateSettingsSchema = Type.Record(Type.String(), Type.String());
 const UpdateSettingsCompiler = TypeCompiler.Compile(UpdateSettingsSchema);
 
+const SaveSensorSourceSchema = Type.Object({
+  baseUrl: Type.String(),
+  apiKey: Type.String(),
+  enabled: Type.Boolean(),
+});
+const SaveSensorSourceCompiler = TypeCompiler.Compile(SaveSensorSourceSchema);
+
+const TestSensorSourceSchema = Type.Object({
+  baseUrl: Type.String(),
+  apiKey: Type.String(),
+});
+const TestSensorSourceCompiler = TypeCompiler.Compile(TestSensorSourceSchema);
+
 const CreateUserSchema = Type.Object({
   username: Type.String(),
   role: Type.String(),
@@ -395,7 +408,7 @@ export class TrpcRouter {
           return val as Static<typeof UpdateUserStatusSchema>;
         })
         .mutation(async ({ input, ctx }) => {
-          if (!ctx.user.role.includes('Admin') && !ctx.user.role.includes('Master')) throw new Error('Unauthorized');
+          if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new Error('Unauthorized');
           await this.db.update(schema.users)
             .set({ active: input.active, updatedAt: new Date().toISOString() })
             .where(eq(schema.users.id, input.id));
@@ -407,7 +420,7 @@ export class TrpcRouter {
           return val as Static<typeof UpdateUserRoleSchema>;
         })
         .mutation(async ({ input, ctx }) => {
-          if (!ctx.user.role.includes('Admin') && !ctx.user.role.includes('Master')) throw new Error('Unauthorized');
+          if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new Error('Unauthorized');
           await this.db.update(schema.users)
             .set({ role: input.role, updatedAt: new Date().toISOString() })
             .where(eq(schema.users.id, input.id));
@@ -419,7 +432,7 @@ export class TrpcRouter {
           return val as Static<typeof AdminResetPasswordSchema>;
         })
         .mutation(async ({ input, ctx }) => {
-          if (!ctx.user.role.includes('Admin') && !ctx.user.role.includes('Master')) throw new Error('Unauthorized');
+          if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new Error('Unauthorized');
           const argon2 = await import('argon2');
           const crypto = await import('crypto');
           
@@ -503,6 +516,33 @@ export class TrpcRouter {
       getActiveVoyage: publicProcedure.query(async () => {
         return this.vmsService.getActiveVoyage();
       }),
+    }),
+    sensors: router({
+      // Master/Admin-only, mirroring the original's requireSuperAdmin
+      // gate on the equivalent config endpoints.
+      get: protectedProcedure.query(async ({ ctx }) => {
+        if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new Error('Unauthorized');
+        return this.sensorsService.getSource();
+      }),
+      save: protectedProcedure
+        .input((val: unknown) => {
+          if (!SaveSensorSourceCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof SaveSensorSourceSchema>;
+        })
+        .mutation(async ({ input, ctx }) => {
+          if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new Error('Unauthorized');
+          if (!input.baseUrl || !input.apiKey) throw new Error('baseUrl and apiKey are required');
+          return this.sensorsService.saveSource(input.baseUrl, input.apiKey, input.enabled);
+        }),
+      test: protectedProcedure
+        .input((val: unknown) => {
+          if (!TestSensorSourceCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof TestSensorSourceSchema>;
+        })
+        .mutation(async ({ input, ctx }) => {
+          if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new Error('Unauthorized');
+          return this.sensorsService.testSource(input.baseUrl, input.apiKey);
+        }),
     }),
     notifications: router({
       list: publicProcedure.query(async () => {

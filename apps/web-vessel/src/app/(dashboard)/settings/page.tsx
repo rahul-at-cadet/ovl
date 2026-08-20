@@ -6,9 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Satellite, Database, Activity, RefreshCw, Save, Cpu } from 'lucide-react';
+import { Satellite, Database, Activity, RefreshCw, Save, Cpu, Loader2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useToastManager } from '@/components/ui/toast';
+import { Switch } from '@/components/ui/switch';
 
 export default function SettingsPage() {
   const toastManager = useToastManager();
@@ -41,6 +42,35 @@ export default function SettingsPage() {
   const handleForceSync = () => {
     toastManager.add({ title: 'Sync triggered', description: 'Running in background.', type: 'info' });
   };
+
+  const utils = trpc.useUtils();
+  const { data: sensorSource } = trpc.sensors.get.useQuery();
+  const [sensorBaseUrl, setSensorBaseUrl] = useState('');
+  const [sensorApiKey, setSensorApiKey] = useState('');
+  const [sensorEnabled, setSensorEnabled] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  useEffect(() => {
+    if (sensorSource) {
+      setSensorBaseUrl(sensorSource.baseUrl);
+      setSensorEnabled(sensorSource.enabled);
+      // apiKey comes back masked (e.g. "••••1234") — never prefill the
+      // input with a masked value the officer could accidentally save
+      // back as the real key.
+    }
+  }, [sensorSource]);
+
+  const saveSensorMutation = trpc.sensors.save.useMutation({
+    onSuccess: () => {
+      toastManager.add({ title: 'Sensor source saved', type: 'success' });
+      utils.sensors.get.invalidate();
+    },
+    onError: (err) => toastManager.add({ title: 'Failed to save sensor source', description: err.message, type: 'error' }),
+  });
+  const testSensorMutation = trpc.sensors.test.useMutation({
+    onSuccess: (result) => setTestResult(result),
+    onError: (err) => setTestResult({ ok: false, message: err.message }),
+  });
 
   if (isLoading) {
     return <div className="p-8 text-muted-foreground">Loading settings...</div>;
@@ -155,16 +185,63 @@ export default function SettingsPage() {
               <Card className="bg-card/40 border-border/60 shadow-xl overflow-hidden rounded-xl backdrop-blur-md">
                 <CardHeader className="border-b border-border/60 pb-4 bg-card/20">
                   <CardTitle className="text-sm font-semibold tracking-tight text-foreground">Hardware Sensors</CardTitle>
-                  <CardDescription className="text-xs text-muted-foreground">Configure NMEA 0183/2000 connections for auto-populating coordinates.</CardDescription>
+                  <CardDescription className="text-xs text-muted-foreground">
+                    An onboard sensor source exposes readings over HTTP (GET {'{baseUrl}'}/telemetry, bearer API key) — used by
+                    &quot;Pre-fill from Sensors&quot; on the report form. Unconfigured or unreachable always means no data, never fabricated numbers.
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="pt-6 space-y-4">
                   <div className="space-y-2">
-                    <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">NMEA Endpoint URL / Serial Port</Label>
-                    <Input type="text" placeholder="tcp://192.168.1.100:10110" className="bg-background/80 border-border/80 focus-visible:ring-ring text-foreground text-sm h-10" />
+                    <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">Base URL</Label>
+                    <Input
+                      type="text"
+                      placeholder="https://sensors.example.vessel:8443"
+                      value={sensorBaseUrl}
+                      onChange={(e) => setSensorBaseUrl(e.target.value)}
+                      className="bg-background/80 border-border/80 focus-visible:ring-ring text-foreground text-sm h-10"
+                    />
                   </div>
-                  <Button className="bg-primary hover:bg-primary/90 text-white rounded-md h-9 text-sm font-semibold shadow-sm transition-all mt-2">
-                    Save Sensor Config
-                  </Button>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">API Key</Label>
+                    <Input
+                      type="password"
+                      placeholder={sensorSource?.configured ? sensorSource.apiKey : 'Enter API key'}
+                      value={sensorApiKey}
+                      onChange={(e) => setSensorApiKey(e.target.value)}
+                      className="bg-background/80 border-border/80 focus-visible:ring-ring text-foreground text-sm h-10"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between rounded-md border border-border bg-background/50 px-3 py-2.5">
+                    <div>
+                      <Label className="text-foreground">Enabled</Label>
+                      <p className="text-xs text-muted-foreground">Disabled sources are never polled, even if configured.</p>
+                    </div>
+                    <Switch checked={sensorEnabled} onCheckedChange={setSensorEnabled} />
+                  </div>
+                  {testResult && (
+                    <div className={`text-xs p-2.5 rounded-md border ${testResult.ok ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
+                      {testResult.message}
+                    </div>
+                  )}
+                  <div className="flex gap-2 mt-2">
+                    <Button
+                      onClick={() => saveSensorMutation.mutate({ baseUrl: sensorBaseUrl, apiKey: sensorApiKey, enabled: sensorEnabled })}
+                      disabled={saveSensorMutation.isPending || !sensorBaseUrl || !sensorApiKey}
+                      className="bg-primary hover:bg-primary/90 text-white rounded-md h-9 text-sm font-semibold shadow-sm transition-all"
+                    >
+                      {saveSensorMutation.isPending ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Save className="w-3.5 h-3.5 mr-1.5" />}
+                      Save Sensor Config
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => testSensorMutation.mutate({ baseUrl: sensorBaseUrl, apiKey: sensorApiKey })}
+                      disabled={testSensorMutation.isPending || !sensorBaseUrl}
+                      className="border-border bg-background text-foreground hover:text-foreground rounded-md h-9 text-sm"
+                    >
+                      {testSensorMutation.isPending ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : null}
+                      Test Connection
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>
