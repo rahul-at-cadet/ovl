@@ -1382,9 +1382,16 @@ export class TrpcRouter {
       // notifications table backing this. Each user's read-state is
       // private to them (notification_read_state is keyed by user id).
       list: protectedProcedure.query(async ({ ctx }) => {
+        // A 401 here (rather than the same graceful-fallback pattern
+        // every other localUser lookup in this file uses) gets treated
+        // by the frontend's SuperTokens interceptor as "session needs
+        // refreshing" globally — not as this endpoint's own concern —
+        // which retries the request 10 times against an unrelated
+        // failure and then gives up loudly. No local user just means no
+        // read-state can be tracked for this session; degrade to
+        // showing every notification unread rather than erroring.
         const localUser = await this.supertokensService.getLocalUser(ctx.session.getUserId());
-        if (!localUser) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'No local user found' });
-        return this.notificationsService.list(localUser.id);
+        return this.notificationsService.list(localUser?.id ?? null);
       }),
       markRead: protectedProcedure
         .input((val: unknown) => {
@@ -1393,7 +1400,7 @@ export class TrpcRouter {
         })
         .mutation(async ({ input, ctx }) => {
           const localUser = await this.supertokensService.getLocalUser(ctx.session.getUserId());
-          if (!localUser) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'No local user found' });
+          if (!localUser) return { marked: 0 };
           const marked = await this.notificationsService.markRead(localUser.id, input.ids);
           return { marked };
         }),

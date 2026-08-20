@@ -47,7 +47,12 @@ export class NotificationsService {
     private readonly complianceService: ComplianceService,
   ) {}
 
-  async list(userId: string): Promise<NotificationView[]> {
+  // userId is null when the session's SuperTokens identity has no
+  // matching row in the local users table (e.g. email/username drift)
+  // — read-state can't be tracked for a user we can't identify, so
+  // every notification just comes back unread rather than erroring the
+  // whole feed over it.
+  async list(userId: string | null): Promise<NotificationView[]> {
     const now = new Date();
     const since = new Date(now.getTime() - LOOKBACK_MS);
 
@@ -62,6 +67,7 @@ export class NotificationsService {
 
     notifications.sort((a, b) => (a.at < b.at ? 1 : -1));
     const capped = notifications.slice(0, NOTIFICATION_CAP);
+    if (!userId) return capped;
 
     const readRows = await this.db
       .select({ notificationId: schema.notificationReadState.notificationId })
