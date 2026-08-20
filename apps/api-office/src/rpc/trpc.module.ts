@@ -6,9 +6,10 @@ import { ComplianceModule } from '../config/compliance/compliance.module';
 import { ConfigBundleModule } from '../config/config-bundle/config-bundle.module';
 import { VesselsModule } from '../vessels/vessels.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { UsersModule } from '../users/users.module';
 
 @Module({
-  imports: [SchemaVersionsModule, FieldPolicyModule, ComplianceModule, ConfigBundleModule, VesselsModule, NotificationsModule],
+  imports: [SchemaVersionsModule, FieldPolicyModule, ComplianceModule, ConfigBundleModule, VesselsModule, NotificationsModule, UsersModule],
   providers: [TrpcRouter],
   exports: [TrpcRouter],
 })

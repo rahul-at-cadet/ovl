@@ -19,6 +19,8 @@ import { effectiveSeverities } from '../config/logic/compliance';
 import { continuityConfigFor, revalidate, type ContinuityReport, type Severity } from '../config/logic/continuity';
 import { SupertokensService } from '../auth/supertokens.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { UsersService } from '../users/users.service';
+import { UserRole } from '../users/dto/create-user.dto';
 import Session from 'supertokens-node/recipe/session';
 import { TRPCError } from '@trpc/server';
 
@@ -201,6 +203,17 @@ const DeleteOfficeUserSchema = Type.Object({
 });
 const DeleteOfficeUserCompiler = TypeCompiler.Compile(DeleteOfficeUserSchema);
 
+const CreateOfficeUserSchema = Type.Object({
+  username: Type.String({ format: 'email' }),
+  roles: Type.Array(Type.Enum(UserRole), { minItems: 1 }),
+});
+const CreateOfficeUserCompiler = TypeCompiler.Compile(CreateOfficeUserSchema);
+
+const ResetOfficeUserPasswordSchema = Type.Object({
+  id: Type.String(),
+});
+const ResetOfficeUserPasswordCompiler = TypeCompiler.Compile(ResetOfficeUserPasswordSchema);
+
 const GetReportSchema = Type.Object({
   reportId: Type.String(),
 });
@@ -370,6 +383,7 @@ export class TrpcRouter {
     private readonly vesselUsersService: VesselUsersService,
     private readonly supertokensService: SupertokensService,
     private readonly notificationsService: NotificationsService,
+    private readonly usersService: UsersService,
   ) {}
 
   /**
@@ -896,6 +910,49 @@ export class TrpcRouter {
           await this.db.delete(schema.users).where(eq(schema.users.id, input.id));
           return { success: true };
         }),
+      // Delegates to UsersService rather than reimplementing here — it
+      // provisions a real SuperTokens login (not just this table's own
+      // row), which needs the SuperTokens SDK calls that already live
+      // there. See UsersService.createUser's own doc comment.
+      //
+      // publicProcedure, not protectedProcedure: this is also the
+      // bootstrap path for the very first (Admin) account, when there's
+      // no session to require yet (mirrors ovl/office/httpapi's
+      // handleSetupAdmin — a one-time exception the original scopes to
+      // a dedicated setup screen, same rule applied here instead of a
+      // second endpoint) and the vessel app's own identical bootstrap
+      // exception for users.create. Once any user exists, this requires
+      // a valid admin session — otherwise anyone could mint arbitrary
+      // accounts at any time.
+      create: publicProcedure
+        .input((val: unknown) => {
+          if (!CreateOfficeUserCompiler.Check(val)) throw new Error('Invalid input');
+          const parsed = val as Static<typeof CreateOfficeUserSchema>;
+          // TypeBox's own `format: 'email'` is a no-op unless a format
+          // validator is registered (none is, in this project) — checked
+          // for real here instead of silently trusting the hint.
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(parsed.username)) {
+            throw new Error('username must be a valid email');
+          }
+          return parsed;
+        })
+        .mutation(async ({ input, ctx }) => {
+          const existing = await this.db.select({ id: schema.users.id }).from(schema.users).limit(1);
+          if (existing.length > 0) {
+            const session = await Session.getSession(ctx.req, ctx.res, { sessionRequired: false }).catch(() => undefined);
+            const localUser = session ? await this.supertokensService.getLocalUser(session.getUserId()) : null;
+            if (!localUser || !(localUser.roles as string[]).includes('admin')) {
+              throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Admin login required to create additional users.' });
+            }
+          }
+          return this.usersService.createUser(input);
+        }),
+      resetPassword: protectedProcedure
+        .input((val: unknown) => {
+          if (!ResetOfficeUserPasswordCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof ResetOfficeUserPasswordSchema>;
+        })
+        .mutation(({ input }) => this.usersService.resetUserPassword(input.id)),
     }),
     fieldPolicies: router({
       get: protectedProcedure
@@ -1326,6 +1383,17 @@ export class TrpcRouter {
             .where(eq(schema.apiKeys.id, input.id));
           return { success: true };
         }),
+    }),
+    setup: router({
+      // Drives the login page's choice between the normal sign-in form
+      // and a one-time "create the first Admin account" form — mirrors
+      // ovl/office/httpapi's GET /api/setup/status (hasAnyUser) feeding
+      // web/office's SetupAdmin screen. publicProcedure: this has to be
+      // checkable before anyone can possibly have a session yet.
+      status: publicProcedure.query(async () => {
+        const rows = await this.db.select({ id: schema.users.id }).from(schema.users).limit(1);
+        return { hasAnyUser: rows.length > 0 };
+      }),
     }),
     dashboard: router({
       getOverview: protectedProcedure.query(async () => {

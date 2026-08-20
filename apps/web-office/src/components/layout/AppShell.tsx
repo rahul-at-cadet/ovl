@@ -61,6 +61,23 @@ export function AppShell({ children }: AppShellProps) {
   });
   const unreadCount = notifications.filter((n) => !n.read).length;
 
+  // Mirrors the original office NotificationPanel's own filter set —
+  // there's no server-side "clear," this feed is a live projection
+  // (see NotificationsService's own doc comment), so "Unread" is how a
+  // user gets read items out of their way without deleting anything.
+  const NOTIFICATION_FILTERS = ['All', 'Unread', 'Overdue', 'Remarks', 'Sync'] as const;
+  type NotificationFilter = (typeof NOTIFICATION_FILTERS)[number];
+  const [notificationFilter, setNotificationFilter] = useState<NotificationFilter>('All');
+  const filteredNotifications = notifications.filter((n) => {
+    switch (notificationFilter) {
+      case 'All': return true;
+      case 'Unread': return !n.read;
+      case 'Overdue': return n.category === 'overdue';
+      case 'Remarks': return n.category === 'remark';
+      case 'Sync': return n.category === 'sync';
+    }
+  });
+
   function handleNotificationClick(n: (typeof notifications)[number]) {
     if (!n.read) markReadMutation.mutate({ ids: [n.id] });
     if (n.link?.section === 'reports' && n.link.reportId) {
@@ -221,11 +238,26 @@ export function AppShell({ children }: AppShellProps) {
                     Mark all read
                   </button>
                 </div>
+                <div className="flex gap-1.5 px-4 py-2 border-b border-border shrink-0 overflow-x-auto">
+                  {NOTIFICATION_FILTERS.map((f) => (
+                    <button
+                      key={f}
+                      onClick={() => setNotificationFilter(f)}
+                      className={`px-2.5 h-6 rounded-full text-xs font-medium border whitespace-nowrap transition-colors ${
+                        notificationFilter === f
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      {f}
+                    </button>
+                  ))}
+                </div>
                 <div className="flex-1 overflow-y-auto">
                   {isLoading ? (
                     <p className="text-xs text-muted-foreground text-center py-8">Loading alerts...</p>
-                  ) : notifications.length > 0 ? (
-                    notifications.map((notification) => {
+                  ) : filteredNotifications.length > 0 ? (
+                    filteredNotifications.map((notification) => {
                       const Icon = notification.category === 'overdue' ? AlertTriangle : notification.category === 'remark' ? MessageSquare : CloudDownload;
                       const color = notification.category === 'overdue' ? 'text-red-400' : notification.category === 'remark' ? 'text-amber-400' : 'text-emerald-400';
                       return (
@@ -245,7 +277,9 @@ export function AppShell({ children }: AppShellProps) {
                       );
                     })
                   ) : (
-                    <p className="text-xs text-muted-foreground text-center py-8">No new alerts</p>
+                    <p className="text-xs text-muted-foreground text-center py-8">
+                      {notificationFilter === 'All' ? 'No new alerts' : 'Nothing here.'}
+                    </p>
                   )}
                 </div>
               </PopoverContent>

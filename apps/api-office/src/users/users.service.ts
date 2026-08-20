@@ -3,6 +3,8 @@ import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { eq } from 'drizzle-orm';
 import * as schema from '@ovl/database';
 import * as argon2 from 'argon2';
+import EmailPassword from 'supertokens-node/recipe/emailpassword';
+import supertokens from 'supertokens-node';
 import { DATABASE_CONNECTION } from '../database/database.module';
 import type { LocalUser } from '../auth/supertokens.service';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -57,6 +59,18 @@ export class UsersService {
    * Generates a random temporary password and returns it ONCE — same
    * "reveal once" contract as the Go implementation. The user must change
    * it on first login (mustChangePassword = true).
+   *
+   * Provisions the real SuperTokens emailpassword identity first — the
+   * `users` table alone can't authenticate anyone; the actual login flow
+   * (AppShell's session check, AuthGuard) goes entirely through
+   * SuperTokens, keyed by email. A user created in only this table would
+   * never be able to sign in, which was this function's entire previous
+   * behavior. On success, `signUpPOST`'s own override
+   * (supertokens.service.ts) would normally auto-insert a `viewer`-role
+   * row for a self-service signup, but that path isn't hit for an
+   * admin-initiated server-side EmailPassword.signUp call — so the local
+   * row here carries the admin's own chosen roles instead of that
+   * default, exactly once, right after the identity is created.
    */
   async createUser(
     dto: CreateUserDto,
@@ -72,6 +86,20 @@ export class UsersService {
     }
 
     const temporaryPassword = randomPassword(12);
+
+    const signUpResult = await EmailPassword.signUp('public', dto.username, temporaryPassword);
+    if (signUpResult.status === 'EMAIL_ALREADY_EXISTS_ERROR') {
+      // A SuperTokens identity already exists for this email with no
+      // matching local row — most likely an account that predates the
+      // signUpPOST auto-provisioning hook. Can't silently adopt it here
+      // (we'd be resetting a real, unrelated login's password); the
+      // admin needs to know this email is already a login, just not one
+      // this app has a profile for.
+      throw new ConflictException(
+        `An account already exists for "${dto.username}" but has no profile here — this can't be created as a new user.`,
+      );
+    }
+
     const passwordHash = await argon2.hash(temporaryPassword, {
       type: argon2.argon2id,
     });
@@ -129,11 +157,30 @@ export class UsersService {
   /**
    * Admin-initiated password reset — generates and returns a new temporary
    * password. Same "reveal once" contract as createUser.
+   *
+   * Updates the real SuperTokens password, not just this table's own
+   * passwordHash column — resetting only the local copy would generate a
+   * "temporary password" the person could never actually sign in with,
+   * since login is verified against SuperTokens, not this table.
    */
   async resetUserPassword(
     id: string,
   ): Promise<{ user: SafeUser; temporaryPassword: string }> {
+    const existing = await this.db.select().from(schema.users).where(eq(schema.users.id, id)).limit(1);
+    if (!existing[0]) throw new NotFoundException(`User ${id} not found`);
+
+    const stUsers = await supertokens.listUsersByAccountInfo('public', { email: existing[0].username });
+    const recipeUserId = stUsers[0]?.loginMethods[0]?.recipeUserId;
+    if (!recipeUserId) {
+      throw new NotFoundException(`No SuperTokens login found for "${existing[0].username}" — this user can't sign in and has no password to reset.`);
+    }
+
     const temporaryPassword = randomPassword(12);
+    const updateResult = await EmailPassword.updateEmailOrPassword({ recipeUserId, password: temporaryPassword });
+    if (updateResult.status !== 'OK') {
+      throw new BadRequestException(`Failed to reset password: ${updateResult.status}`);
+    }
+
     const passwordHash = await argon2.hash(temporaryPassword, {
       type: argon2.argon2id,
     });
@@ -147,7 +194,6 @@ export class UsersService {
       })
       .where(eq(schema.users.id, id))
       .returning();
-    if (!updated) throw new NotFoundException(`User ${id} not found`);
 
     return { user: toSafeUser(updated), temporaryPassword };
   }

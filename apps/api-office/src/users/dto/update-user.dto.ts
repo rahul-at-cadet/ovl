@@ -5,13 +5,13 @@ export class UpdateUserRolesDto {
   @IsArray()
   @IsEnum(UserRole, { each: true })
   @ArrayMinSize(1)
-  roles: UserRole[];
+  roles!: UserRole[];
 }
 
 export class ChangePasswordDto {
   @IsString()
-  currentPassword: string;
+  currentPassword!: string;
 
   @IsString()
-  newPassword: string;
+  newPassword!: string;
 }
