@@ -272,7 +272,7 @@ export default function VesselsPage() {
             <Button variant="outline" onClick={closeDialog} className="bg-transparent border-border text-foreground hover:bg-muted hover:text-foreground">
               Cancel
             </Button>
-            <Button onClick={handleSave} disabled={createMutation.isPending || updateMutation.isPending} className="bg-indigo-600 hover:bg-indigo-700 text-white">
+            <Button onClick={handleSave} disabled={createMutation.isPending || updateMutation.isPending} className="bg-primary hover:bg-primary/90 text-primary-foreground">
               {editingVessel ? 'Save Changes' : 'Provision'}
             </Button>
           </DialogFooter>

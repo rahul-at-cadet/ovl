@@ -214,7 +214,7 @@ export default function UsersPage() {
                 type="checkbox" 
                 checked={active} 
                 onChange={(e) => setActive(e.target.checked)} 
-                className="col-span-3 w-4 h-4 accent-indigo-500"
+                className="col-span-3 w-4 h-4 accent-primary"
               />
             </div>
           </div>
@@ -222,7 +222,7 @@ export default function UsersPage() {
             <Button variant="outline" onClick={() => setIsDialogOpen(false)} className="bg-transparent border-border text-foreground hover:bg-muted hover:text-foreground">
               Cancel
             </Button>
-            <Button onClick={handleSave} disabled={updateMutation.isPending} className="bg-indigo-600 hover:bg-indigo-700 text-white">
+            <Button onClick={handleSave} disabled={updateMutation.isPending} className="bg-primary hover:bg-primary/90 text-primary-foreground">
               Save Changes
             </Button>
           </DialogFooter>

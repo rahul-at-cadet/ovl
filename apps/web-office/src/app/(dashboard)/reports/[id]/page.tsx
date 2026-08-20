@@ -92,7 +92,7 @@ export default function ReportDetailPage() {
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-5xl mx-auto">
       <div className="flex items-center text-sm text-muted-foreground mb-4">
-        <Link href="/reports" className="hover:text-indigo-400 flex items-center transition-colors">
+        <Link href="/reports" className="hover:text-primary flex items-center transition-colors">
           <ArrowLeft className="w-4 h-4 mr-1" />
           Back to Ledger
         </Link>
@@ -101,7 +101,7 @@ export default function ReportDetailPage() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-card/50 p-6 rounded-xl border border-border shadow-lg backdrop-blur-sm">
         <div className="flex items-start gap-4">
           <div className="p-3 bg-muted rounded-lg border border-border">
-            <FileText className="w-8 h-8 text-indigo-400" />
+            <FileText className="w-8 h-8 text-primary" />
           </div>
           <div>
             <div className="flex items-center gap-3">
@@ -260,7 +260,7 @@ export default function ReportDetailPage() {
             ) : chatMessages?.length ? (
               chatMessages.map((msg: any) => (
                 <div key={msg.id} className={`flex flex-col ${msg.direction === 'office' ? 'items-end' : 'items-start'}`}>
-                  <div className={`px-4 py-2 rounded-xl max-w-[80%] ${msg.direction === 'office' ? 'bg-indigo-600 text-white' : 'bg-muted text-foreground'}`}>
+                  <div className={`px-4 py-2 rounded-xl max-w-[80%] ${msg.direction === 'office' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'}`}>
                     <p className="text-sm">{msg.body}</p>
                   </div>
                   <span className="text-xs text-muted-foreground mt-1">{msg.sender} • {new Date(msg.sentAt).toLocaleTimeString()}</span>
@@ -278,7 +278,7 @@ export default function ReportDetailPage() {
             <input
               type="text"
               placeholder="Type a message..."
-              className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
               onKeyDown={(e) => {
@@ -289,7 +289,7 @@ export default function ReportDetailPage() {
               onClick={sendChat}
               disabled={!chatInput.trim() || chatMutation.isPending}
               size="sm"
-              className="bg-indigo-600 hover:bg-indigo-500"
+              className="bg-primary hover:bg-primary/90"
             >
               <Send className="w-4 h-4" />
             </Button>

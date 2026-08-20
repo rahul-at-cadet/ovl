@@ -253,7 +253,7 @@ export function AppShell({ children }: AppShellProps) {
 
             <Avatar className="h-8 w-8 border border-border">
               <AvatarImage src="" />
-              <AvatarFallback className="bg-indigo-600 text-white text-xs">AD</AvatarFallback>
+              <AvatarFallback className="bg-primary text-primary-foreground text-xs">AD</AvatarFallback>
             </Avatar>
           </div>
         </header>

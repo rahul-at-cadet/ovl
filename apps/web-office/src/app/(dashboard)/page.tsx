@@ -14,7 +14,7 @@ export default function OfficeDashboardPage() {
     { label: 'Active Vessels', value: dashboard?.activeVessels ?? '...', icon: Ship, color: 'text-muted-foreground' },
     { label: 'Incoming Reports (24h)', value: dashboard?.incomingReports ?? '...', icon: Database, color: 'text-muted-foreground' },
     { label: 'Sync Warnings', value: dashboard?.syncWarnings ?? '...', icon: AlertCircle, color: dashboard?.syncWarnings ? 'text-red-400' : 'text-muted-foreground' },
-    { label: 'Network Uptime', value: dashboard ? `${dashboard.networkUptime}%` : '...', icon: Activity, color: pingQuery.isSuccess ? 'text-green-400' : 'text-muted-foreground' },
+    { label: 'Network Uptime', value: dashboard ? `${dashboard.networkUptime}%` : '...', icon: Activity, color: pingQuery.isSuccess ? 'text-emerald-400' : 'text-muted-foreground' },
   ];
 
   return (
@@ -100,7 +100,7 @@ export default function OfficeDashboardPage() {
               </div>
               <div className="h-1 bg-muted rounded-full overflow-hidden">
                 <div
-                  className={`h-full transition-all ${isDashboardLoading ? 'bg-zinc-300 w-1/2 animate-pulse' : (dashboard?.syncHealthPercent ?? 100) < 100 ? 'bg-amber-500' : 'bg-green-500'}`}
+                  className={`h-full transition-all ${isDashboardLoading ? 'bg-zinc-300 w-1/2 animate-pulse' : (dashboard?.syncHealthPercent ?? 100) < 100 ? 'bg-amber-500' : 'bg-emerald-500'}`}
                   style={isDashboardLoading ? undefined : { width: `${dashboard?.syncHealthPercent ?? 100}%` }}
                 />
               </div>
@@ -111,7 +111,7 @@ export default function OfficeDashboardPage() {
                 <span className="text-foreground">{pingQuery.isLoading ? 'Connecting...' : pingQuery.isError ? 'Offline' : 'Online'}</span>
               </div>
               <div className="h-1 bg-muted rounded-full overflow-hidden">
-                <div className={`h-full ${pingQuery.isSuccess ? 'bg-green-500 w-[100%]' : pingQuery.isError ? 'bg-red-500 w-0' : 'bg-zinc-300 w-[20%]'}`} />
+                <div className={`h-full ${pingQuery.isSuccess ? 'bg-emerald-500 w-[100%]' : pingQuery.isError ? 'bg-red-500 w-0' : 'bg-zinc-300 w-[20%]'}`} />
               </div>
             </div>
           </CardContent>
