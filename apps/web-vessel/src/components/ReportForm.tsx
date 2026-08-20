@@ -16,6 +16,20 @@ import { AttachmentsSection } from './AttachmentsSection';
 import { useToastManager } from '@/components/ui/toast';
 import { effectiveState, type SchemaField } from '@/lib/config/fieldPolicyLogic';
 import { computeDerivedValues, computeTimeSincePreviousReport, DERIVED_FIELDS } from '@/lib/derivedFields';
+import { PositionField } from './PositionField';
+
+// Degree/Minutes/Hemisphere triples rendered as one compound DMS
+// control (see PositionField.tsx) instead of three unrelated plain
+// number inputs. Keyed by the degree field's name; the minutes/
+// hemisphere companions are consumed into the same control and never
+// rendered on their own.
+const POSITION_GROUPS: Record<string, { axis: 'lat' | 'lon'; label: string; minutes: string; hemisphere: string }> = {
+  Latitude_Degree: { axis: 'lat', label: 'Latitude', minutes: 'Latitude_Minutes', hemisphere: 'Latitude_North_South' },
+  Longitude_Degree: { axis: 'lon', label: 'Longitude', minutes: 'Longitude_Minutes', hemisphere: 'Longitude_East_West' },
+};
+const POSITION_CONSUMED_FIELDS = new Set(
+  Object.values(POSITION_GROUPS).flatMap((g) => [g.minutes, g.hemisphere]),
+);
 
 interface ReportFormProps {
   reportId: string;
@@ -339,7 +353,11 @@ export function ReportForm({ reportId }: ReportFormProps) {
                         report?.eventType,
                       ),
                     }))
-                    .filter(({ state }) => state !== 'hidden');
+                    .filter(({ state }) => state !== 'hidden')
+                    // Minutes/hemisphere fields render as part of their
+                    // degree field's own compound PositionField below,
+                    // never as their own standalone field.
+                    .filter(({ field }) => !POSITION_CONSUMED_FIELDS.has(field.name));
                   // "attachments" is a real schema section with no form
                   // fields of its own — the upload widget belongs here,
                   // not permanently visible below every other tab (it used
@@ -356,7 +374,30 @@ export function ReportForm({ reportId }: ReportFormProps) {
                   return (
                   <TabsContent key={section} value={section} className="space-y-6 mt-0">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {sectionFields.map(({ field, state }) => (
+                      {sectionFields.map(({ field, state }) => {
+                        const positionGroup = POSITION_GROUPS[field.name];
+                        if (positionGroup) {
+                          return (
+                            <div key={field.name} className="space-y-2 md:col-span-2">
+                              <Label className="text-foreground flex items-center">
+                                {positionGroup.label}
+                                {(state === 'schemaMandatory' || state === 'companyMandatory') && (
+                                  <span className="text-red-400 ml-1">*</span>
+                                )}
+                              </Label>
+                              <PositionField
+                                axis={positionGroup.axis}
+                                label={positionGroup.label}
+                                control={control}
+                                degreeName={field.name}
+                                minutesName={positionGroup.minutes}
+                                hemisphereName={positionGroup.hemisphere}
+                                required={state === 'schemaMandatory' || state === 'companyMandatory'}
+                              />
+                            </div>
+                          );
+                        }
+                        return (
                         <div key={field.name} className="space-y-2">
                           <Label htmlFor={field.name} className="text-foreground flex items-center">
                             {field.label || field.name}
@@ -466,7 +507,8 @@ export function ReportForm({ reportId }: ReportFormProps) {
                             }}
                           />
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </TabsContent>
                   );

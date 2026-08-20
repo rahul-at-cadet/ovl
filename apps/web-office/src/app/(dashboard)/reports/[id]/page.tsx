@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, CheckCircle2, Clock, FileText, User, Ship, MessageSquare, Send, Flag, X, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 import { trpc } from '@/lib/trpc';
 import { useCurrentUser } from '@/lib/useCurrentUser';
@@ -36,6 +36,14 @@ export default function ReportDetailPage() {
 
   const { data: chatMessages, isLoading: chatLoading } = trpc.reports.getChat.useQuery({ reportId: id }, { enabled: !!report });
   const [chatInput, setChatInput] = useState('');
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  // Jump to the latest message whenever the thread changes — same fix
+  // as the vessel app's own report detail chat, otherwise a scrolled-up
+  // reader has no signal a new message landed below the fold.
+  useEffect(() => {
+    const el = chatScrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [chatMessages]);
   const chatMutation = trpc.reports.sendChatMessage.useMutation({
     onSuccess: () => {
       setChatInput('');
@@ -254,7 +262,7 @@ export default function ReportDetailPage() {
           <CardDescription>Text-only, both directions — same wall the vessel sees under &quot;Shore Chat&quot;.</CardDescription>
         </CardHeader>
         <CardContent className="flex-1 flex flex-col pt-4 min-h-0">
-          <div className="flex-1 overflow-y-auto space-y-4 mb-4">
+          <div ref={chatScrollRef} className="flex-1 min-h-0 overflow-y-auto space-y-4 mb-4">
             {chatLoading ? (
               <div className="text-center text-muted-foreground mt-10 text-sm">Loading messages...</div>
             ) : chatMessages?.length ? (

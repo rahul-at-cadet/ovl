@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Loader2, ArrowLeft, Send, MessageSquare, History, FileText, Pencil, Flag } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { ReportForm } from '@/components/ReportForm';
 import { useToastManager } from '@/components/ui/toast';
 
@@ -35,6 +35,14 @@ export default function ReportDetailPage() {
   });
 
   const [chatInput, setChatInput] = useState('');
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  // Jump to the latest message whenever the thread changes (a message
+  // just sent, or one pulled in from shore) — otherwise a scrolled-up
+  // reader has no signal that a new message landed below the fold.
+  useEffect(() => {
+    const el = chatScrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [chatMessages]);
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submitMutation = trpc.reports.submitReport.useMutation({
@@ -233,8 +241,8 @@ export default function ReportDetailPage() {
             <CardHeader className="border-b border-border/60 pb-4 bg-card/20 shrink-0">
               <CardTitle className="text-sm font-semibold tracking-tight text-foreground">Shore-to-Ship Communication</CardTitle>
             </CardHeader>
-            <CardContent className="flex-1 flex flex-col p-4">
-              <div className="flex-1 overflow-y-auto space-y-4 mb-4">
+            <CardContent className="flex-1 min-h-0 flex flex-col p-4">
+              <div ref={chatScrollRef} className="flex-1 min-h-0 overflow-y-auto space-y-4 mb-4">
                 {chatLoading ? (
                   <div className="text-center text-muted-foreground mt-10">Loading messages...</div>
                 ) : chatMessages?.length ? (
@@ -254,7 +262,7 @@ export default function ReportDetailPage() {
                   </div>
                 )}
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 shrink-0">
                 <input
                   type="text"
                   placeholder="Type a message..."
