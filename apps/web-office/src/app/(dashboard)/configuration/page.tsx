@@ -30,7 +30,7 @@ export default function ConfigurationPage() {
     <div className="p-8">
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-3xl font-heading font-bold text-foreground">Fleet Configuration</h1>
+          <h1 className="text-2xl font-heading font-semibold text-foreground">Fleet Configuration</h1>
           <p className="text-muted-foreground mt-2">Manage dynamic schemas and push config bundles to edge nodes.</p>
         </div>
       </div>

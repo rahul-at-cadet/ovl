@@ -57,7 +57,7 @@ export default function OfficeDashboardPage() {
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <Card className="xl:col-span-2 bg-card/50 border-border">
           <CardHeader>
-            <CardTitle className="text-xl">Live Sync Stream</CardTitle>
+            <CardTitle className="text-lg">Live Sync Stream</CardTitle>
             <CardDescription>Incoming events from the edge network</CardDescription>
           </CardHeader>
           <CardContent>

@@ -29,7 +29,7 @@ export function SectionRail({
 
   return (
     <div className="w-56 shrink-0 rounded-md border border-border bg-card p-2 overflow-y-auto">
-      <div className="flex items-center justify-between px-2 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+      <div className="flex items-center justify-between px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground font-semibold">
         <span>Section</span>
         <span>Total · Visible</span>
       </div>
@@ -77,7 +77,7 @@ function SectionRow({
     >
       <span className="truncate">{label}</span>
       <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-        {total} <span className="text-[10px]">· {visible}</span>
+        {total} <span className="text-xs">· {visible}</span>
       </span>
     </button>
   );

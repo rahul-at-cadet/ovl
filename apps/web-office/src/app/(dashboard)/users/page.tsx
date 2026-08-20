@@ -145,7 +145,7 @@ export default function UsersPage() {
                         </div>
                       </td>
                       <td className="px-4 py-2.5">
-                        <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold tracking-wide uppercase border ${user.active ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-muted/50 text-muted-foreground border-border/50'}`}>
+                        <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold tracking-wide uppercase border ${user.active ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-muted/50 text-muted-foreground border-border/50'}`}>
                           {user.active && <UserCheck className="w-3 h-3" />}
                           {user.active ? 'Active' : 'Inactive'}
                         </div>

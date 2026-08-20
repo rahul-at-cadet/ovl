@@ -38,16 +38,19 @@ export default function GlobalReportsPage() {
   });
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+    // Fixed to the viewport, not the page — a ledger with hundreds of
+    // fleet reports shouldn't require scrolling past the header/filters
+    // just to see the table; only the table body scrolls internally.
+    <div className="h-[calc(100vh-140px)] flex flex-col space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-hidden">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">Global Reports Ledger</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Global Reports Ledger</h1>
           <p className="text-muted-foreground mt-1">Audit and review all incoming vessel reports.</p>
         </div>
       </div>
 
-      <Card className="bg-card/50 border-border shadow-xl">
-        <CardHeader className="pb-3 border-b border-border/50">
+      <Card className="flex-1 flex flex-col bg-card/50 border-border shadow-xl min-h-0 overflow-hidden">
+        <CardHeader className="pb-3 border-b border-border/50 shrink-0">
           <div className="flex flex-col lg:flex-row items-center justify-between gap-4">
             <CardTitle>Fleet Reports</CardTitle>
             <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
@@ -76,10 +79,10 @@ export default function GlobalReportsPage() {
             </div>
           </div>
         </CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
+        <CardContent className="flex-1 min-h-0 p-0 overflow-hidden">
+          <div className="h-full overflow-auto">
             <Table>
-              <TableHeader className="bg-background/30">
+              <TableHeader className="bg-background/90 backdrop-blur-sm sticky top-0 z-10">
               <TableRow className="border-border hover:bg-transparent">
                 <TableHead className="text-muted-foreground font-medium">Report ID</TableHead>
                 <TableHead className="text-muted-foreground font-medium">Vessel / IMO</TableHead>

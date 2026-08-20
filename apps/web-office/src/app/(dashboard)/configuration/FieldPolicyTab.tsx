@@ -400,7 +400,7 @@ export function FieldPolicyTab() {
                     else next.add(field.name);
                     return next;
                   })}
-                  className={`text-[10px] px-1.5 py-0.5 rounded-full cursor-pointer whitespace-nowrap ${
+                  className={`text-xs px-1.5 py-0.5 rounded-full cursor-pointer whitespace-nowrap ${
                     reviewed.has(field.name)
                       ? "bg-emerald-500/10 text-emerald-400"
                       : "bg-amber-500/10 text-amber-400"
@@ -744,7 +744,7 @@ export function FieldPolicyTab() {
                                 <tr key={entry.key}>
                                   <td
                                     colSpan={columns.length}
-                                    className="h-[57px] px-2 align-middle bg-muted/30 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
+                                    className="h-[57px] px-2 align-middle bg-muted/30 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
                                   >
                                     {entry.section}
                                   </td>

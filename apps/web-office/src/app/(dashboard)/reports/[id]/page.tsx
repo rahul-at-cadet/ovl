@@ -106,7 +106,7 @@ export default function ReportDetailPage() {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold tracking-tight text-foreground">{report.type}</h1>
-              <Badge variant="outline" className={`${STATUS_CLASS[report.status] ?? 'bg-orange-500/10 text-orange-400 border-orange-500/20'} uppercase tracking-widest text-[10px]`}>
+              <Badge variant="outline" className={`${STATUS_CLASS[report.status] ?? 'bg-orange-500/10 text-orange-400 border-orange-500/20'} uppercase tracking-widest text-xs`}>
                 {STATUS_LABEL[report.status] ?? report.status.replace('_', ' ')}
               </Badge>
             </div>
@@ -263,7 +263,7 @@ export default function ReportDetailPage() {
                   <div className={`px-4 py-2 rounded-xl max-w-[80%] ${msg.direction === 'office' ? 'bg-indigo-600 text-white' : 'bg-muted text-foreground'}`}>
                     <p className="text-sm">{msg.body}</p>
                   </div>
-                  <span className="text-[10px] text-muted-foreground mt-1">{msg.sender} • {new Date(msg.sentAt).toLocaleTimeString()}</span>
+                  <span className="text-xs text-muted-foreground mt-1">{msg.sender} • {new Date(msg.sentAt).toLocaleTimeString()}</span>
                 </div>
               ))
             ) : (

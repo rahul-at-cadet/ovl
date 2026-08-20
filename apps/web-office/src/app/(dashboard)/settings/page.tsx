@@ -188,7 +188,7 @@ export default function SettingsPage() {
                             />
                           </div>
                         </div>
-                        <p className="text-[11px] text-muted-foreground mt-2">Created: {new Date(key.createdAt).toLocaleString()}</p>
+                        <p className="text-xs text-muted-foreground mt-2">Created: {new Date(key.createdAt).toLocaleString()}</p>
                       </div>
                     ))
                   ) : (

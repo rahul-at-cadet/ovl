@@ -203,7 +203,7 @@ export function AppShell({ children }: AppShellProps) {
                   <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-foreground h-8 w-8">
                     <Bell className="w-4 h-4" />
                     {unreadCount > 0 && (
-                      <span className="absolute top-1 right-1 min-w-[14px] h-[14px] px-[3px] rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center leading-none">
+                      <span className="absolute top-1 right-1 min-w-[14px] h-[14px] px-[3px] rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center leading-none">
                         {unreadCount > 9 ? '9+' : unreadCount}
                       </span>
                     )}
