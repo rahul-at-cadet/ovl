@@ -64,7 +64,7 @@ export function AppShell({ children }: AppShellProps) {
 
       {/* Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex flex-col bg-background/80 backdrop-blur-xl border-r border-border/60 shadow-2xl transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)]
+        className={`fixed inset-y-0 left-0 z-50 flex flex-col bg-background/80 backdrop-blur-xl border-r border-border/60 shadow-sm transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)]
           md:relative md:translate-x-0 ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
           ${isSidebarOpen ? 'w-[260px]' : 'md:w-[80px] w-[260px]'}`}
       >
