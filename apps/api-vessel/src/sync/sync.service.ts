@@ -133,6 +133,40 @@ export class SyncService {
     return appliedIds;
   }
 
+  /**
+   * Chat's pull-down half: inserts office-authored (shore_to_ship)
+   * messages pulled this cycle. ON CONFLICT DO NOTHING on id makes a
+   * re-pull idempotent — the cursor advance below is the normal path,
+   * but a crash between insert and cursor-save must not duplicate rows
+   * on retry.
+   *
+   * sentAt is normalized to the same new Date().toISOString() format
+   * the vessel's own local writes use (reports.service.ts's
+   * sendChatMessage) — SQLite has no real datetime type, so
+   * ListChatMessages' ORDER BY sentAt is a plain string comparison.
+   * Postgres's timestamptz serializes as "2026-08-20 06:43:22.089+00"
+   * (space before the time), which sorts *before* any ISO
+   * "T"-separated string lexicographically regardless of actual time —
+   * without this normalization, every office-authored message would
+   * render above strictly-earlier vessel messages in the chat thread.
+   */
+  private async applyChatMessages(messages: any[]): Promise<string | null> {
+    let maxSeq: bigint | null = null;
+    for (const m of messages) {
+      await this.db.insert(schema.chatMessages).values({
+        id: m.id,
+        reportId: m.reportId,
+        sender: m.sender,
+        body: m.body,
+        sentAt: new Date(m.sentAt).toISOString(),
+        direction: m.direction,
+      }).onConflictDoNothing();
+      const seq = BigInt(m.seq);
+      if (maxSeq === null || seq > maxSeq) maxSeq = seq;
+    }
+    return maxSeq === null ? null : maxSeq.toString();
+  }
+
   private async pullConfiguration() {
     try {
       this.logger.log('Requesting downstream config sync from shore...');
@@ -150,8 +184,10 @@ export class SyncService {
       const pendingAcksRow = (await this.db.select().from(schema.configStore).where(eq(schema.configStore.key, 'pending_user_command_acks')))[0];
       const appliedUserCommandIds: string[] = pendingAcksRow ? JSON.parse(pendingAcksRow.value) : [];
       const users = await this.authService.listRosterSummary();
+      const chatCursorRow = (await this.db.select().from(schema.configStore).where(eq(schema.configStore.key, 'chat_seq_cursor')))[0];
+      const lastChatSeq = chatCursorRow?.value;
 
-      const response = await this.trpc.client.sync.pullConfig.query({ vesselId, users, appliedUserCommandIds });
+      const response = await this.trpc.client.sync.pullConfig.query({ vesselId, users, appliedUserCommandIds, lastChatSeq });
 
       if (appliedUserCommandIds.length > 0) {
         await this.db.delete(schema.configStore).where(eq(schema.configStore.key, 'pending_user_command_acks'));
@@ -167,6 +203,20 @@ export class SyncService {
             target: schema.configStore.key,
             set: { value: JSON.stringify(newlyApplied), updatedAt: new Date().toISOString() },
           });
+      }
+
+      if (response.chatMessages && response.chatMessages.length > 0) {
+        this.logger.log(`Received ${response.chatMessages.length} chat message(s) from shore.`);
+        const newMaxSeq = await this.applyChatMessages(response.chatMessages);
+        if (newMaxSeq) {
+          await this.db
+            .insert(schema.configStore)
+            .values({ key: 'chat_seq_cursor', value: newMaxSeq, updatedAt: new Date().toISOString() })
+            .onConflictDoUpdate({
+              target: schema.configStore.key,
+              set: { value: newMaxSeq, updatedAt: new Date().toISOString() },
+            });
+        }
       }
 
       if (response.bundle) {

@@ -3,9 +3,10 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, CheckCircle2, Clock, FileText, User, Ship } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Clock, FileText, User, Ship, MessageSquare, Send } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useState } from 'react';
 
 import { trpc } from '@/lib/trpc';
 
@@ -27,6 +28,19 @@ export default function ReportDetailPage() {
   const markReviewed = trpc.reports.markReviewed.useMutation({
     onSuccess: () => utils.reports.get.invalidate({ reportId: id }),
   });
+
+  const { data: chatMessages, isLoading: chatLoading } = trpc.reports.getChat.useQuery({ reportId: id }, { enabled: !!report });
+  const [chatInput, setChatInput] = useState('');
+  const chatMutation = trpc.reports.sendChatMessage.useMutation({
+    onSuccess: () => {
+      setChatInput('');
+      utils.reports.getChat.invalidate({ reportId: id });
+    },
+  });
+  const sendChat = () => {
+    if (!chatInput.trim() || chatMutation.isPending) return;
+    chatMutation.mutate({ reportId: id, body: chatInput });
+  };
 
   if (isLoading) {
     return <div className="p-8 text-center text-muted-foreground">Loading report details...</div>;
@@ -137,6 +151,58 @@ export default function ReportDetailPage() {
           </Card>
         </div>
       </div>
+
+      <Card className="bg-card/50 border-border h-[420px] flex flex-col">
+        <CardHeader className="border-b border-border pb-4 shrink-0">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <MessageSquare className="w-4 h-4 text-muted-foreground" />
+            Vessel Chat
+          </CardTitle>
+          <CardDescription>Text-only, both directions — same wall the vessel sees under &quot;Shore Chat&quot;.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex-1 flex flex-col pt-4 min-h-0">
+          <div className="flex-1 overflow-y-auto space-y-4 mb-4">
+            {chatLoading ? (
+              <div className="text-center text-muted-foreground mt-10 text-sm">Loading messages...</div>
+            ) : chatMessages?.length ? (
+              chatMessages.map((msg: any) => (
+                <div key={msg.id} className={`flex flex-col ${msg.direction === 'office' ? 'items-end' : 'items-start'}`}>
+                  <div className={`px-4 py-2 rounded-xl max-w-[80%] ${msg.direction === 'office' ? 'bg-indigo-600 text-white' : 'bg-muted text-foreground'}`}>
+                    <p className="text-sm">{msg.body}</p>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground mt-1">{msg.sender} • {new Date(msg.sentAt).toLocaleTimeString()}</span>
+                </div>
+              ))
+            ) : (
+              <div className="text-center text-muted-foreground mt-10">
+                <MessageSquare className="w-8 h-8 mx-auto mb-3 opacity-50" />
+                <p className="text-sm">No messages yet.</p>
+                <p className="text-xs mt-1">Start a conversation with the vessel.</p>
+              </div>
+            )}
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <input
+              type="text"
+              placeholder="Type a message..."
+              className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') sendChat();
+              }}
+            />
+            <Button
+              onClick={sendChat}
+              disabled={!chatInput.trim() || chatMutation.isPending}
+              size="sm"
+              className="bg-indigo-600 hover:bg-indigo-500"
+            >
+              <Send className="w-4 h-4" />
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

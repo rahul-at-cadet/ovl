@@ -9,6 +9,13 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { eq, and } from 'drizzle-orm';
 import * as schema from '@ovl/vessel-database';
 import { randomUUID } from 'crypto';
+import { TRPCError } from '@trpc/server';
+
+// Architecture 12.3: "text-only, size-capped" — enforced on every write
+// path on both sides (mirrors pkg/domain.MaxChatBodyBytes and the
+// matching constant in api-office's trpc.router.ts), so the cap can't
+// drift between the two send paths.
+const MAX_CHAT_BODY_BYTES = 4096;
 
 export type CreateReportDto = {
   schemaName: string;
@@ -222,6 +229,9 @@ export class ReportsService {
   }
 
   async sendChatMessage(reportId: string, body: string, username: string) {
+    if (Buffer.byteLength(body, 'utf8') > MAX_CHAT_BODY_BYTES) {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: `Chat message body exceeds the ${MAX_CHAT_BODY_BYTES} byte limit.` });
+    }
     const messageId = randomUUID();
     const now = new Date().toISOString();
     

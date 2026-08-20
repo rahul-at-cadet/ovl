@@ -4,7 +4,7 @@ import { Type, Static } from '@sinclair/typebox';
 import { TypeCompiler } from '@sinclair/typebox/compiler';
 import { DATABASE_CONNECTION } from '../database/database.module';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { eq, isNull, desc, sql, and } from 'drizzle-orm';
+import { eq, isNull, desc, sql, and, gt } from 'drizzle-orm';
 import * as crypto from 'crypto';
 import * as schema from '@ovl/database';
 
@@ -83,8 +83,25 @@ const PullConfigInputSchema = Type.Object({
     updatedAt: Type.String(),
   }))),
   appliedUserCommandIds: Type.Optional(Type.Array(Type.String())),
+  // Chat's pull-down cursor (office-authored messages only — the
+  // vessel's own messages already reach office via pushEvents'
+  // chat_sent handling). "0" pulls everything; chat_messages.seq is a
+  // Postgres bigserial, so this arrives as a string (see the userCommand
+  // seq BigInt-serialization comment on VesselUsersService).
+  lastChatSeq: Type.Optional(Type.String()),
 });
 const PullConfigInputCompiler = TypeCompiler.Compile(PullConfigInputSchema);
+
+const GetChatSchema = Type.Object({ reportId: Type.String() });
+const GetChatCompiler = TypeCompiler.Compile(GetChatSchema);
+
+const SendChatMessageSchema = Type.Object({ reportId: Type.String(), body: Type.String() });
+const SendChatMessageCompiler = TypeCompiler.Compile(SendChatMessageSchema);
+
+// Architecture 12.3: "text-only, size-capped" — enforced on every write
+// path on both sides (mirrors pkg/domain.MaxChatBodyBytes), so the cap
+// can't drift between office's and the vessel's send paths.
+const MAX_CHAT_BODY_BYTES = 4096;
 
 const VesselIdInputSchema = Type.Object({
   vesselId: Type.String(),
@@ -423,6 +440,30 @@ export class TrpcRouter {
               } catch (err: any) {
                 console.error('Failed to parse or save report event:', err);
               }
+            } else if (event.eventType === 'chat_sent') {
+              try {
+                const payload = JSON.parse(event.payload);
+                // chat_messages.direction is constrained to 'vessel'/'office'
+                // (this table's schema mirrors the original Go domain's
+                // ChatDirection values) — the vessel's own local SQLite
+                // convention is 'ship_to_shore'/'shore_to_ship' (already
+                // baked into its schema and UI), so every message is
+                // translated at this sync boundary rather than picking one
+                // convention and forcing it on both sides.
+                await this.db.insert(schema.chatMessages).values({
+                  id: payload.id,
+                  vesselId: input.vesselId,
+                  reportId: payload.reportId,
+                  sender: payload.sender,
+                  body: payload.body,
+                  sentAt: payload.sentAt || new Date().toISOString(),
+                  direction: 'vessel',
+                }).onConflictDoNothing();
+              } catch (err: any) {
+                console.error('Failed to parse or save chat message:', err);
+              }
+            } else {
+              console.warn(`Unrecognized outbox eventType "${event.eventType}" from vessel ${input.vesselId} — dropped.`);
             }
           }
           
@@ -465,10 +506,32 @@ export class TrpcRouter {
             input.appliedUserCommandIds,
           );
 
+          // Chat's pull-down half: office-authored messages this vessel
+          // hasn't seen yet, by seq cursor. The vessel's own messages
+          // already arrived via pushEvents' chat_sent handling — this
+          // only needs to carry the other direction back down. Storage
+          // uses 'office'/'vessel' (this table's CHECK constraint); the
+          // vessel's local convention is 'ship_to_shore'/'shore_to_ship',
+          // so direction is translated here at the sync boundary.
+          const lastChatSeq = input.lastChatSeq ? BigInt(input.lastChatSeq) : BigInt(0);
+          const newChatRows = await this.db
+            .select()
+            .from(schema.chatMessages)
+            .where(
+              and(
+                eq(schema.chatMessages.vesselId, input.vesselId),
+                eq(schema.chatMessages.direction, 'office'),
+                gt(schema.chatMessages.seq, lastChatSeq),
+              ),
+            )
+            .orderBy(schema.chatMessages.seq);
+          const chatMessages = newChatRows.map((m) => ({ ...m, seq: m.seq.toString(), direction: 'shore_to_ship' }));
+
           return {
             bundle,
             syncedAt,
             userCommands,
+            chatMessages,
           };
         }),
     }),
@@ -804,6 +867,58 @@ export class TrpcRouter {
             });
 
           return { reviewed: true, reviewedBy };
+        }),
+      // Architecture 12.3/design handoff B4's per-report chat wall —
+      // mirrors the vessel side's reports.getChat/sendChatMessage
+      // (apps/api-vessel/src/reports/reports.service.ts) so both apps
+      // expose the same shape. Chat is viewable/sendable by any
+      // authenticated office user, same as the original (not
+      // Reviewer-gated the way remarks are).
+      getChat: protectedProcedure
+        .input((val: unknown) => {
+          if (!GetChatCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof GetChatSchema>;
+        })
+        .query(async ({ input }) => {
+          const rows = await this.db
+            .select()
+            .from(schema.chatMessages)
+            .where(eq(schema.chatMessages.reportId, input.reportId))
+            .orderBy(schema.chatMessages.sentAt);
+          return rows.map((m) => ({ ...m, seq: m.seq.toString() }));
+        }),
+      sendChatMessage: protectedProcedure
+        .input((val: unknown) => {
+          if (!SendChatMessageCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof SendChatMessageSchema>;
+        })
+        .mutation(async ({ input, ctx }) => {
+          if (Buffer.byteLength(input.body, 'utf8') > MAX_CHAT_BODY_BYTES) {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: `Chat message body exceeds the ${MAX_CHAT_BODY_BYTES} byte limit.` });
+          }
+          const latest = await this.db
+            .select({ vesselId: schema.reportVersions.vesselId })
+            .from(schema.reportVersions)
+            .where(eq(schema.reportVersions.reportId, input.reportId))
+            .limit(1);
+          if (!latest.length) throw new TRPCError({ code: 'NOT_FOUND', message: 'Report not found' });
+
+          const localUser = await this.supertokensService.getLocalUser(ctx.session.getUserId());
+          const sender = localUser?.username || 'office';
+
+          const rows = await this.db
+            .insert(schema.chatMessages)
+            .values({
+              id: crypto.randomUUID(),
+              vesselId: latest[0].vesselId,
+              reportId: input.reportId,
+              sender,
+              body: input.body,
+              sentAt: new Date().toISOString(),
+              direction: 'office',
+            })
+            .returning();
+          return { ...rows[0], seq: rows[0].seq.toString() };
         }),
     }),
     apiKeys: router({
