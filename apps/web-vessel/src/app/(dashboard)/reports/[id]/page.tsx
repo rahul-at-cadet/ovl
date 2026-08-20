@@ -24,8 +24,13 @@ export default function ReportDetailPage() {
   const { data: remarks, isLoading: remarksLoading } = trpc.reports.getRemarks.useQuery({ reportId: id }, { enabled: !!report });
   const chatMutation = trpc.reports.sendChatMessage.useMutation({
     onSuccess: () => {
-      // Refresh chat messages
-      window.location.reload();
+      // A full window.location.reload() here used to hard-reload the
+      // whole page on every message sent — losing the selected tab
+      // (Tabs below is uncontrolled, defaultValue="report", so a real
+      // reload always snapped back to it), scroll position, and any
+      // other in-progress UI state. Invalidating just the chat query
+      // refreshes the message list via a normal re-render instead.
+      utils.reports.getChat.invalidate({ reportId: id });
     }
   });
 
