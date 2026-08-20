@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { AlertCircle, CheckCircle2, Save, Send, Loader2, Cpu } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Save, Send, Loader2, Cpu, RotateCcw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { trpc } from '@/lib/trpc';
 import { useRouter } from 'next/navigation';
@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { AttachmentsSection } from './AttachmentsSection';
 import { useToastManager } from '@/components/ui/toast';
 import { effectiveState, type SchemaField } from '@/lib/config/fieldPolicyLogic';
+import { computeDerivedValues, computeTimeSincePreviousReport, DERIVED_FIELDS } from '@/lib/derivedFields';
 
 interface ReportFormProps {
   reportId: string;
@@ -86,6 +87,25 @@ export function ReportForm({ reportId }: ReportFormProps) {
   const saveSectionMutation = trpc.reports.saveSection.useMutation();
   const trpcUtils = trpc.useUtils();
 
+  // Derived fields (compass sector, Beaufort force, time since previous
+  // report) auto-fill from a sibling field or from report history —
+  // see lib/derivedFields.ts's own doc comment on scope. A derived
+  // field the officer has manually typed into stops auto-updating
+  // until they explicitly restore it, same as any other computed
+  // field elsewhere in this app.
+  const [overriddenFields, setOverriddenFields] = useState<Set<string>>(new Set());
+  const { data: sameSchemaReports } = trpc.reports.listReports.useQuery(
+    { schemaName: report?.schemaName || '' },
+    { enabled: !!report?.schemaName }
+  );
+  const lastReportEventTime = useMemo(() => {
+    if (!sameSchemaReports || !report) return undefined;
+    const submitted = sameSchemaReports
+      .filter((r) => r.state === 'submitted' && r.reportId !== report.reportId && r.eventTime < report.eventTime)
+      .sort((a, b) => (a.eventTime < b.eventTime ? 1 : -1));
+    return submitted[0]?.eventTime;
+  }, [sameSchemaReports, report]);
+
   const defaultValues = useMemo(() => {
     if (!schema || !report) return undefined;
 
@@ -116,6 +136,41 @@ export function ReportForm({ reportId }: ReportFormProps) {
   });
 
   const formValues = useWatch({ control });
+
+  const derived = useMemo(() => {
+    const combined = computeDerivedValues(formValues);
+    const tsp = computeTimeSincePreviousReport(report?.eventTime, lastReportEventTime);
+    if (tsp) combined['Time_Since_Previous_Report'] = tsp;
+    return combined;
+  }, [formValues, report, lastReportEventTime]);
+  const liveComputedFields = useMemo(
+    () => [...Object.keys(DERIVED_FIELDS), 'Time_Since_Previous_Report'],
+    [],
+  );
+  useEffect(() => {
+    for (const name of liveComputedFields) {
+      if (overriddenFields.has(name)) continue;
+      const result = derived[name];
+      if (result && formValues[name] !== result.value) {
+        setValue(name, result.value, { shouldDirty: true });
+      }
+    }
+    // formValues is deliberately excluded — this effect writes into it,
+    // and derived/liveComputedFields already change whenever a relevant
+    // source field does.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [derived, liveComputedFields, overriddenFields, setValue]);
+
+  function handleRestoreComputed(name: string) {
+    setOverriddenFields((prev) => {
+      if (!prev.has(name)) return prev;
+      const next = new Set(prev);
+      next.delete(name);
+      return next;
+    });
+    const result = derived[name];
+    if (result) setValue(name, result.value, { shouldDirty: true, shouldValidate: true });
+  }
 
   // Auto-save debounced effect
   useEffect(() => {
@@ -315,6 +370,20 @@ export function ReportForm({ reportId }: ReportFormProps) {
                           {field.description && (
                             <p className="text-xs text-muted-foreground">{field.description}</p>
                           )}
+                          {derived[field.name] && (
+                            <div className="flex items-center gap-2 text-xs text-primary/80">
+                              <span>{derived[field.name].formula}</span>
+                              {overriddenFields.has(field.name) && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRestoreComputed(field.name)}
+                                  className="inline-flex items-center gap-1 text-muted-foreground hover:text-primary underline underline-offset-2"
+                                >
+                                  <RotateCcw className="w-3 h-3" /> Restore computed
+                                </button>
+                              )}
+                            </div>
+                          )}
                           <Controller
                             name={field.name}
                             control={control}
@@ -377,13 +446,19 @@ export function ReportForm({ reportId }: ReportFormProps) {
                                 );
                               }
 
+                              const isLiveComputed = liveComputedFields.includes(field.name);
                               return (
                                 <Input
                                   name={controllerField.name}
                                   onBlur={controllerField.onBlur}
                                   ref={controllerField.ref}
                                   value={controllerField.value ?? ''}
-                                  onChange={(e) => controllerField.onChange(e.target.value)}
+                                  onChange={(e) => {
+                                    if (isLiveComputed) {
+                                      setOverriddenFields((prev) => (prev.has(field.name) ? prev : new Set(prev).add(field.name)));
+                                    }
+                                    controllerField.onChange(e.target.value);
+                                  }}
                                   type={field.type === 'wholeNumber' || field.type === 'decimal' ? 'number' : 'text'}
                                   className="bg-background/50 border-border focus-visible:ring-primary text-foreground"
                                 />
