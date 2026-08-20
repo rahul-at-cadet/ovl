@@ -3,14 +3,27 @@
 import { ReactNode, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, FileText, Settings, Users, Ship, Bell, Menu, LogOut, Search, Loader2, X, User } from 'lucide-react';
+import { LayoutDashboard, FileText, Settings, Users, Ship, Bell, Menu, LogOut, Search, Loader2, X, User, AlertTriangle, MessageSquare, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import { trpc } from '@/lib/trpc';
 
 interface AppShellProps {
   children: ReactNode;
+}
+
+// Turns "log-abstract.json" into "Log Abstract" for display — this
+// bell is the only place in the vessel UI that needs a human-readable
+// schema name, so a small inline formatter here beats a shared util
+// with exactly one caller.
+function schemaDisplayName(schemaName: string): string {
+  return schemaName
+    .replace(/\.json$/, '')
+    .split('-')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
 }
 
 export function AppShell({ children }: AppShellProps) {
@@ -19,6 +32,10 @@ export function AppShell({ children }: AppShellProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const { data: notifications = [] } = trpc.notifications.list.useQuery(undefined, {
+    refetchInterval: 60_000,
+  });
 
   // Close mobile sidebar on route change
   useEffect(() => {
@@ -150,21 +167,48 @@ export function AppShell({ children }: AppShellProps) {
                 render={
                   <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-foreground h-9 w-9 rounded-xl hover:bg-muted/50 transition-colors">
                     <Bell className="w-4 h-4" />
-                    <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-primary ring-2 ring-background shadow-[0_0_8px_rgba(47,80,108,0.8)]" />
+                    {notifications.length > 0 && (
+                      <span className="absolute top-1.5 right-1.5 min-w-[16px] h-[16px] px-[3px] rounded-full bg-primary ring-2 ring-background shadow-[0_0_8px_rgba(47,80,108,0.8)] text-[9px] font-bold text-primary-foreground flex items-center justify-center leading-none">
+                        {notifications.length > 9 ? '9+' : notifications.length}
+                      </span>
+                    )}
                   </Button>
                 }
               />
-              <PopoverContent align="end" className="w-80 bg-card/95 backdrop-blur-xl border-border shadow-2xl rounded-2xl text-foreground p-0 overflow-hidden">
-                <div className="p-4 border-b border-border/50 bg-background/50">
+              <PopoverContent align="end" className="w-80 max-h-[420px] flex flex-col bg-card/95 backdrop-blur-xl border-border shadow-2xl rounded-2xl text-foreground p-0 overflow-hidden">
+                <div className="p-4 border-b border-border/50 bg-background/50 shrink-0">
                   <h4 className="font-semibold text-sm tracking-wide text-foreground">Notifications</h4>
                 </div>
-                <div className="p-6 flex flex-col items-center justify-center text-center space-y-2">
-                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mb-1">
-                    <Bell className="w-5 h-5 text-primary" />
+                {notifications.length === 0 ? (
+                  <div className="p-6 flex flex-col items-center justify-center text-center space-y-2">
+                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mb-1">
+                      <Bell className="w-5 h-5 text-primary" />
+                    </div>
+                    <p className="text-sm font-medium text-foreground">You're all caught up</p>
+                    <p className="text-xs text-muted-foreground">No new alerts from shore.</p>
                   </div>
-                  <p className="text-sm font-medium text-foreground">You're all caught up</p>
-                  <p className="text-xs text-muted-foreground">No new alerts from shore.</p>
-                </div>
+                ) : (
+                  <div className="flex-1 overflow-y-auto">
+                    {notifications.map((n) => {
+                      const Icon = n.category === 'invalidated' ? AlertTriangle : n.category === 'overdue' ? Clock : MessageSquare;
+                      const color = n.category === 'invalidated' ? 'text-red-400' : n.category === 'overdue' ? 'text-red-400' : 'text-amber-400';
+                      return (
+                        <button
+                          key={n.id}
+                          onClick={() => router.push(`/reports/${n.reportId}`)}
+                          className="w-full flex gap-3 items-start px-4 py-3 border-b border-border/50 last:border-0 hover:bg-muted/40 transition-colors text-left"
+                        >
+                          <Icon className={`w-4 h-4 shrink-0 mt-0.5 ${color}`} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-foreground truncate">{schemaDisplayName(n.schemaName)} · {n.eventType}</p>
+                            <p className="text-xs text-muted-foreground truncate">{n.message}</p>
+                            <p className="text-xs text-muted-foreground mt-1">{new Date(n.at).toLocaleString()}</p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </PopoverContent>
             </Popover>
 

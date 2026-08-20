@@ -6,6 +6,7 @@ import { ReportsService } from '../reports/reports.service';
 import { SchemaRegistryService } from '../reports/schema-registry.service';
 import { SensorsService } from '../sensors/sensors.service';
 import { VmsService } from '../sensors/vms.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { DATABASE_CONNECTION } from '../database/database.module';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { eq } from 'drizzle-orm';
@@ -148,6 +149,7 @@ export class TrpcRouter {
     private readonly vmsService: VmsService,
     private readonly syncService: SyncService,
     private readonly authService: AuthService,
+    private readonly notificationsService: NotificationsService,
     @Inject(DATABASE_CONNECTION)
     private readonly db: BetterSQLite3Database<typeof schema>,
   ) {}
@@ -500,6 +502,11 @@ export class TrpcRouter {
       }),
       getActiveVoyage: publicProcedure.query(async () => {
         return this.vmsService.getActiveVoyage();
+      }),
+    }),
+    notifications: router({
+      list: publicProcedure.query(async () => {
+        return this.notificationsService.list();
       }),
     }),
     settings: router({

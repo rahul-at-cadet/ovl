@@ -4,7 +4,7 @@ import { ReactNode, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import Session, { signOut } from 'supertokens-auth-react/recipe/session';
-import { LayoutDashboard, Database, Ship, Users, Settings, Bell, Menu, LogOut, Search, Sliders } from 'lucide-react';
+import { LayoutDashboard, Database, Ship, Users, Settings, Bell, Menu, LogOut, Search, Sliders, AlertTriangle, MessageSquare, CloudDownload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -51,9 +51,32 @@ export function AppShell({ children }: AppShellProps) {
     router.push('/login');
   };
 
+  const utils = trpc.useUtils();
   const { data: notifications = [], isLoading } = trpc.notifications.list.useQuery(undefined, {
     enabled: sessionChecked,
+    refetchInterval: 60_000,
   });
+  const markReadMutation = trpc.notifications.markRead.useMutation({
+    onSuccess: () => utils.notifications.list.invalidate(),
+  });
+  const unreadCount = notifications.filter((n) => !n.read).length;
+
+  function handleNotificationClick(n: (typeof notifications)[number]) {
+    if (!n.read) markReadMutation.mutate({ ids: [n.id] });
+    if (n.link?.section === 'reports' && n.link.reportId) {
+      router.push(`/reports/${n.link.reportId}`);
+    } else if (n.link?.section === 'vessels') {
+      router.push('/vessels');
+    } else if (n.link?.section === 'reports') {
+      router.push('/reports');
+    }
+  }
+
+  function handleMarkAllRead() {
+    const unreadIds = notifications.filter((n) => !n.read).map((n) => n.id);
+    if (unreadIds.length === 0) return;
+    markReadMutation.mutate({ ids: unreadIds });
+  }
 
   const navItems = [
     { href: '/', label: 'Fleet Overview', icon: LayoutDashboard },
@@ -179,31 +202,50 @@ export function AppShell({ children }: AppShellProps) {
                 render={
                   <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-foreground h-8 w-8">
                     <Bell className="w-4 h-4" />
-                    <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-zinc-300" />
+                    {unreadCount > 0 && (
+                      <span className="absolute top-1 right-1 min-w-[14px] h-[14px] px-[3px] rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center leading-none">
+                        {unreadCount > 9 ? '9+' : unreadCount}
+                      </span>
+                    )}
                   </Button>
                 }
               />
-              <PopoverContent align="end" className="w-80 bg-card border-border text-foreground p-0">
-                <div className="p-4 border-b border-border flex justify-between items-center">
+              <PopoverContent align="end" className="w-96 max-h-[480px] flex flex-col bg-card border-border text-foreground p-0 overflow-hidden">
+                <div className="p-4 border-b border-border flex justify-between items-center shrink-0">
                   <h4 className="font-semibold text-sm">Fleet Alerts</h4>
-                  <span className="text-xs text-indigo-400 cursor-pointer hover:underline">Mark all read</span>
+                  <button
+                    onClick={handleMarkAllRead}
+                    disabled={unreadCount === 0}
+                    className={`text-xs ${unreadCount === 0 ? 'text-muted-foreground cursor-default' : 'text-primary hover:underline cursor-pointer'}`}
+                  >
+                    Mark all read
+                  </button>
                 </div>
-                <div className="p-4 space-y-3">
+                <div className="flex-1 overflow-y-auto">
                   {isLoading ? (
-                    <p className="text-xs text-muted-foreground text-center">Loading alerts...</p>
+                    <p className="text-xs text-muted-foreground text-center py-8">Loading alerts...</p>
                   ) : notifications.length > 0 ? (
-                    notifications.map((notification: any) => (
-                      <div key={notification.id} className="flex gap-3 items-start border-b border-border pb-3 last:border-0 last:pb-0">
-                        <div className="w-2 h-2 rounded-full bg-indigo-500 mt-1.5 shrink-0" />
-                        <div>
-                          <p className="text-sm font-medium">{notification.title}</p>
-                          <p className="text-xs text-muted-foreground">{notification.description}</p>
-                          <p className="text-xs text-muted-foreground mt-1">{notification.time}</p>
-                        </div>
-                      </div>
-                    ))
+                    notifications.map((notification) => {
+                      const Icon = notification.category === 'overdue' ? AlertTriangle : notification.category === 'remark' ? MessageSquare : CloudDownload;
+                      const color = notification.category === 'overdue' ? 'text-red-400' : notification.category === 'remark' ? 'text-amber-400' : 'text-emerald-400';
+                      return (
+                        <button
+                          key={notification.id}
+                          onClick={() => handleNotificationClick(notification)}
+                          className="w-full flex gap-3 items-start px-4 py-3 border-b border-border last:border-0 hover:bg-muted/40 transition-colors text-left"
+                        >
+                          <Icon className={`w-4 h-4 shrink-0 mt-0.5 ${color}`} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{notification.title}</p>
+                            <p className="text-xs text-muted-foreground truncate">{notification.message}</p>
+                            <p className="text-xs text-muted-foreground mt-1">{new Date(notification.at).toLocaleString()}</p>
+                          </div>
+                          {!notification.read && <span className="w-2 h-2 rounded-full bg-primary shrink-0 mt-1.5" />}
+                        </button>
+                      );
+                    })
                   ) : (
-                    <p className="text-xs text-muted-foreground text-center">No new alerts</p>
+                    <p className="text-xs text-muted-foreground text-center py-8">No new alerts</p>
                   )}
                 </div>
               </PopoverContent>

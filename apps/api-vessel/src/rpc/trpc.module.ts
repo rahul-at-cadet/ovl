@@ -5,10 +5,11 @@ import { ReportsModule } from '../reports/reports.module';
 import { SensorsModule } from '../sensors/sensors.module';
 import { SyncModule } from '../sync/sync.module';
 import { AuthModule } from '../auth/auth.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Global()
 @Module({
-  imports: [ReportsModule, SensorsModule, SyncModule, AuthModule],
+  imports: [ReportsModule, SensorsModule, SyncModule, AuthModule, NotificationsModule],
   providers: [TrpcService, TrpcRouter],
   exports: [TrpcService, TrpcRouter],
 })

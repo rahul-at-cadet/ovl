@@ -18,6 +18,7 @@ import { Scope } from '../config/logic/scope';
 import { effectiveSeverities } from '../config/logic/compliance';
 import { continuityConfigFor, revalidate, type ContinuityReport, type Severity } from '../config/logic/continuity';
 import { SupertokensService } from '../auth/supertokens.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import Session from 'supertokens-node/recipe/session';
 import { TRPCError } from '@trpc/server';
 
@@ -298,6 +299,11 @@ const EnrollEdgeSchema = Type.Object({
 });
 const EnrollEdgeCompiler = TypeCompiler.Compile(EnrollEdgeSchema);
 
+const MarkNotificationsReadSchema = Type.Object({
+  ids: Type.Array(Type.String()),
+});
+const MarkNotificationsReadCompiler = TypeCompiler.Compile(MarkNotificationsReadSchema);
+
 export const publicProcedure = t.procedure;
 export const router = t.router;
 
@@ -363,6 +369,7 @@ export class TrpcRouter {
     private readonly configBundleService: ConfigBundleService,
     private readonly vesselUsersService: VesselUsersService,
     private readonly supertokensService: SupertokensService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   /**
@@ -1369,26 +1376,27 @@ export class TrpcRouter {
       })
     }),
     notifications: router({
-      list: protectedProcedure.query(async () => {
-        const reports = await this.db
-          .select({
-            id: schema.reportVersions.reportId,
-            type: schema.reportVersions.eventType,
-            date: schema.reportVersions.receivedAt,
-            vesselName: schema.vessels.name,
-          })
-          .from(schema.reportVersions)
-          .leftJoin(schema.vessels, eq(schema.reportVersions.vesselId, schema.vessels.id))
-          .orderBy(desc(schema.reportVersions.receivedAt))
-          .limit(5);
-
-        return reports.map(r => ({
-          id: r.id,
-          title: `New ${r.type}`,
-          description: `Vessel '${r.vesselName}' synced a new draft.`,
-          time: new Date(r.date).toLocaleString(),
-        }));
-      })
+      // A read-only projection over overdue vessels, recent vessel chat
+      // replies, and recent report-landing activity — see
+      // NotificationsService's own doc comment for why there's no
+      // notifications table backing this. Each user's read-state is
+      // private to them (notification_read_state is keyed by user id).
+      list: protectedProcedure.query(async ({ ctx }) => {
+        const localUser = await this.supertokensService.getLocalUser(ctx.session.getUserId());
+        if (!localUser) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'No local user found' });
+        return this.notificationsService.list(localUser.id);
+      }),
+      markRead: protectedProcedure
+        .input((val: unknown) => {
+          if (!MarkNotificationsReadCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof MarkNotificationsReadSchema>;
+        })
+        .mutation(async ({ input, ctx }) => {
+          const localUser = await this.supertokensService.getLocalUser(ctx.session.getUserId());
+          if (!localUser) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'No local user found' });
+          const marked = await this.notificationsService.markRead(localUser.id, input.ids);
+          return { marked };
+        }),
     }),
     schemas: router({
       list: protectedProcedure.query(() => this.schemaVersionsService.list()),
