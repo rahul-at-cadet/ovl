@@ -20,7 +20,7 @@ export default function OfficeDashboardPage() {
   return (
     // Fixed to the viewport, not the page — same fix already applied to
     // Reports/Users: only the Live Sync Stream list scrolls internally.
-    <div className="h-[calc(100vh-140px)] flex flex-col gap-6 overflow-hidden">
+    <div className="h-[calc(100vh-136px)] lg:h-[calc(100vh-168px)] flex flex-col gap-6 overflow-hidden">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border pb-6 shrink-0">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Fleet Overview</h1>

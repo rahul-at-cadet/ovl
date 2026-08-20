@@ -41,7 +41,7 @@ export default function GlobalReportsPage() {
     // Fixed to the viewport, not the page — a ledger with hundreds of
     // fleet reports shouldn't require scrolling past the header/filters
     // just to see the table; only the table body scrolls internally.
-    <div className="h-[calc(100vh-140px)] flex flex-col space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-hidden">
+    <div className="h-[calc(100vh-136px)] lg:h-[calc(100vh-168px)] flex flex-col space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-hidden">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Global Reports Ledger</h1>
