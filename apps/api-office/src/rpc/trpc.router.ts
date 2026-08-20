@@ -219,6 +219,11 @@ const GetReportSchema = Type.Object({
 });
 const GetReportCompiler = TypeCompiler.Compile(GetReportSchema);
 
+const GetSchemaFieldsSchema = Type.Object({
+  schemaName: Type.String(),
+});
+const GetSchemaFieldsCompiler = TypeCompiler.Compile(GetSchemaFieldsSchema);
+
 const MarkReviewedSchema = Type.Object({
   reportId: Type.String(),
 });
@@ -1103,6 +1108,7 @@ export class TrpcRouter {
               vesselId: schema.reportVersions.vesselId,
               versionNo: schema.reportVersions.versionNo,
               type: schema.reportVersions.eventType,
+              schemaKind: schema.reportVersions.schemaKind,
               status: schema.reportVersions.state,
               date: schema.reportVersions.receivedAt,
               fields: schema.reportVersions.fields,
@@ -1177,6 +1183,7 @@ export class TrpcRouter {
             id: r.id,
             vesselId: r.vesselId,
             type: r.type,
+            schemaKind: r.schemaKind,
             vessel: r.vesselName || 'Unknown',
             imo: r.vesselImo || 'Unknown',
             status: r.status,
@@ -1538,6 +1545,17 @@ export class TrpcRouter {
     }),
     schemas: router({
       list: protectedProcedure.query(() => this.schemaVersionsService.list()),
+      // Field definitions (name/label/section) for the latest published
+      // version of a schema — drives the report detail screen's section
+      // grouping, ported from the original's own sections.ts/
+      // fieldGrouping.ts (see that comment on the reports/[id] page for
+      // the full rationale).
+      getFields: protectedProcedure
+        .input((val: unknown) => {
+          if (!GetSchemaFieldsCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof GetSchemaFieldsSchema>;
+        })
+        .query(({ input }) => this.schemaVersionsService.getLatestFields(input.schemaName)),
       preview: protectedProcedure
         .input((val: unknown) => {
           if (!PreviewSchemaUploadCompiler.Check(val)) throw new Error('Invalid input');

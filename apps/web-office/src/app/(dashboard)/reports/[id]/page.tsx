@@ -10,6 +10,7 @@ import { useState, useRef, useEffect } from 'react';
 
 import { trpc } from '@/lib/trpc';
 import { useCurrentUser } from '@/lib/useCurrentUser';
+import { sectionsInOrder, sectionLabel, type SchemaFieldLike } from '@/lib/sections';
 
 const STATUS_LABEL: Record<string, string> = {
   draft: 'Draft',
@@ -33,6 +34,17 @@ export default function ReportDetailPage() {
   const markReviewed = trpc.reports.markReviewed.useMutation({
     onSuccess: () => utils.reports.get.invalidate({ reportId: id }),
   });
+
+  // schemaKind carries the vessel-side ".json" suffix (e.g.
+  // "log-abstract.json"); schema_versions.schema_name doesn't.
+  const bareSchemaName = report?.schemaKind?.replace(/\.json$/, '');
+  const { data: schemaFieldsResult } = trpc.schemas.getFields.useQuery(
+    { schemaName: bareSchemaName || '' },
+    { enabled: !!bareSchemaName },
+  );
+  const schemaFieldsByName = new Map<string, SchemaFieldLike>(
+    (schemaFieldsResult?.fields ?? []).map((f: SchemaFieldLike) => [f.name, f]),
+  );
 
   const { data: chatMessages, isLoading: chatLoading } = trpc.reports.getChat.useQuery({ reportId: id }, { enabled: !!report });
   const [chatInput, setChatInput] = useState('');
@@ -206,13 +218,14 @@ export default function ReportDetailPage() {
                 </Button>
               )}
             </CardHeader>
-            <CardContent className="pt-6">
-              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-8">
-                {Object.entries(report.fields).map(([key, value]) => (
+            <CardContent className="pt-6 space-y-8">
+              {(() => {
+                const fields = report.fields as Record<string, any>;
+                const renderField = (key: string, label: string) => (
                   <div key={key} className="border-b border-border/50 pb-3">
                     <div className="flex items-start justify-between gap-2 mb-1">
                       <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                        {key.replace(/_/g, ' ')}
+                        {label}
                       </dt>
                       {isReviewer && (
                         <button
@@ -225,7 +238,7 @@ export default function ReportDetailPage() {
                       )}
                     </div>
                     <dd className="text-foreground font-medium">
-                      {value}
+                      {fields[key]}
                     </dd>
                     {key in pendingRemarks && (
                       <div className="mt-2 flex items-start gap-2">
@@ -246,8 +259,62 @@ export default function ReportDetailPage() {
                       </div>
                     )}
                   </div>
-                ))}
-              </dl>
+                );
+
+                // Groups the payload into the schema's own named sections
+                // (Basic/Voyage/Position/Times/...) instead of one flat,
+                // undifferentiated grid — a 40+ field schema used to read
+                // as a single indistinguishable list. Falls back to a
+                // flat list if the schema's field definitions haven't
+                // loaded (or the schema is unrecognized), rather than
+                // rendering nothing.
+                const knownFields = schemaFieldsResult?.fields ?? [];
+                const sectionOrder = sectionsInOrder(knownFields);
+                if (sectionOrder.length === 0) {
+                  return (
+                    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-8">
+                      {Object.keys(fields).map((key) => renderField(key, key.replace(/_/g, ' ')))}
+                    </dl>
+                  );
+                }
+
+                const matchedKeys = new Set(knownFields.map((f) => f.name));
+                const fieldsBySection = new Map<string, { key: string; label: string }[]>();
+                for (const f of knownFields) {
+                  if (!(f.name in fields)) continue;
+                  const arr = fieldsBySection.get(f.section) ?? [];
+                  arr.push({ key: f.name, label: f.label || f.name });
+                  fieldsBySection.set(f.section, arr);
+                }
+                const unmatched = Object.keys(fields).filter((k) => !matchedKeys.has(k));
+
+                return (
+                  <>
+                    {sectionOrder.map((section) => {
+                      const entries = fieldsBySection.get(section);
+                      if (!entries || entries.length === 0) return null;
+                      return (
+                        <div key={section}>
+                          <h3 className="text-xs font-semibold uppercase tracking-widest text-primary mb-4">
+                            {sectionLabel(section)}
+                          </h3>
+                          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-8">
+                            {entries.map(({ key, label }) => renderField(key, label))}
+                          </dl>
+                        </div>
+                      );
+                    })}
+                    {unmatched.length > 0 && (
+                      <div>
+                        <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-4">Other</h3>
+                        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-8">
+                          {unmatched.map((key) => renderField(key, key.replace(/_/g, ' ')))}
+                        </dl>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </CardContent>
           </Card>
         </div>
