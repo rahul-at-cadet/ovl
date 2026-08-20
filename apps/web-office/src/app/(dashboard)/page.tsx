@@ -8,13 +8,12 @@ import { trpc } from '@/lib/trpc';
 
 export default function OfficeDashboardPage() {
   const pingQuery = trpc.ping.useQuery({ vesselId: 'office-dashboard' });
-  const configQuery = trpc.sync.pullConfig.useQuery({ vesselId: 'office-dashboard' });
   const { data: dashboard, isLoading: isDashboardLoading } = trpc.dashboard.getOverview.useQuery();
 
   const kpis = [
     { label: 'Active Vessels', value: dashboard?.activeVessels ?? '...', icon: Ship, color: 'text-muted-foreground' },
     { label: 'Incoming Reports (24h)', value: dashboard?.incomingReports ?? '...', icon: Database, color: 'text-muted-foreground' },
-    { label: 'Sync Warnings', value: dashboard?.syncWarnings ?? (configQuery.isError ? '1' : '0'), icon: AlertCircle, color: (dashboard?.syncWarnings || configQuery.isError) ? 'text-red-400' : 'text-muted-foreground' },
+    { label: 'Sync Warnings', value: dashboard?.syncWarnings ?? '...', icon: AlertCircle, color: dashboard?.syncWarnings ? 'text-red-400' : 'text-muted-foreground' },
     { label: 'Network Uptime', value: dashboard ? `${dashboard.networkUptime}%` : '...', icon: Activity, color: pingQuery.isSuccess ? 'text-green-400' : 'text-muted-foreground' },
   ];
 
@@ -93,10 +92,15 @@ export default function OfficeDashboardPage() {
             <div className="space-y-2">
               <div className="flex justify-between text-xs">
                 <span className="text-muted-foreground">Database Sync</span>
-                <span className="text-foreground">{configQuery.isLoading ? 'Syncing...' : '100%'}</span>
+                <span className="text-foreground">
+                  {isDashboardLoading ? 'Syncing...' : `${dashboard?.syncHealthPercent ?? 100}%`}
+                </span>
               </div>
               <div className="h-1 bg-muted rounded-full overflow-hidden">
-                <div className={`h-full bg-zinc-300 ${configQuery.isLoading ? 'w-1/2 animate-pulse' : 'w-full'}`} />
+                <div
+                  className={`h-full transition-all ${isDashboardLoading ? 'bg-zinc-300 w-1/2 animate-pulse' : (dashboard?.syncHealthPercent ?? 100) < 100 ? 'bg-amber-500' : 'bg-green-500'}`}
+                  style={isDashboardLoading ? undefined : { width: `${dashboard?.syncHealthPercent ?? 100}%` }}
+                />
               </div>
             </div>
             <div className="space-y-2">

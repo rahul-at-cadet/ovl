@@ -30,6 +30,12 @@ function formatRelativeTime(thenMs: number): string {
   return `${diffDay}d ago`;
 }
 
+// A vessel counts as "online" if it's checked in within this window —
+// shared by the Vessels list's edgeStatus badge and the dashboard's
+// fleet-wide sync health, so the two views can never disagree about
+// what "online" means.
+const ONLINE_THRESHOLD_MS = 5 * 60 * 1000;
+
 export const createContext = ({
   req,
   res,
@@ -475,7 +481,6 @@ export class TrpcRouter {
           .from(schema.vessels)
           .leftJoin(schema.vesselSyncStatus, eq(schema.vesselSyncStatus.vesselId, schema.vessels.id));
 
-        const ONLINE_THRESHOLD_MS = 5 * 60 * 1000;
         const now = Date.now();
 
         return rows.map(({ vessel: v, lastSeenAt }) => {
@@ -847,6 +852,24 @@ export class TrpcRouter {
         const activeVesselsResult = await this.db.select({ count: sql<number>`count(*)` }).from(schema.vessels);
         const incomingReportsResult = await this.db.select({ count: sql<number>`count(*)` }).from(schema.reportVersions);
 
+        // Fleet-wide sync health: same "online" definition as the
+        // Vessels list's edgeStatus badge (ONLINE_THRESHOLD_MS), rolled
+        // up into a fleet-wide percentage. Replaces what used to be a
+        // hardcoded 100% "Database Sync" figure with the actual fraction
+        // of the fleet that has checked in recently.
+        const syncRows = await this.db
+          .select({ lastSeenAt: schema.vesselSyncStatus.lastSeenAt })
+          .from(schema.vessels)
+          .leftJoin(schema.vesselSyncStatus, eq(schema.vesselSyncStatus.vesselId, schema.vessels.id));
+        const now = Date.now();
+        const onlineCount = syncRows.filter((r) => {
+          if (!r.lastSeenAt) return false;
+          return now - new Date(r.lastSeenAt).getTime() <= ONLINE_THRESHOLD_MS;
+        }).length;
+        const vesselsTotal = syncRows.length;
+        const syncHealthPercent = vesselsTotal === 0 ? 100 : Math.round((onlineCount / vesselsTotal) * 100);
+        const syncWarnings = vesselsTotal - onlineCount;
+
         const recentEvents = await this.db
           .select({
             eventType: schema.reportAuditEvents.eventType,
@@ -861,7 +884,8 @@ export class TrpcRouter {
         return {
           activeVessels: activeVesselsResult[0].count,
           incomingReports: incomingReportsResult[0].count,
-          syncWarnings: 0,
+          syncWarnings,
+          syncHealthPercent,
           networkUptime: 99.9,
           liveStream: recentEvents.map((e) => ({
             vessel: e.vesselName || 'Unknown',
