@@ -291,6 +291,31 @@ export function ReportForm({ reportId }: ReportFormProps) {
 
   const sections = schema.sections || ['General'];
 
+  // A real pre-submit check, not the "always green" panel this used to
+  // be (serverErrors only ever populated from the last save/submit
+  // mutation's own error, so an untouched draft showed "All checks
+  // passed" unconditionally). Checks every mandatory field across every
+  // section, not just the active tab, so switching tabs can't hide a
+  // gap. This is deliberately scoped to completeness, not the original's
+  // full plausibility/continuity rule engine (position bounds, ROB
+  // continuity, implied-speed, time-bucket sums) — porting that
+  // faithfully needs the same server-side rule logic this app doesn't
+  // have yet, and an approximated client-side version of safety rules
+  // would be worse than not having them.
+  const missingMandatoryFields = schema.fields
+    .filter((f) => {
+      const state = effectiveState(
+        { ...f, section: f.section || sections[0], relevance: f.relevance || '' } as SchemaField,
+        policy,
+        policyEvents,
+        report?.eventType,
+      );
+      if (state !== 'schemaMandatory' && state !== 'companyMandatory') return false;
+      const val = formValues[f.name];
+      return val === undefined || val === null || val === '';
+    })
+    .map((f) => ({ name: f.name, label: f.label || f.name, section: f.section || sections[0] }));
+
   return (
     <div className="flex flex-col xl:flex-row gap-6 items-start animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Form Area */}
@@ -530,7 +555,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
           </CardHeader>
           <CardContent className="pt-4">
             <AnimatePresence mode="wait">
-              {serverErrors.length > 0 ? (
+              {serverErrors.length > 0 || missingMandatoryFields.length > 0 ? (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
@@ -539,13 +564,23 @@ export function ReportForm({ reportId }: ReportFormProps) {
                 >
                   <div className="flex items-center text-red-400 bg-red-500/10 p-3 rounded-lg border border-red-500/20">
                     <AlertCircle className="w-5 h-5 mr-2 shrink-0" />
-                    <span className="text-sm font-medium">{serverErrors.length} Issue(s) Found</span>
+                    <span className="text-sm font-medium">{serverErrors.length + missingMandatoryFields.length} Issue(s) Found</span>
                   </div>
                   <div className="space-y-2">
                     {serverErrors.map((err, idx) => (
                       <div key={idx} className="text-xs text-muted-foreground p-2 rounded bg-background/50 border border-border/50 hover:border-red-500/30 cursor-pointer transition-colors">
                         {err}
                       </div>
+                    ))}
+                    {missingMandatoryFields.map((f) => (
+                      <button
+                        key={f.name}
+                        type="button"
+                        onClick={() => setActiveSection(f.section)}
+                        className="w-full text-left text-xs text-muted-foreground p-2 rounded bg-background/50 border border-border/50 hover:border-red-500/30 hover:text-foreground cursor-pointer transition-colors"
+                      >
+                        <span className="font-medium text-foreground">{f.label}</span> is required
+                      </button>
                     ))}
                   </div>
                 </motion.div>
