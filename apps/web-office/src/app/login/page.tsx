@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { CadetlabsLogo } from '@/components/layout/CadetlabsLogo';
 import { trpc } from '@/lib/trpc';
 
 export default function OfficeLoginPage() {
@@ -66,6 +67,7 @@ export default function OfficeLoginPage() {
         <Card className="bg-card border-border shadow-xl rounded-md">
           <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-border/50">
             <div>
+              <CadetlabsLogo className="h-10 w-10 mx-auto mb-2" />
               <CardTitle className="text-xl font-medium tracking-tight text-foreground">
                 Cadetlabs
               </CardTitle>
@@ -142,6 +144,7 @@ function FirstAdminSetup() {
       <div className="w-full max-w-[420px] z-10 p-4">
         <Card className="bg-card border-border shadow-xl rounded-md">
           <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-border/50">
+            <CadetlabsLogo className="h-10 w-10 mx-auto mb-2" />
             <CardTitle className="text-xl font-medium tracking-tight text-foreground">Cadetlabs</CardTitle>
             <CardDescription className="text-muted-foreground mt-1 text-sm">
               First-time setup — no account exists yet

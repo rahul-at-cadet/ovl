@@ -11,6 +11,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import { CadetlabsLogo } from '@/components/layout/CadetlabsLogo';
 import { trpc } from '@/lib/trpc';
 
 interface AppShellProps {
@@ -119,7 +120,8 @@ export function AppShell({ children }: AppShellProps) {
       <aside
         className={`h-screen bg-card border-r border-border flex flex-col relative z-20 shrink-0 hidden md:flex transition-all duration-200 ${isSidebarOpen ? 'w-[260px]' : 'w-[70px]'}`}
       >
-        <div className="h-16 flex items-center px-4 border-b border-border/50">
+        <div className="h-16 flex items-center gap-2 px-4 border-b border-border/50">
+          <CadetlabsLogo className="h-6 w-6 shrink-0" />
           {isSidebarOpen && (
             <span className="font-medium text-sm tracking-tight whitespace-nowrap text-foreground">
               Cadetlabs
@@ -169,7 +171,8 @@ export function AppShell({ children }: AppShellProps) {
                   <Menu className="w-5 h-5" />
                 </SheetTrigger>
                 <SheetContent side="left" className="w-[260px] bg-card border-r border-border p-0 flex flex-col">
-                  <div className="h-16 flex items-center px-4 border-b border-border/50 shrink-0">
+                  <div className="h-16 flex items-center gap-2 px-4 border-b border-border/50 shrink-0">
+                    <CadetlabsLogo className="h-6 w-6 shrink-0" />
                     <span className="font-medium text-sm tracking-tight whitespace-nowrap text-foreground">
                       Cadetlabs
                     </span>
@@ -200,7 +203,8 @@ export function AppShell({ children }: AppShellProps) {
             </div>
 
             {/* Mobile Title */}
-            <div className="md:hidden flex items-center mr-4">
+            <div className="md:hidden flex items-center gap-2 mr-4">
+               <CadetlabsLogo className="h-5 w-5 shrink-0" />
                <span className="font-bold tracking-tight">Cadetlabs</span>
             </div>
 
