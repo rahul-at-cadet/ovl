@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
@@ -29,6 +30,14 @@ const TAB_LABEL: Record<Tab, string> = {
   periods: 'Commercial Periods',
   cargo: 'Cargo Nominations',
 };
+
+// A field this long (Description, Carbon_Offset_Reference/Comment, …) reads
+// as free-form prose, not a short value — cramming it into the same
+// single-line half-width slot as "Period start" left an awkward empty
+// column beside it. Render it full-width as a multi-line textarea instead.
+function isLongTextField(f: { type: string; maxLength?: number | null }): boolean {
+  return f.type === 'text' && (f.maxLength ?? 0) >= 100;
+}
 
 function nativeInputType(type: string): string {
   switch (type) {
@@ -173,17 +182,26 @@ export default function CommercialPage() {
                 {schemaFieldsResult.fields
                   .filter((f) => f.name !== 'IMO')
                   .map((f) => (
-                    <div key={f.name} className="space-y-1.5">
+                    <div key={f.name} className={`space-y-1.5 ${isLongTextField(f) ? 'sm:col-span-2' : ''}`}>
                       <Label className="text-foreground text-sm flex items-center">
                         {f.label}
                         {f.schemaMandatory && <span className="text-red-400 ml-1">*</span>}
                       </Label>
-                      <Input
-                        type={nativeInputType(f.type)}
-                        value={fieldValues[f.name] ?? ''}
-                        onChange={(e) => setFieldValues((prev) => ({ ...prev, [f.name]: e.target.value }))}
-                        className={`bg-background/50 border-border focus-visible:ring-primary text-foreground ${findingByField.has(f.name) ? 'border-red-500/50' : ''}`}
-                      />
+                      {isLongTextField(f) ? (
+                        <Textarea
+                          value={fieldValues[f.name] ?? ''}
+                          onChange={(e) => setFieldValues((prev) => ({ ...prev, [f.name]: e.target.value }))}
+                          maxLength={f.maxLength ?? undefined}
+                          className={`bg-background/50 border-border focus-visible:ring-primary text-foreground ${findingByField.has(f.name) ? 'border-red-500/50' : ''}`}
+                        />
+                      ) : (
+                        <Input
+                          type={nativeInputType(f.type)}
+                          value={fieldValues[f.name] ?? ''}
+                          onChange={(e) => setFieldValues((prev) => ({ ...prev, [f.name]: e.target.value }))}
+                          className={`bg-background/50 border-border focus-visible:ring-primary text-foreground ${findingByField.has(f.name) ? 'border-red-500/50' : ''}`}
+                        />
+                      )}
                       {findingByField.has(f.name) && (
                         <p className="text-xs text-red-400">{findingByField.get(f.name)}</p>
                       )}
