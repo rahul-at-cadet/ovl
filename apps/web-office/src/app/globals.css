@@ -49,63 +49,52 @@
 }
 
 /*
- * Office app theme — single source of truth for both palettes, same
- * pattern as the vessel app's own globals.css (CSS custom properties
- * feeding Tailwind via @theme inline above; never hardcode a color in
- * a component — add or change a token here instead).
+ * Office app theme — single source of truth for both palettes (CSS
+ * custom properties feeding Tailwind via @theme inline above; never
+ * hardcode a color in a component — add or change a token here
+ * instead).
  *
- * Light (:root): the previous defaults had --background and --card as
- * the literal same value (pure white) and a washed-out --border
- * (~92% lightness), so cards had zero tonal separation from the page
- * and nothing but an almost-invisible line to show where one surface
- * ended and another began — "too white to read separation."
- *
- * Fixed using the same layering principle every technical/enterprise
- * light theme in a quick survey converges on (IBM Carbon's Gray-10
- * White theme: #FFFFFF page, #F4F4F4 first layer, #E0E0E0 border —
- * GitHub: #FFFFFF canvas, #F6F8FA canvas-subtle, #D0D7DE border —
- * Material 3's surface-container tonal steps): a recessed page canvas
- * one step darker than pure white, cards restored to pure white so
- * they read as visibly raised, and a border strong enough to actually
- * function as a line rather than a suggestion of one. A faint cool
- * (blue-slate) tint on every neutral token, rather than true 0-chroma
- * gray, is the same "technical" cue GitHub/Linear/Vercel's own grays
- * carry — perceptible as "clean and precise," not as an actual color.
+ * Light (:root): matches the Cadetlabs brand palette verbatim, ported
+ * from /Users/ras/cadetlabs/assetbuilder/packages/ui/src/styles/
+ * globals.css's own :root block — the brand teal (#3BA99C) as
+ * --primary, a teal-tinted --border/--ring rather than this file's
+ * previous neutral blue-slate. Dark mode (.dark below) is untouched —
+ * this was a light-mode-only color match.
  */
 :root {
   color-scheme: light;
-  --background: oklch(0.975 0.004 260);
-  --foreground: oklch(0.17 0.012 260);
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.17 0.012 260);
+  --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.17 0.012 260);
-  --primary: oklch(0.46 0.19 265);
-  --primary-foreground: oklch(0.98 0.005 260);
-  --secondary: oklch(0.955 0.006 260);
-  --secondary-foreground: oklch(0.17 0.012 260);
-  --muted: oklch(0.955 0.006 260);
-  --muted-foreground: oklch(0.48 0.014 260);
-  --accent: oklch(0.945 0.009 262);
-  --accent-foreground: oklch(0.17 0.012 260);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.6694 0.1003 184.08);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.9813 0.0053 197.07);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.875 0.008 260);
-  --input: oklch(0.875 0.008 260);
-  --ring: oklch(0.46 0.19 265);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  --border: oklch(0.9164 0.0385 194.49);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.74 0.09 180);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
   --radius: 0.625rem;
-  --sidebar: oklch(0.975 0.004 260);
-  --sidebar-foreground: oklch(0.17 0.012 260);
-  --sidebar-primary: oklch(0.46 0.19 265);
-  --sidebar-primary-foreground: oklch(0.98 0.005 260);
-  --sidebar-accent: oklch(0.945 0.009 262);
-  --sidebar-accent-foreground: oklch(0.17 0.012 260);
-  --sidebar-border: oklch(0.875 0.008 260);
-  --sidebar-ring: oklch(0.46 0.19 265);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
 }
 
 .dark {
