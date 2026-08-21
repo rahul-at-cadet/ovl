@@ -1,10 +1,11 @@
-import { Controller, Post, UseInterceptors, UploadedFile, Param, Get, Res, Req, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Post, UseInterceptors, UseGuards, UploadedFile, Param, Get, Res, Req, HttpException, HttpStatus } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response, Request } from 'express';
 import { diskStorage } from 'multer';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
+import { VesselAuthGuard } from '../auth/vessel-auth.guard';
 
 // In a real app, this would be injected via a service.
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
@@ -15,6 +16,7 @@ if (!fs.existsSync(UPLOAD_DIR)) {
 @Controller('reports/:reportId/attachments')
 export class AttachmentsController {
   @Post()
+  @UseGuards(VesselAuthGuard)
   @UseInterceptors(FileInterceptor('file', {
     storage: diskStorage({
       destination: UPLOAD_DIR,
@@ -32,12 +34,7 @@ export class AttachmentsController {
     if (!file) {
       throw new HttpException('No file provided', HttpStatus.BAD_REQUEST);
     }
-    
-    // Check if token exists - mock auth check
-    if (!req.cookies?.['vessel_auth_token']) {
-      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
-    }
-    
+
     // In a real system, we would insert an attachment record into the DB linked to the reportId.
     return {
       success: true,

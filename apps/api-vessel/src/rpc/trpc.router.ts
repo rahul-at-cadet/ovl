@@ -24,26 +24,6 @@ const t = initTRPC.context<Context>().create();
 export const publicProcedure = t.procedure;
 export const router = t.router;
 
-const isAuthed = t.middleware(({ ctx, next }) => {
-  const token = ctx.req?.cookies?.['vessel_auth_token'];
-  if (!token) {
-    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Not logged in' });
-  }
-  
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'vessel-edge-secret-key-123') as any;
-    return next({
-      ctx: {
-        ...ctx,
-        user: decoded,
-      },
-    });
-  } catch (err) {
-    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid token' });
-  }
-});
-export const protectedProcedure = t.procedure.use(isAuthed);
-
 const CreateReportSchema = Type.Object({
   schemaName: Type.String(),
   eventType: Type.String(),
@@ -167,6 +147,43 @@ export class TrpcRouter {
     private readonly db: BetterSQLite3Database<typeof schema>,
   ) {}
 
+  // Re-checks the account's live `active` flag (and picks up its current
+  // role/canSubmit) on every request, rather than trusting whatever was
+  // true at login time — mirrors ovl/vessel/httpapi/server.go's
+  // authenticatedUser ("so a Master deactivating a user kills that
+  // user's live session immediately, not just their next login
+  // attempt") and the same fix already applied to login itself in
+  // AuthService.validateUser. Needs this.db, so this has to be an
+  // instance field (built after the constructor assigns it) rather than
+  // the module-level middleware this replaced.
+  private readonly isAuthed = t.middleware(async ({ ctx, next }) => {
+    const token = ctx.req?.cookies?.['vessel_auth_token'];
+    if (!token) {
+      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Not logged in' });
+    }
+
+    let decoded: any;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET || 'vessel-edge-secret-key-123');
+    } catch {
+      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid token' });
+    }
+
+    const rows = await this.db.select().from(schema.users).where(eq(schema.users.id, decoded.sub)).limit(1);
+    const user = rows[0];
+    if (!user || !user.active) {
+      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Account is inactive' });
+    }
+
+    return next({
+      ctx: {
+        ...ctx,
+        user: { ...decoded, role: user.role, canSubmit: user.canSubmit, active: user.active },
+      },
+    });
+  });
+  private readonly protectedProcedure = t.procedure.use(this.isAuthed);
+
   appRouter = router({
     ping: publicProcedure.query(() => {
       return {
@@ -175,7 +192,7 @@ export class TrpcRouter {
       };
     }),
     reports: router({
-      listReports: protectedProcedure
+      listReports: this.protectedProcedure
         .input((val: unknown) => {
           if (!ListReportsCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof ListReportsSchema>;
@@ -183,7 +200,7 @@ export class TrpcRouter {
         .query(async ({ input }) => {
           return this.reportsService.listReports(input.schemaName);
         }),
-      createReport: protectedProcedure
+      createReport: this.protectedProcedure
         .input((val: unknown) => {
           if (!CreateReportCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof CreateReportSchema>;
@@ -191,7 +208,7 @@ export class TrpcRouter {
         .mutation(async ({ input, ctx }) => {
           return this.reportsService.createReport(input, ctx.user.username);
         }),
-      getReport: protectedProcedure
+      getReport: this.protectedProcedure
         .input((val: unknown) => {
           if (!GetReportCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof GetReportSchema>;
@@ -199,7 +216,7 @@ export class TrpcRouter {
         .query(async ({ input }) => {
           return this.reportsService.getReport(input.id);
         }),
-      saveSection: protectedProcedure
+      saveSection: this.protectedProcedure
         .input((val: unknown) => {
           if (!SaveSectionCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof SaveSectionSchema>;
@@ -211,15 +228,24 @@ export class TrpcRouter {
             ctx.user.username,
           );
         }),
-      submitReport: protectedProcedure
+      submitReport: this.protectedProcedure
         .input((val: unknown) => {
           if (!SubmitReportCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof SubmitReportSchema>;
         })
         .mutation(async ({ input, ctx }) => {
+          // Mirrors ovl/vessel/auth/user.go's CanSubmitReports (architecture
+          // 9.3): Master always may; everyone else needs the canSubmit flag.
+          // Previously any authenticated user could submit regardless of
+          // this flag, which made the Users screen's "Can Submit" toggle a
+          // no-op.
+          const canSubmit = ctx.user.role?.toLowerCase() === 'master' || ctx.user.canSubmit === true;
+          if (!canSubmit) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have permission to submit reports.' });
+          }
           return this.reportsService.submitReport(input.id, ctx.user.username);
         }),
-      startCorrection: protectedProcedure
+      startCorrection: this.protectedProcedure
         .input((val: unknown) => {
           if (!SubmitReportCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof SubmitReportSchema>;
@@ -336,15 +362,15 @@ export class TrpcRouter {
       })
     }),
     users: router({
-      me: protectedProcedure.query(async ({ ctx }) => {
+      me: this.protectedProcedure.query(async ({ ctx }) => {
         const usersList = await this.db.select().from(schema.users).where(eq(schema.users.id, ctx.user.sub));
         return usersList[0] || null;
       }),
-      list: protectedProcedure.query(async () => {
+      list: this.protectedProcedure.query(async () => {
         const usersList = await this.db.select().from(schema.users);
         return usersList;
       }),
-      changePassword: protectedProcedure
+      changePassword: this.protectedProcedure
         .input((val: unknown) => {
           const v = val as any;
           if (!v || typeof v.newPassword !== 'string') throw new Error('Invalid input');
@@ -402,7 +428,7 @@ export class TrpcRouter {
 
           return { id, temporaryPassword };
         }),
-      updateStatus: protectedProcedure
+      updateStatus: this.protectedProcedure
         .input((val: unknown) => {
           if (!UpdateUserStatusCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof UpdateUserStatusSchema>;
@@ -414,7 +440,7 @@ export class TrpcRouter {
             .where(eq(schema.users.id, input.id));
           return { success: true };
         }),
-      updateRole: protectedProcedure
+      updateRole: this.protectedProcedure
         .input((val: unknown) => {
           if (!UpdateUserRoleCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof UpdateUserRoleSchema>;
@@ -426,7 +452,7 @@ export class TrpcRouter {
             .where(eq(schema.users.id, input.id));
           return { success: true };
         }),
-      adminResetPassword: protectedProcedure
+      adminResetPassword: this.protectedProcedure
         .input((val: unknown) => {
           if (!AdminResetPasswordCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof AdminResetPasswordSchema>;
@@ -520,11 +546,11 @@ export class TrpcRouter {
     sensors: router({
       // Master/Admin-only, mirroring the original's requireSuperAdmin
       // gate on the equivalent config endpoints.
-      get: protectedProcedure.query(async ({ ctx }) => {
+      get: this.protectedProcedure.query(async ({ ctx }) => {
         if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new Error('Unauthorized');
         return this.sensorsService.getSource();
       }),
-      save: protectedProcedure
+      save: this.protectedProcedure
         .input((val: unknown) => {
           if (!SaveSensorSourceCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof SaveSensorSourceSchema>;
@@ -534,7 +560,7 @@ export class TrpcRouter {
           if (!input.baseUrl || !input.apiKey) throw new Error('baseUrl and apiKey are required');
           return this.sensorsService.saveSource(input.baseUrl, input.apiKey, input.enabled);
         }),
-      test: protectedProcedure
+      test: this.protectedProcedure
         .input((val: unknown) => {
           if (!TestSensorSourceCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof TestSensorSourceSchema>;

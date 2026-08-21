@@ -1,17 +1,21 @@
-import { Controller, Get, Res, Req, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Res, Req, UseGuards, HttpException, HttpStatus } from '@nestjs/common';
 import { Response, Request } from 'express';
 import Database from 'better-sqlite3';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
+import { VesselAuthGuard } from '../auth/vessel-auth.guard';
 
 @Controller('system/backup')
 export class BackupController {
   @Get('download')
-  async downloadBackup(@Req() req: Request, @Res() res: Response) {
-    // Check if token exists - mock auth check
-    if (!req.cookies?.['vessel_auth_token']) {
-      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+  @UseGuards(VesselAuthGuard)
+  async downloadBackup(@Req() req: Request & { user?: { role?: string } }, @Res() res: Response) {
+    // A full DB backup contains every vessel's data — mirrors
+    // ovl/vessel/httpapi/backup.go's own gate (user.IsSuperAdmin(),
+    // i.e. Master only), not just "any authenticated user".
+    if (req.user?.role?.toLowerCase() !== 'master') {
+      throw new HttpException('Only the Master account may download a backup', HttpStatus.FORBIDDEN);
     }
 
     try {
