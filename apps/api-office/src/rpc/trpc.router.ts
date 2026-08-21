@@ -14,6 +14,7 @@ import { FieldPolicyService } from '../config/field-policy/field-policy.service'
 import { ComplianceService } from '../config/compliance/compliance.service';
 import { ConfigBundleService } from '../config/config-bundle/config-bundle.service';
 import { VesselUsersService } from '../vessels/vessel-users.service';
+import { VesselsService } from '../vessels/vessels.service';
 import { Scope } from '../config/logic/scope';
 import { effectiveSeverities } from '../config/logic/compliance';
 import { continuityConfigFor, revalidate, type ContinuityReport, type Severity } from '../config/logic/continuity';
@@ -168,6 +169,11 @@ const QueueSetCanSubmitSchema = Type.Object({
   canSubmit: Type.Boolean(),
 });
 const QueueSetCanSubmitCompiler = TypeCompiler.Compile(QueueSetCanSubmitSchema);
+
+const ListVesselPositionsSchema = Type.Object({
+  group: Type.Optional(Type.String()),
+});
+const ListVesselPositionsCompiler = TypeCompiler.Compile(ListVesselPositionsSchema);
 
 const CreateVesselSchema = Type.Object({
   name: Type.String(),
@@ -414,6 +420,7 @@ export class TrpcRouter {
     private readonly complianceService: ComplianceService,
     private readonly configBundleService: ConfigBundleService,
     private readonly vesselUsersService: VesselUsersService,
+    private readonly vesselsService: VesselsService,
     private readonly supertokensService: SupertokensService,
     private readonly notificationsService: NotificationsService,
     private readonly usersService: UsersService,
@@ -802,6 +809,15 @@ export class TrpcRouter {
           };
         });
       }),
+      // Fleet Map (ports ovl/office/httpapi/vesselpositions.go). See
+      // VesselsService.getPositions's own doc comment for the full
+      // status-precedence and position-parsing rules.
+      positions: protectedProcedure
+        .input((val: unknown) => {
+          if (!ListVesselPositionsCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof ListVesselPositionsSchema>;
+        })
+        .query(({ input }) => this.vesselsService.getPositions(input.group)),
       create: protectedProcedure
         .input((val: unknown) => {
           if (!CreateVesselCompiler.Check(val)) throw new Error('Invalid input');

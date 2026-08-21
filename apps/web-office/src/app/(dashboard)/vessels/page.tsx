@@ -1,11 +1,20 @@
 'use client';
 
 import { useState } from 'react';
+import dynamic from 'next/dynamic';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Ship, Search, ArrowUpDown, Filter, Plus, Activity, Wifi, WifiOff, Edit, Trash2, Users } from 'lucide-react';
+import { Ship, Search, ArrowUpDown, Filter, Plus, Activity, Wifi, WifiOff, Edit, Trash2, Users, List, Map as MapIcon } from 'lucide-react';
 import { VesselUsersDialog } from './VesselUsersDialog';
+
+// Leaflet touches window/document at import time, so the map view can
+// only ever run client-side — ssr: false keeps it out of the server
+// render entirely rather than erroring on it.
+const FleetMapView = dynamic(() => import('./FleetMapView').then((m) => m.FleetMapView), {
+  ssr: false,
+  loading: () => <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">Loading map…</div>,
+});
 import {
   Dialog,
   DialogContent,
@@ -24,6 +33,7 @@ import {
 import { trpc } from '@/lib/trpc';
 
 export default function VesselsPage() {
+  const [view, setView] = useState<'list' | 'map'>('list');
   const [searchQuery, setSearchQuery] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingVessel, setEditingVessel] = useState<any>(null);
@@ -110,14 +120,34 @@ export default function VesselsPage() {
           <p className="text-muted-foreground mt-1.5 text-sm font-medium">Monitor vessel telemetry, edge node status, and sync operations.</p>
         </div>
         <div className="flex gap-3 w-full md:w-auto">
-          <div className="relative w-full md:w-72 shadow-sm">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input 
-              placeholder="Search by vessel name or IMO..." 
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 bg-background/80 border-border/80 focus-visible:ring-ring text-foreground rounded-md h-9 text-sm w-full transition-all"
-            />
+          {view === 'list' && (
+            <div className="relative w-full md:w-72 shadow-sm">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by vessel name or IMO..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 bg-background/80 border-border/80 focus-visible:ring-ring text-foreground rounded-md h-9 text-sm w-full transition-all"
+              />
+            </div>
+          )}
+          <div className="flex rounded-md border border-border/80 overflow-hidden shrink-0">
+            <Button
+              variant={view === 'list' ? 'secondary' : 'ghost'}
+              onClick={() => setView('list')}
+              className="h-9 rounded-none text-sm"
+            >
+              <List className="w-4 h-4 mr-2" />
+              List
+            </Button>
+            <Button
+              variant={view === 'map' ? 'secondary' : 'ghost'}
+              onClick={() => setView('map')}
+              className="h-9 rounded-none text-sm border-l border-border/80"
+            >
+              <MapIcon className="w-4 h-4 mr-2" />
+              Map
+            </Button>
           </div>
           <Button onClick={openNewDialog} className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-9 text-sm font-semibold shadow-sm shrink-0 transition-all">
             <Plus className="w-4 h-4 mr-2" />
@@ -126,6 +156,9 @@ export default function VesselsPage() {
         </div>
       </div>
 
+      {view === 'map' ? (
+        <FleetMapView />
+      ) : (
       <Card className="flex-1 flex flex-col bg-card/40 border-border/60 shadow-xl min-h-0 overflow-hidden rounded-xl backdrop-blur-md">
         <CardHeader className="border-b border-border/60 pb-4 bg-card/20 shrink-0">
           <CardTitle className="text-sm font-semibold tracking-tight text-foreground">Registered Vessels</CardTitle>
@@ -226,6 +259,7 @@ export default function VesselsPage() {
           </div>
         </CardContent>
       </Card>
+      )}
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="sm:max-w-[425px] bg-background border-border text-foreground">
