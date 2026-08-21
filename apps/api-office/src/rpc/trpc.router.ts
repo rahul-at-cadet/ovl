@@ -1519,6 +1519,25 @@ export class TrpcRouter {
         return { hasAnyUser: rows.length > 0 };
       }),
     }),
+    // Ports ovl/office/httpapi/system.go's System tab — real values
+    // only. Attachment-store usage isn't included: unlike the original,
+    // this port has no attachment-store feature on the office side to
+    // report on, so an honest "not wired yet" row is more truthful than
+    // fabricating byte/file counts for a store that doesn't exist here.
+    system: router({
+      get: protectedProcedure.query(async () => {
+        let databaseReachable = true;
+        try {
+          await this.db.execute(sql`select 1`);
+        } catch {
+          databaseReachable = false;
+        }
+        return {
+          version: process.env.npm_package_version || '0.0.1',
+          databaseReachable,
+        };
+      }),
+    }),
     dashboard: router({
       getOverview: protectedProcedure.query(async () => {
         const activeVesselsResult = await this.db.select({ count: sql<number>`count(*)` }).from(schema.vessels);

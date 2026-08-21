@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Settings, Globe, Shield, Key, Bell, KeyRound, Copy, CheckCircle2, Trash2, Ship, Pencil, X, Loader2 } from 'lucide-react';
+import { Settings, Globe, Shield, Key, Bell, KeyRound, Copy, CheckCircle2, Trash2, Ship, Pencil, X, Loader2, Server, Database, Clock } from 'lucide-react';
 import { useState } from 'react';
 import { trpc } from '@/lib/trpc';
 
@@ -60,6 +60,8 @@ export default function SettingsPage() {
     onSuccess: () => utils.vessels.list.invalidate(),
   });
 
+  const { data: systemStatus } = trpc.system.get.useQuery(undefined, { refetchInterval: 30_000 });
+
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 max-w-6xl">
       <div className="border-b border-border/60 pb-6">
@@ -104,6 +106,13 @@ export default function SettingsPage() {
             >
               <Ship className="w-4 h-4 mr-3" />
               Vessel Groups
+            </TabsTrigger>
+            <TabsTrigger
+              value="system"
+              className="w-full justify-start px-4 py-2.5 text-sm font-medium data-[state=active]:bg-muted/50 data-[state=active]:text-foreground text-muted-foreground hover:bg-card/50 transition-all rounded-md"
+            >
+              <Server className="w-4 h-4 mr-3" />
+              System
             </TabsTrigger>
           </TabsList>
 
@@ -308,6 +317,55 @@ export default function SettingsPage() {
                           )}
                         </div>
                       ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="system" className="mt-0">
+              <Card className="bg-card/40 border-border/60 shadow-xl overflow-hidden rounded-xl backdrop-blur-md">
+                <CardHeader className="border-b border-border/60 pb-4 bg-card/20">
+                  <CardTitle className="text-sm font-semibold tracking-tight text-foreground">System Status</CardTitle>
+                  <CardDescription className="text-xs text-muted-foreground">Live, read from this office instance directly — nothing here is a stored snapshot.</CardDescription>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {!systemStatus ? (
+                    <div className="text-center text-muted-foreground py-8 text-sm">Loading…</div>
+                  ) : (
+                    <div className="divide-y divide-border/50">
+                      <div className="flex items-center gap-4 px-5 py-4">
+                        <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center shrink-0">
+                          <Server className="w-4 h-4 text-muted-foreground" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm text-foreground">ovl-office</div>
+                          <div className="text-xs text-muted-foreground">build version</div>
+                        </div>
+                        <div className="text-sm font-mono text-foreground">{systemStatus.version}</div>
+                      </div>
+                      <div className="flex items-center gap-4 px-5 py-4">
+                        <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center shrink-0">
+                          <Database className="w-4 h-4 text-muted-foreground" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm text-foreground">Database</div>
+                          <div className="text-xs text-muted-foreground">PostgreSQL connectivity</div>
+                        </div>
+                        <div className={`text-sm font-mono ${systemStatus.databaseReachable ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {systemStatus.databaseReachable ? 'Reachable' : 'Unreachable'}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4 px-5 py-4 opacity-75">
+                        <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center shrink-0">
+                          <Clock className="w-4 h-4 text-muted-foreground" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm text-foreground">Background jobs</div>
+                          <div className="text-xs text-muted-foreground">No job queue is wired up in this deployment — no health signal to show here yet</div>
+                        </div>
+                        <div className="text-sm font-mono text-muted-foreground">Not wired yet</div>
+                      </div>
                     </div>
                   )}
                 </CardContent>
