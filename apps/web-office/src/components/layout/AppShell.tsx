@@ -4,7 +4,7 @@ import { ReactNode, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import Session, { signOut } from 'supertokens-auth-react/recipe/session';
-import { LayoutDashboard, Database, Ship, Users, Settings, Bell, Menu, LogOut, Search, Sliders, AlertTriangle, MessageSquare, CloudDownload } from 'lucide-react';
+import { LayoutDashboard, Database, Ship, Users, Settings, Bell, Menu, LogOut, Search, Sliders, AlertTriangle, MessageSquare, CloudDownload, Briefcase } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -98,6 +98,7 @@ export function AppShell({ children }: AppShellProps) {
   const navItems = [
     { href: '/', label: 'Fleet Overview', icon: LayoutDashboard },
     { href: '/reports', label: 'Incoming Reports', icon: Database },
+    { href: '/commercial', label: 'Commercial', icon: Briefcase },
     { href: '/vessels', label: 'Vessel Management', icon: Ship },
     { href: '/configuration', label: 'Fleet Configuration', icon: Sliders },
     { href: '/users', label: 'Users & Roles', icon: Users },

@@ -235,6 +235,23 @@ const GetSchemaFieldsSchema = Type.Object({
 });
 const GetSchemaFieldsCompiler = TypeCompiler.Compile(GetSchemaFieldsSchema);
 
+const COMMERCIAL_SCHEMA_LABELS: Record<string, string> = {
+  'commercial-period': 'Commercial Period',
+  'cargo-nomination': 'Cargo Nomination',
+};
+
+const ListCommercialReportsSchema = Type.Object({
+  schemaName: Type.String(),
+});
+const ListCommercialReportsCompiler = TypeCompiler.Compile(ListCommercialReportsSchema);
+
+const CreateCommercialReportSchema = Type.Object({
+  schemaName: Type.String(),
+  vesselId: Type.String(),
+  fields: Type.Record(Type.String(), Type.Any()),
+});
+const CreateCommercialReportCompiler = TypeCompiler.Compile(CreateCommercialReportSchema);
+
 const MarkReviewedSchema = Type.Object({
   reportId: Type.String(),
 });
@@ -1641,6 +1658,124 @@ export class TrpcRouter {
           return val as Static<typeof PublishSchemaSchema>;
         })
         .mutation(({ input }) => this.schemaVersionsService.publish(input)),
+    }),
+    // Ports ovl/office/httpapi/commercial.go — office-authored data
+    // (architecture 12.2, Commercial Editor role): the only two schemas
+    // that are ever entered here rather than synced up from a vessel. A
+    // one-shot submit, not a draft — nothing persists until the health
+    // check passes, same as the original's own scope note on why (this
+    // port's report_versions has no equivalent of vessel-side draft
+    // rows/section locks to build a save-progressively flow on top of).
+    commercial: router({
+      list: protectedProcedure
+        .input((val: unknown) => {
+          if (!ListCommercialReportsCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof ListCommercialReportsSchema>;
+        })
+        .query(async ({ input }) => {
+          const schemaKind = `${input.schemaName}.json`;
+          const reports = await this.db
+            .select({
+              id: schema.reportVersions.reportId,
+              vesselId: schema.reportVersions.vesselId,
+              versionNo: schema.reportVersions.versionNo,
+              type: schema.reportVersions.eventType,
+              status: schema.reportVersions.state,
+              date: schema.reportVersions.receivedAt,
+              vesselName: schema.vessels.name,
+              vesselImo: schema.vessels.imo,
+            })
+            .from(schema.reportVersions)
+            .leftJoin(schema.vessels, eq(schema.reportVersions.vesselId, schema.vessels.id))
+            .where(eq(schema.reportVersions.schemaKind, schemaKind));
+
+          const latestByReportId = new Map<string, typeof reports[number]>();
+          for (const r of reports) {
+            const existing = latestByReportId.get(r.id);
+            if (!existing || r.versionNo > existing.versionNo) latestByReportId.set(r.id, r);
+          }
+          return Array.from(latestByReportId.values())
+            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+            .map((r) => ({
+              id: r.id,
+              vesselId: r.vesselId,
+              vessel: r.vesselName || 'Unknown',
+              imo: r.vesselImo || 'Unknown',
+              type: r.type,
+              status: r.status,
+              date: new Date(r.date).toISOString(),
+            }));
+        }),
+      create: protectedProcedure
+        .input((val: unknown) => {
+          if (!CreateCommercialReportCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof CreateCommercialReportSchema>;
+        })
+        .mutation(async ({ input, ctx }) => {
+          const localUser = await this.supertokensService.getLocalUser(ctx.session.getUserId());
+          if (!localUser || !(localUser.roles as string[]).includes('commercialEditor')) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Only Commercial Editor may author commercial data' });
+          }
+          const label = COMMERCIAL_SCHEMA_LABELS[input.schemaName];
+          if (!label) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Unknown commercial schema' });
+
+          const vesselRows = await this.db.select().from(schema.vessels).where(eq(schema.vessels.id, input.vesselId)).limit(1);
+          if (!vesselRows[0]) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Unknown vessel' });
+
+          // Real-but-scoped health check: mandatory-field completeness
+          // only, not the original's full plausibility/continuity rule
+          // engine — this port has no equivalent
+          // validation.EvaluatePlausibilityRules to run, and
+          // approximating safety rules without it would be worse than
+          // not having them (same principled scope cut as the vessel
+          // ReportForm's own Health Check panel).
+          const schemaFieldsResult = await this.schemaVersionsService.getLatestFields(input.schemaName);
+          const knownFields = schemaFieldsResult?.fields ?? [];
+          const findings = knownFields
+            .filter((f) => f.schemaMandatory && (input.fields[f.name] === undefined || input.fields[f.name] === null || input.fields[f.name] === ''))
+            .map((f) => ({ ruleId: 'fieldPolicy.mandatory', severity: 'error' as const, field: f.name, message: `${f.label || f.name} is required` }));
+
+          if (findings.length > 0) {
+            return { report: null, findings };
+          }
+
+          const reportId = crypto.randomUUID();
+          const now = new Date().toISOString();
+          const schemaKind = `${input.schemaName}.json`;
+
+          await this.db.insert(schema.reportVersions).values({
+            vesselId: input.vesselId,
+            reportId,
+            versionNo: 1,
+            schemaKind,
+            schemaVersion: schemaFieldsResult?.version ?? '',
+            eventType: label,
+            state: 'submitted',
+            eventTime: now,
+            fields: input.fields,
+            submittedAt: now,
+            receivedAt: now,
+          });
+
+          for (const eventType of ['created', 'ready', 'submitted']) {
+            await this.db.insert(schema.reportAuditEvents).values({
+              vesselId: input.vesselId,
+              reportId,
+              versionNo: 1,
+              eventType,
+              actor: localUser.username,
+              occurredAt: now,
+              detail: {},
+              receivedAt: now,
+              origin: 'office',
+            });
+          }
+
+          return {
+            report: { id: reportId, vesselId: input.vesselId, type: label, status: 'submitted' },
+            findings: [] as { ruleId: string; severity: 'error' | 'warning'; field?: string; message: string }[],
+          };
+        }),
     }),
     configBundles: router({
       list: protectedProcedure.query(() => this.configBundleService.list()),
