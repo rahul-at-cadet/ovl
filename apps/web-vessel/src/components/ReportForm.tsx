@@ -102,6 +102,25 @@ export function ReportForm({ reportId }: ReportFormProps) {
   const checkMutation = trpc.reports.check.useMutation();
   const trpcUtils = trpc.useUtils();
 
+  // Finding acknowledgement (architecture 15): append-only, no
+  // acknowledgements table — current state is derived by replaying
+  // report_events for the latest finding_acknowledged event per
+  // (ruleId, field), same as the original UI does.
+  const { data: events = [] } = trpc.reports.listEvents.useQuery({ reportId }, { enabled: !!report });
+  const acknowledgedFindings = useMemo(() => {
+    const out = new Map<string, boolean>();
+    for (const e of events) {
+      if (e.type !== 'finding_acknowledged') continue;
+      const detail = e.detail as { ruleId?: string; field?: string; acknowledged?: boolean } | null;
+      if (!detail?.ruleId) continue;
+      out.set(`${detail.ruleId}:${detail.field ?? ''}`, !!detail.acknowledged);
+    }
+    return out;
+  }, [events]);
+  const acknowledgeFindingMutation = trpc.reports.acknowledgeFinding.useMutation({
+    onSuccess: () => trpcUtils.reports.listEvents.invalidate({ reportId }),
+  });
+
   // Section soft-locking (architecture 9.5). No live-push transport
   // exists anywhere in this app, so this polls rather than streaming —
   // saveSection's own server-side check is the real backstop regardless
@@ -674,10 +693,10 @@ export function ReportForm({ reportId }: ReportFormProps) {
               {checkResult ? 'Field rules, plausibility, and continuity against the committed chain' : 'Not yet checked'}
             </CardDescription>
           </CardHeader>
-          <CardContent className="pt-4 xl:flex-1 xl:min-h-0 xl:overflow-y-auto">
+          <CardContent className="pt-4 xl:flex-1 xl:min-h-0 flex flex-col">
             <AnimatePresence mode="wait">
               {serverErrors.length > 0 && (
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mb-3 space-y-2">
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mb-3 space-y-2 shrink-0">
                   {serverErrors.map((err, idx) => (
                     <div key={idx} className="flex items-center text-red-400 bg-red-500/10 p-3 rounded-lg border border-red-500/20 text-xs">
                       <AlertCircle className="w-4 h-4 mr-2 shrink-0" />
@@ -703,46 +722,30 @@ export function ReportForm({ reportId }: ReportFormProps) {
                   </div>
                 </motion.div>
               ) : (
-                <motion.div key="checked" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-3">
+                <motion.div key="checked" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-3 xl:flex-1 xl:min-h-0 flex flex-col">
                   {(() => {
                     const errors = checkResult.findings.filter((f) => f.severity === 'error');
                     const warnings = checkResult.findings.filter((f) => f.severity === 'warning');
                     return (
                       <>
                         {errors.length === 0 ? (
-                          <div className="flex items-center text-emerald-400 bg-emerald-500/10 p-3 rounded-lg border border-emerald-500/20">
+                          <div className="flex items-center text-emerald-400 bg-emerald-500/10 p-3 rounded-lg border border-emerald-500/20 shrink-0">
                             <CheckCircle2 className="w-5 h-5 mr-2 shrink-0" />
                             <span className="text-sm font-medium">Ready for submission</span>
                           </div>
                         ) : (
-                          <div className="flex items-center text-red-400 bg-red-500/10 p-3 rounded-lg border border-red-500/20">
+                          <div className="flex items-center text-red-400 bg-red-500/10 p-3 rounded-lg border border-red-500/20 shrink-0">
                             <AlertCircle className="w-5 h-5 mr-2 shrink-0" />
                             <span className="text-sm font-medium">{errors.length} error{errors.length === 1 ? '' : 's'} must be fixed</span>
                           </div>
                         )}
-                        {warnings.length > 0 && (
-                          <div className="text-xs text-amber-500/80 font-medium uppercase tracking-wide">
-                            {warnings.length} warning{warnings.length === 1 ? '' : 's'}
-                          </div>
-                        )}
-                        <div className="space-y-2">
-                          {[...errors, ...warnings].map((f, idx) => (
-                            <button
-                              key={`${f.ruleId}-${f.field ?? ''}-${idx}`}
-                              type="button"
-                              onClick={() => setActiveSection(sectionForField(f.field))}
-                              className={`w-full text-left text-xs p-2 rounded bg-background/50 border transition-colors ${
-                                f.severity === 'error'
-                                  ? 'border-red-500/30 text-foreground hover:border-red-500/50'
-                                  : 'border-border/50 text-muted-foreground hover:border-amber-500/30 hover:text-foreground'
-                              }`}
-                            >
-                              {f.message}
-                            </button>
-                          ))}
-                        </div>
+
+                        {/* Regulatory readiness and continuity impact are
+                            always visible, never pushed out of sight below
+                            a long findings list — only the findings
+                            themselves scroll internally. */}
                         {checkResult.regulatoryReadiness.length > 0 && (
-                          <div className="pt-2 border-t border-border/50 space-y-1.5">
+                          <div className="shrink-0 space-y-1.5">
                             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Regulatory readiness</p>
                             {checkResult.regulatoryReadiness.map((p) => (
                               <div key={p.profile} className="flex items-center justify-between text-xs">
@@ -755,7 +758,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
                           </div>
                         )}
                         {checkResult.continuityImpact.length > 0 && (
-                          <div className="pt-2 border-t border-border/50 space-y-1.5">
+                          <div className="shrink-0 space-y-1.5">
                             <p className="text-xs font-medium uppercase tracking-wide text-red-400">Other reports invalidated</p>
                             {checkResult.continuityImpact.map((c) => (
                               <div key={c.reportId} className="text-xs text-muted-foreground">
@@ -764,6 +767,56 @@ export function ReportForm({ reportId }: ReportFormProps) {
                             ))}
                           </div>
                         )}
+
+                        {warnings.length > 0 && (
+                          <div className="text-xs text-amber-500/80 font-medium uppercase tracking-wide shrink-0 pt-1 border-t border-border/50">
+                            {warnings.length} warning{warnings.length === 1 ? '' : 's'}
+                          </div>
+                        )}
+                        <div className="space-y-2 xl:flex-1 xl:min-h-0 xl:overflow-y-auto">
+                          {[...errors, ...warnings].map((f, idx) => {
+                            const ackKey = `${f.ruleId}:${f.field ?? ''}`;
+                            const acknowledged = acknowledgedFindings.get(ackKey) ?? false;
+                            return (
+                              <div
+                                key={`${f.ruleId}-${f.field ?? ''}-${idx}`}
+                                className={`w-full text-xs p-2 rounded bg-background/50 border transition-colors ${
+                                  f.severity === 'error'
+                                    ? 'border-red-500/30 text-foreground'
+                                    : acknowledged
+                                      ? 'border-border/30 text-muted-foreground/60'
+                                      : 'border-border/50 text-muted-foreground'
+                                }`}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveSection(sectionForField(f.field))}
+                                  className={`w-full text-left hover:text-foreground ${acknowledged ? 'line-through' : ''}`}
+                                >
+                                  {f.message}
+                                </button>
+                                {f.severity === 'warning' && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      acknowledgeFindingMutation.mutate({
+                                        id: reportId,
+                                        ruleId: f.ruleId,
+                                        field: f.field,
+                                        message: f.message,
+                                        acknowledged: !acknowledged,
+                                      })
+                                    }
+                                    disabled={acknowledgeFindingMutation.isPending}
+                                    className={`mt-1 text-[0.7rem] font-medium ${acknowledged ? 'text-emerald-400 hover:text-emerald-300' : 'text-primary hover:text-primary/80'}`}
+                                  >
+                                    {acknowledged ? '✓ Acknowledged — undo' : 'Acknowledge'}
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </>
                     );
                   })()}
