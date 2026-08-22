@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useForm, Controller, useWatch } from 'react-hook-form';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -99,7 +99,26 @@ export function ReportForm({ reportId }: ReportFormProps) {
 
   const submitReportMutation = trpc.reports.submitReport.useMutation();
   const saveSectionMutation = trpc.reports.saveSection.useMutation();
+  const checkMutation = trpc.reports.check.useMutation();
   const trpcUtils = trpc.useUtils();
+
+  // The real backend Health Check result (field rules + plausibility +
+  // continuity against the committed chain — see ReportsService.
+  // checkReport). Cleared on every save, since a save always demotes the
+  // report back to draft (see saveSection's own comment) — a stale
+  // "all checks passed" carried over past new edits would be actively
+  // misleading, not just outdated.
+  const [checkResult, setCheckResult] = useState<{
+    findings: { ruleId: string; severity: 'error' | 'warning' | 'info'; field?: string; message: string }[];
+    regulatoryReadiness: { profile: string; ready: boolean; missingFields: string[] }[];
+    continuityImpact: { reportId: string; eventType: string; eventTime: string; invalidatedRules: string[] }[];
+  } | null>(null);
+  // Snapshot of form values at the moment checkResult was set. Staleness
+  // is tied to an actual value change, not to "a save completed" — the
+  // debounced autosave has its own independent timer that can land AFTER
+  // handleRunCheck's own save+check sequence, and clearing on every save
+  // success raced it into wiping a just-received result.
+  const checkedValuesRef = useRef<string | null>(null);
 
   // Derived fields (compass sector, Beaufort force, time since previous
   // report) auto-fill from a sibling field or from report history —
@@ -197,6 +216,19 @@ export function ReportForm({ reportId }: ReportFormProps) {
     return () => clearTimeout(timer);
   }, [formValues, report, schema]);
 
+  // A save always demotes the report back to draft server-side, so a
+  // Health Check result stops reflecting reality the moment the officer
+  // actually changes something further — not whenever the next save
+  // happens to land, which can race against handleRunCheck's own save
+  // (the debounced autosave's independent timer can fire just after it).
+  useEffect(() => {
+    if (!checkResult || checkedValuesRef.current === null) return;
+    if (JSON.stringify(formValues) !== checkedValuesRef.current) {
+      setCheckResult(null);
+      checkedValuesRef.current = null;
+    }
+  }, [formValues, checkResult]);
+
   const handlePrefillSensors = () => {
     if (telemetry && schema) {
       const updates: Record<string, any> = {};
@@ -291,30 +323,45 @@ export function ReportForm({ reportId }: ReportFormProps) {
 
   const sections = schema.sections || ['General'];
 
-  // A real pre-submit check, not the "always green" panel this used to
-  // be (serverErrors only ever populated from the last save/submit
-  // mutation's own error, so an untouched draft showed "All checks
-  // passed" unconditionally). Checks every mandatory field across every
-  // section, not just the active tab, so switching tabs can't hide a
-  // gap. This is deliberately scoped to completeness, not the original's
-  // full plausibility/continuity rule engine (position bounds, ROB
-  // continuity, implied-speed, time-bucket sums) — porting that
-  // faithfully needs the same server-side rule logic this app doesn't
-  // have yet, and an approximated client-side version of safety rules
-  // would be worse than not having them.
-  const missingMandatoryFields = schema.fields
-    .filter((f) => {
-      const state = effectiveState(
-        { ...f, section: f.section || sections[0], relevance: f.relevance || '' } as SchemaField,
-        policy,
-        policyEvents,
-        report?.eventType,
-      );
-      if (state !== 'schemaMandatory' && state !== 'companyMandatory') return false;
-      const val = formValues[f.name];
-      return val === undefined || val === null || val === '';
-    })
-    .map((f) => ({ name: f.name, label: f.label || f.name, section: f.section || sections[0] }));
+  // Section a finding's field lives in, for click-to-jump — mirrors the
+  // same fallback the form's own field rendering uses (section ||
+  // sections[0]) so a finding always resolves to a real tab.
+  const sectionForField = (fieldName: string | undefined) => {
+    if (!fieldName) return sections[0];
+    return schema.fields.find((f) => f.name === fieldName)?.section || sections[0];
+  };
+
+  // Runs the real backend Health Check (field rules + plausibility +
+  // continuity against the committed chain) — the only path to `ready`,
+  // which submitReport now requires. Saves first (awaited, not fired
+  // alongside) so the check runs against the officer's latest edits
+  // rather than whatever was last auto-saved up to 1.5s ago.
+  const handleRunCheck = async () => {
+    setServerErrors([]);
+    const data = getValues();
+    const parsedFields: Record<string, unknown> = {};
+    schema.fields.forEach((field) => {
+      const val = data[field.name];
+      if (val === undefined) return;
+      if (val === '') { parsedFields[field.name] = ''; return; }
+      if (field.type === 'wholeNumber' || field.type === 'decimal') parsedFields[field.name] = Number(val);
+      else if (field.type === 'boolean') parsedFields[field.name] = val === 'true' || val === true;
+      else parsedFields[field.name] = val;
+    });
+
+    try {
+      await saveSectionMutation.mutateAsync({ id: reportId, section: activeSection ?? sections[0], changes: parsedFields });
+      trpcUtils.reports.listReports.invalidate();
+      const result = await checkMutation.mutateAsync({ id: reportId });
+      checkedValuesRef.current = JSON.stringify(getValues());
+      setCheckResult(result);
+      trpcUtils.reports.getReport.invalidate({ id: reportId });
+    } catch (err: any) {
+      setServerErrors([err.message]);
+    }
+  };
+
+  const canSubmit = report.state === 'ready';
 
   return (
     <div className="flex flex-col xl:flex-row gap-6 items-start animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -329,7 +376,17 @@ export function ReportForm({ reportId }: ReportFormProps) {
               <Save className="w-5 h-5 mr-2" />
               {saveSectionMutation.isPending ? 'Saving...' : 'Save Draft'}
             </Button>
-            <Button type="button" onClick={handleSubmit((d) => handleAction(d, 'submit'))} className="bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 h-11 text-base px-5" disabled={saveSectionMutation.isPending || submitReportMutation.isPending}>
+            <Button type="button" onClick={handleRunCheck} variant="outline" className="border-border bg-background/50 text-foreground hover:text-foreground h-11 text-base px-5" disabled={checkMutation.isPending || submitReportMutation.isPending}>
+              <CheckCircle2 className="w-5 h-5 mr-2" />
+              {checkMutation.isPending ? 'Checking...' : 'Run Health Check'}
+            </Button>
+            <Button
+              type="button"
+              onClick={handleSubmit((d) => handleAction(d, 'submit'))}
+              className="bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 h-11 text-base px-5"
+              disabled={saveSectionMutation.isPending || submitReportMutation.isPending || !canSubmit}
+              title={canSubmit ? undefined : 'Run Health Check with zero errors before submitting'}
+            >
               <Send className="w-5 h-5 mr-2" />
               {submitReportMutation.isPending ? 'Processing...' : 'Submit to Shore'}
             </Button>
@@ -544,59 +601,110 @@ export function ReportForm({ reportId }: ReportFormProps) {
         </Card>
       </div>
 
-      {/* Health Check Panel (Errors) */}
+      {/* Health Check Panel */}
       <div className="w-full xl:w-80 shrink-0">
         <Card className="bg-card/50 border-border sticky top-24">
           <CardHeader className="border-b border-border pb-4">
             <CardTitle className="text-lg flex items-center">
               Health Check
             </CardTitle>
-            <CardDescription>Live validation status</CardDescription>
+            <CardDescription>
+              {checkResult ? 'Field rules, plausibility, and continuity against the committed chain' : 'Not yet checked'}
+            </CardDescription>
           </CardHeader>
           <CardContent className="pt-4">
             <AnimatePresence mode="wait">
-              {serverErrors.length > 0 || missingMandatoryFields.length > 0 ? (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="space-y-3"
-                >
-                  <div className="flex items-center text-red-400 bg-red-500/10 p-3 rounded-lg border border-red-500/20">
-                    <AlertCircle className="w-5 h-5 mr-2 shrink-0" />
-                    <span className="text-sm font-medium">{serverErrors.length + missingMandatoryFields.length} Issue(s) Found</span>
-                  </div>
-                  <div className="space-y-2">
-                    {serverErrors.map((err, idx) => (
-                      <div key={idx} className="text-xs text-muted-foreground p-2 rounded bg-background/50 border border-border/50 hover:border-red-500/30 cursor-pointer transition-colors">
-                        {err}
-                      </div>
-                    ))}
-                    {missingMandatoryFields.map((f) => (
-                      <button
-                        key={f.name}
-                        type="button"
-                        onClick={() => setActiveSection(f.section)}
-                        className="w-full text-left text-xs text-muted-foreground p-2 rounded bg-background/50 border border-border/50 hover:border-red-500/30 hover:text-foreground cursor-pointer transition-colors"
-                      >
-                        <span className="font-medium text-foreground">{f.label}</span> is required
-                      </button>
-                    ))}
-                  </div>
+              {serverErrors.length > 0 && (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mb-3 space-y-2">
+                  {serverErrors.map((err, idx) => (
+                    <div key={idx} className="flex items-center text-red-400 bg-red-500/10 p-3 rounded-lg border border-red-500/20 text-xs">
+                      <AlertCircle className="w-4 h-4 mr-2 shrink-0" />
+                      {err}
+                    </div>
+                  ))}
                 </motion.div>
-              ) : (
+              )}
+
+              {!checkResult ? (
                 <motion.div
+                  key="unchecked"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   className="flex flex-col items-center justify-center py-6 text-center space-y-3"
                 >
-                  <div className="p-3 bg-emerald-500/10 rounded-full">
-                    <CheckCircle2 className="w-6 h-6 text-emerald-400" />
+                  <div className="p-3 bg-muted rounded-full">
+                    <CheckCircle2 className="w-6 h-6 text-muted-foreground" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-medium text-foreground">All checks passed</h4>
-                    <p className="text-xs text-muted-foreground mt-1">Ready for submission</p>
+                    <h4 className="text-sm font-medium text-foreground">Not checked yet</h4>
+                    <p className="text-xs text-muted-foreground mt-1">Run Health Check before submitting</p>
                   </div>
+                </motion.div>
+              ) : (
+                <motion.div key="checked" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-3">
+                  {(() => {
+                    const errors = checkResult.findings.filter((f) => f.severity === 'error');
+                    const warnings = checkResult.findings.filter((f) => f.severity === 'warning');
+                    return (
+                      <>
+                        {errors.length === 0 ? (
+                          <div className="flex items-center text-emerald-400 bg-emerald-500/10 p-3 rounded-lg border border-emerald-500/20">
+                            <CheckCircle2 className="w-5 h-5 mr-2 shrink-0" />
+                            <span className="text-sm font-medium">Ready for submission</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center text-red-400 bg-red-500/10 p-3 rounded-lg border border-red-500/20">
+                            <AlertCircle className="w-5 h-5 mr-2 shrink-0" />
+                            <span className="text-sm font-medium">{errors.length} error{errors.length === 1 ? '' : 's'} must be fixed</span>
+                          </div>
+                        )}
+                        {warnings.length > 0 && (
+                          <div className="text-xs text-amber-500/80 font-medium uppercase tracking-wide">
+                            {warnings.length} warning{warnings.length === 1 ? '' : 's'}
+                          </div>
+                        )}
+                        <div className="space-y-2 max-h-[420px] overflow-y-auto">
+                          {[...errors, ...warnings].map((f, idx) => (
+                            <button
+                              key={`${f.ruleId}-${f.field ?? ''}-${idx}`}
+                              type="button"
+                              onClick={() => setActiveSection(sectionForField(f.field))}
+                              className={`w-full text-left text-xs p-2 rounded bg-background/50 border transition-colors ${
+                                f.severity === 'error'
+                                  ? 'border-red-500/30 text-foreground hover:border-red-500/50'
+                                  : 'border-border/50 text-muted-foreground hover:border-amber-500/30 hover:text-foreground'
+                              }`}
+                            >
+                              {f.message}
+                            </button>
+                          ))}
+                        </div>
+                        {checkResult.regulatoryReadiness.length > 0 && (
+                          <div className="pt-2 border-t border-border/50 space-y-1.5">
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Regulatory readiness</p>
+                            {checkResult.regulatoryReadiness.map((p) => (
+                              <div key={p.profile} className="flex items-center justify-between text-xs">
+                                <span className="text-foreground">{p.profile.toUpperCase()}</span>
+                                <span className={p.ready ? 'text-emerald-400' : 'text-amber-500/80'}>
+                                  {p.ready ? 'Ready' : `${p.missingFields.length} missing`}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {checkResult.continuityImpact.length > 0 && (
+                          <div className="pt-2 border-t border-border/50 space-y-1.5">
+                            <p className="text-xs font-medium uppercase tracking-wide text-red-400">Other reports invalidated</p>
+                            {checkResult.continuityImpact.map((c) => (
+                              <div key={c.reportId} className="text-xs text-muted-foreground">
+                                {c.eventType} · {c.invalidatedRules.join(', ')}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </motion.div>
               )}
             </AnimatePresence>

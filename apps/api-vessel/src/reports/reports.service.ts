@@ -422,7 +422,7 @@ export class ReportsService {
         reportId: row.reportId,
         eventType: row.eventType,
         eventTime: row.eventTime,
-        invalidatedRules: row.invalidatedRules,
+        invalidatedRules: (row.invalidatedRules as string[] | null) ?? [],
       }));
 
     return { report: updated, findings, regulatoryReadiness, continuityImpact };
