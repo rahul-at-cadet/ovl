@@ -14,6 +14,8 @@ import { TRPCError } from '@trpc/server';
 import { ValidationService } from '../validation/validation.service';
 import { parseEventTime } from '../validation/field-rules';
 import { hasErrors } from '../validation/types';
+import { SchemaRegistryService } from './schema-registry.service';
+import { LockManagerService, SectionLock } from './lock-manager.service';
 
 // Architecture 12.3: "text-only, size-capped" — enforced on every write
 // path on both sides (mirrors pkg/domain.MaxChatBodyBytes and the
@@ -52,6 +54,8 @@ export class ReportsService {
     @Inject(DATABASE_CONNECTION)
     private readonly db: BetterSQLite3Database<typeof schema>,
     private readonly validationService: ValidationService,
+    private readonly schemaRegistry: SchemaRegistryService,
+    private readonly lockManager: LockManagerService,
   ) {}
 
   async createReport(dto: CreateReportDto, username: string) {
@@ -153,8 +157,64 @@ export class ReportsService {
     return report;
   }
 
-  async saveSection(reportId: string, dto: SaveSectionDto, username: string) {
+  // Ports lockConflict — the real backstop behind the client-side
+  // "can't select a locked section" gate (a stale tab, a second
+  // browser, or a lock that expired mid-typing must never be trusted to
+  // have honored that gate itself). Fails open (no conflict) if the
+  // schema can't be loaded, matching the original exactly.
+  private findLockConflict(schemaName: string, reportId: string, changes: Record<string, unknown>, callerId: string): SectionLock | null {
+    let sch;
+    try {
+      sch = this.schemaRegistry.getSchema(schemaName);
+    } catch {
+      return null;
+    }
+    const sectionByField = new Map<string, string>();
+    for (const f of sch.fields) sectionByField.set(f.name, f.section || '');
+    const checked = new Set<string>();
+    for (const field of Object.keys(changes)) {
+      const section = sectionByField.get(field);
+      if (!section || checked.has(section)) continue;
+      checked.add(section);
+      const lock = this.lockManager.holder(reportId, section);
+      if (lock && lock.userId !== callerId) return lock;
+    }
+    return null;
+  }
+
+  async acquireLock(reportId: string, section: string, userId: string, username: string, role: string): Promise<SectionLock> {
     const report = await this.loadEditableReport(reportId);
+    const sch = this.schemaRegistry.getSchema(report.schemaName);
+    if (!sch.fields.some((f) => f.section === section)) {
+      throw new BadRequestException(`section "${section}" is not part of schema "${report.schemaName}"`);
+    }
+    const { lock, ok } = this.lockManager.acquire(reportId, section, userId, username, role);
+    if (!ok) {
+      throw new ConflictException(`section "${section}" is locked by ${lock.username}`);
+    }
+    return lock;
+  }
+
+  releaseLock(reportId: string, section: string, userId: string): { released: boolean } {
+    return { released: this.lockManager.release(reportId, section, userId) !== null };
+  }
+
+  /** Master-only — authorization is enforced by the tRPC procedure, not here. */
+  forceReleaseLock(reportId: string, section: string): { released: boolean } {
+    return { released: this.lockManager.forceRelease(reportId, section) !== null };
+  }
+
+  listLocks(reportId: string): SectionLock[] {
+    return this.lockManager.snapshot(reportId);
+  }
+
+  async saveSection(reportId: string, dto: SaveSectionDto, username: string, userId: string) {
+    const report = await this.loadEditableReport(reportId);
+
+    const conflict = this.findLockConflict(report.schemaName, reportId, dto.changes, userId);
+    if (conflict) {
+      throw new ConflictException(`section "${conflict.section}" is locked by ${conflict.username}`);
+    }
 
     let currentFields: Record<string, any> = {};
     if (typeof report.fields === 'string') {

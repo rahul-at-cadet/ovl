@@ -3,4 +3,7 @@ node_modules
 .env
 dist
 .turbo
+apps/api-vessel/attachments-store
+apps/api-vessel/uploads
+apps/api-vessel/backups
 

@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, Fragment } from 'react';
 import { useForm, Controller, useWatch } from 'react-hook-form';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { AlertCircle, CheckCircle2, Save, Send, Loader2, Cpu, RotateCcw } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Save, Send, Loader2, Cpu, RotateCcw, Lock, LockOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { trpc } from '@/lib/trpc';
 import { useRouter } from 'next/navigation';
@@ -101,6 +101,45 @@ export function ReportForm({ reportId }: ReportFormProps) {
   const saveSectionMutation = trpc.reports.saveSection.useMutation();
   const checkMutation = trpc.reports.check.useMutation();
   const trpcUtils = trpc.useUtils();
+
+  // Section soft-locking (architecture 9.5). No live-push transport
+  // exists anywhere in this app, so this polls rather than streaming —
+  // saveSection's own server-side check is the real backstop regardless
+  // of how fresh this poll is; the tab-disabling below is just the UX
+  // layer that keeps an officer from walking into a lock they'd only
+  // find out about on save.
+  const { data: me } = trpc.users.me.useQuery();
+  const { data: locks = [] } = trpc.reports.listLocks.useQuery({ id: reportId }, { refetchInterval: 5000 });
+  const acquireLockMutation = trpc.reports.acquireLock.useMutation();
+  const releaseLockMutation = trpc.reports.releaseLock.useMutation();
+  const forceReleaseLockMutation = trpc.reports.forceReleaseLock.useMutation();
+  const lockBySection = useMemo(() => new Map(locks.map((l) => [l.section, l])), [locks]);
+  const isMaster = me?.role?.toLowerCase() === 'master';
+
+  // Claims the active section on entry, renews it every 60s (well
+  // inside the 5-minute TTL) while it stays active, and releases it —
+  // via this same effect's cleanup — the moment the officer switches
+  // tabs or leaves the page.
+  useEffect(() => {
+    if (!report || !schema) return;
+    const section = activeSection ?? (schema.sections?.[0] || 'General');
+    acquireLockMutation.mutate(
+      { id: reportId, section },
+      {
+        onError: (err) => {
+          toastManager.add({ title: 'Section locked', description: err.message, type: 'error' });
+        },
+      },
+    );
+    const interval = setInterval(() => {
+      acquireLockMutation.mutate({ id: reportId, section });
+    }, 60_000);
+    return () => {
+      clearInterval(interval);
+      releaseLockMutation.mutate({ id: reportId, section });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSection, report, schema, reportId]);
 
   // The real backend Health Check result (field rules + plausibility +
   // continuity against the committed chain — see ReportsService.
@@ -364,37 +403,38 @@ export function ReportForm({ reportId }: ReportFormProps) {
   const canSubmit = report.state === 'ready';
 
   return (
-    <div className="flex flex-col xl:flex-row gap-6 items-start animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="flex flex-col xl:flex-row gap-6 items-start animate-in fade-in slide-in-from-bottom-4 duration-500 xl:h-[calc(100vh-140px)] xl:overflow-hidden">
       {/* Form Area */}
-      <div className="flex-1 w-full space-y-6">
-        <div className="flex justify-between items-center bg-card/50 p-4 rounded-xl border border-border backdrop-blur-sm">
+      <div className="flex-1 w-full space-y-6 xl:h-full xl:min-h-0 flex flex-col">
+        <div className="flex justify-between items-center bg-card/50 p-4 rounded-xl border border-border backdrop-blur-sm shrink-0">
           <div>
-            <h2 className="text-xl font-bold tracking-tight text-foreground">Drafting: {schema.schemaName}</h2>
+            <h2 className="text-xl font-bold tracking-tight text-foreground whitespace-nowrap">Drafting: {schema.schemaName}</h2>
           </div>
           <div className="flex gap-2">
-            <Button type="button" onClick={() => handleAction(getValues(), 'draft')} variant="outline" className="border-border bg-background/50 text-foreground hover:text-foreground h-11 text-base px-5" disabled={saveSectionMutation.isPending || submitReportMutation.isPending}>
-              <Save className="w-5 h-5 mr-2" />
+            <Button type="button" size="sm" onClick={() => handleAction(getValues(), 'draft')} variant="outline" className="border-border bg-background/50 text-foreground hover:text-foreground" disabled={saveSectionMutation.isPending || submitReportMutation.isPending}>
+              <Save className="w-4 h-4 mr-1.5" />
               {saveSectionMutation.isPending ? 'Saving...' : 'Save Draft'}
             </Button>
-            <Button type="button" onClick={handleRunCheck} variant="outline" className="border-border bg-background/50 text-foreground hover:text-foreground h-11 text-base px-5" disabled={checkMutation.isPending || submitReportMutation.isPending}>
-              <CheckCircle2 className="w-5 h-5 mr-2" />
+            <Button type="button" size="sm" onClick={handleRunCheck} variant="outline" className="border-border bg-background/50 text-foreground hover:text-foreground" disabled={checkMutation.isPending || submitReportMutation.isPending}>
+              <CheckCircle2 className="w-4 h-4 mr-1.5" />
               {checkMutation.isPending ? 'Checking...' : 'Run Health Check'}
             </Button>
             <Button
               type="button"
+              size="sm"
               onClick={handleSubmit((d) => handleAction(d, 'submit'))}
-              className="bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 h-11 text-base px-5"
+              className="bg-primary hover:bg-primary/90 text-white shadow-sm"
               disabled={saveSectionMutation.isPending || submitReportMutation.isPending || !canSubmit}
               title={canSubmit ? undefined : 'Run Health Check with zero errors before submitting'}
             >
-              <Send className="w-5 h-5 mr-2" />
+              <Send className="w-4 h-4 mr-1.5" />
               {submitReportMutation.isPending ? 'Processing...' : 'Submit to Shore'}
             </Button>
           </div>
         </div>
 
-        <Card className="bg-card/50 border-border">
-          <div className="p-4 border-b border-border flex justify-between items-center">
+        <Card className="bg-card/50 border-border xl:flex-1 xl:min-h-0 flex flex-col">
+          <div className="p-4 border-b border-border flex justify-between items-center shrink-0">
             <h3 className="text-sm font-medium text-muted-foreground">Form Details</h3>
             <Button
               type="button"
@@ -408,20 +448,42 @@ export function ReportForm({ reportId }: ReportFormProps) {
               {telemetryLoading ? 'Reading Sensors...' : 'Pre-fill from Sensors'}
             </Button>
           </div>
-          <Tabs value={activeSection ?? sections[0]} onValueChange={setActiveSection} className="w-full">
+          <Tabs value={activeSection ?? sections[0]} onValueChange={setActiveSection} className="w-full xl:flex-1 xl:min-h-0 flex flex-col">
             {sections.length > 1 && (
-              <CardHeader className="border-b border-border pb-0 pt-4 px-4">
+              <CardHeader className="border-b border-border pb-0 pt-4 px-4 shrink-0">
                 <TabsList className="bg-background/50 border border-border w-full justify-start h-auto p-1 overflow-x-auto">
-                  {sections.map(section => (
-                    <TabsTrigger key={section} value={section} className="data-[state=active]:bg-muted data-[state=active]:text-foreground px-6 py-2 capitalize">
-                      {section.replace(/([A-Z])/g, ' $1').trim()}
-                    </TabsTrigger>
-                  ))}
+                  {sections.map(section => {
+                    const lock = lockBySection.get(section);
+                    const lockedByOther = !!lock && lock.userId !== me?.id;
+                    return (
+                      <Fragment key={section}>
+                        <TabsTrigger
+                          value={section}
+                          disabled={lockedByOther && !isMaster}
+                          title={lockedByOther ? `Locked by ${lock.username}` : undefined}
+                          className="data-[state=active]:bg-primary/15 data-[state=active]:text-primary data-[state=active]:shadow-sm px-6 py-2 capitalize"
+                        >
+                          {lockedByOther && <Lock className="w-3 h-3 mr-1.5 text-amber-500/80" />}
+                          {section.replace(/([A-Z])/g, ' $1').trim()}
+                        </TabsTrigger>
+                        {lockedByOther && isMaster && (
+                          <button
+                            type="button"
+                            title={`Force-release ${lock.username}'s lock`}
+                            onClick={() => forceReleaseLockMutation.mutate({ id: reportId, section })}
+                            className="p-1 rounded text-muted-foreground hover:text-red-400 hover:bg-red-500/10 self-center"
+                          >
+                            <LockOpen className="w-3 h-3" />
+                          </button>
+                        )}
+                      </Fragment>
+                    );
+                  })}
                 </TabsList>
               </CardHeader>
             )}
 
-            <CardContent className="pt-6">
+            <CardContent className="pt-6 xl:flex-1 xl:min-h-0 xl:overflow-y-auto">
               <form onSubmit={(e) => e.preventDefault()} noValidate>
                 {sections.map(section => {
                   const sectionFields = schema.fields
@@ -602,9 +664,9 @@ export function ReportForm({ reportId }: ReportFormProps) {
       </div>
 
       {/* Health Check Panel */}
-      <div className="w-full xl:w-80 shrink-0">
-        <Card className="bg-card/50 border-border sticky top-24">
-          <CardHeader className="border-b border-border pb-4">
+      <div className="w-full xl:w-80 xl:h-full xl:min-h-0 shrink-0 flex flex-col">
+        <Card className="bg-card/50 border-border xl:flex-1 xl:min-h-0 flex flex-col">
+          <CardHeader className="border-b border-border pb-4 shrink-0">
             <CardTitle className="text-lg flex items-center">
               Health Check
             </CardTitle>
@@ -612,7 +674,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
               {checkResult ? 'Field rules, plausibility, and continuity against the committed chain' : 'Not yet checked'}
             </CardDescription>
           </CardHeader>
-          <CardContent className="pt-4">
+          <CardContent className="pt-4 xl:flex-1 xl:min-h-0 xl:overflow-y-auto">
             <AnimatePresence mode="wait">
               {serverErrors.length > 0 && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mb-3 space-y-2">
@@ -663,7 +725,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
                             {warnings.length} warning{warnings.length === 1 ? '' : 's'}
                           </div>
                         )}
-                        <div className="space-y-2 max-h-[420px] overflow-y-auto">
+                        <div className="space-y-2">
                           {[...errors, ...warnings].map((f, idx) => (
                             <button
                               key={`${f.ruleId}-${f.field ?? ''}-${idx}`}

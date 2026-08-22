@@ -49,6 +49,17 @@ const SaveSectionSchema = Type.Object({
 });
 const SaveSectionCompiler = TypeCompiler.Compile(SaveSectionSchema);
 
+const LockSectionSchema = Type.Object({
+  id: Type.String(),
+  section: Type.String(),
+});
+const LockSectionCompiler = TypeCompiler.Compile(LockSectionSchema);
+
+const ListLocksSchema = Type.Object({
+  id: Type.String(),
+});
+const ListLocksCompiler = TypeCompiler.Compile(ListLocksSchema);
+
 const SubmitReportSchema = Type.Object({
   id: Type.String(),
 });
@@ -246,7 +257,49 @@ export class TrpcRouter {
             input.id,
             { section: input.section, changes: input.changes },
             ctx.user.username,
+            ctx.user.sub,
           );
+        }),
+      // Section soft-locking (architecture 9.5). No SSE/live-push
+      // transport in this port (none exists anywhere else in this app
+      // either) — the frontend polls listLocks periodically instead;
+      // saveSection's own server-side check above is the real backstop
+      // regardless of how fresh the client's last poll was.
+      listLocks: this.protectedProcedure
+        .input((val: unknown) => {
+          if (!ListLocksCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof ListLocksSchema>;
+        })
+        .query(async ({ input }) => {
+          return this.reportsService.listLocks(input.id);
+        }),
+      acquireLock: this.protectedProcedure
+        .input((val: unknown) => {
+          if (!LockSectionCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof LockSectionSchema>;
+        })
+        .mutation(async ({ input, ctx }) => {
+          return this.reportsService.acquireLock(input.id, input.section, ctx.user.sub, ctx.user.username, ctx.user.role);
+        }),
+      releaseLock: this.protectedProcedure
+        .input((val: unknown) => {
+          if (!LockSectionCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof LockSectionSchema>;
+        })
+        .mutation(async ({ input, ctx }) => {
+          return this.reportsService.releaseLock(input.id, input.section, ctx.user.sub);
+        }),
+      forceReleaseLock: this.protectedProcedure
+        .input((val: unknown) => {
+          if (!LockSectionCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof LockSectionSchema>;
+        })
+        .mutation(async ({ input, ctx }) => {
+          // Architecture 9.3/9.5: Master-only force-release.
+          if (ctx.user.role?.toLowerCase() !== 'master') {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the Master account may force-release a section lock.' });
+          }
+          return this.reportsService.forceReleaseLock(input.id, input.section);
         }),
       submitReport: this.protectedProcedure
         .input((val: unknown) => {
