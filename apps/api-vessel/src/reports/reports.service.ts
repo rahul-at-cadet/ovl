@@ -141,7 +141,11 @@ export class ReportsService {
 
   // Ports loadEditableReport — draft/ready gate shared by every
   // still-editable-report action (saveSection, check, acknowledgeFinding).
-  private async loadEditableReport(reportId: string) {
+  // Not private: AttachmentsService reuses the same draft/ready gate for
+  // upload/delete (an attachment on a locked report would have nowhere
+  // consistent to attribute a version to, same rule as every other
+  // field mutation).
+  async loadEditableReport(reportId: string) {
     const report = await this.getReport(reportId);
     if (report.state !== 'draft' && report.state !== 'ready') {
       throw new ConflictException(`report is ${report.state} and locked; start a correction to edit it`);

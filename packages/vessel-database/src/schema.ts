@@ -92,3 +92,27 @@ export const invalidationNotices = sqliteTable('invalidation_notices', {
   brokenRules: text('broken_rules', { mode: 'json' }).notNull(),
   computedAt: text('computed_at').notNull(), // ISO string
 });
+
+// This vessel's local metadata for report attachments — the file bytes
+// themselves live in the content-addressed filesystem store (see
+// AttachmentStore, keyed by sha256 content_hash), this table is what a
+// report's Attachments section actually lists/downloads/deletes by.
+// Mirrors ovl/vessel/store/migrations/00010_attachments.sql exactly.
+// synced_at stays permanently null in this port — office-sync for
+// attachments is real chunked binary RPC in the original
+// (QueryMissingAttachmentChunks/UploadAttachmentChunk) and isn't
+// implemented here; reporting a fabricated synced status would be worse
+// than reporting none.
+export const attachments = sqliteTable('attachments', {
+  id: text('id').primaryKey(),
+  reportId: text('report_id').notNull(),
+  versionNo: integer('version_no').notNull(),
+  fieldName: text('field_name').notNull(),
+  filename: text('filename').notNull(),
+  contentType: text('content_type').notNull(),
+  contentHash: text('content_hash').notNull(),
+  sizeBytes: integer('size_bytes').notNull(),
+  uploadedAt: text('uploaded_at').notNull(),
+  uploadedBy: text('uploaded_by').notNull(),
+  syncedAt: text('synced_at'),
+});
