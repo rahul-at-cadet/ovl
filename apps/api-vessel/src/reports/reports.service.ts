@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { DATABASE_CONNECTION } from '../database/database.module';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
@@ -10,6 +11,9 @@ import { eq, and } from 'drizzle-orm';
 import * as schema from '@ovl/vessel-database';
 import { randomUUID } from 'crypto';
 import { TRPCError } from '@trpc/server';
+import { ValidationService } from '../validation/validation.service';
+import { parseEventTime } from '../validation/field-rules';
+import { hasErrors } from '../validation/types';
 
 // Architecture 12.3: "text-only, size-capped" — enforced on every write
 // path on both sides (mirrors pkg/domain.MaxChatBodyBytes and the
@@ -29,24 +33,39 @@ export type SaveSectionDto = {
   changes: Record<string, any>;
 };
 
+// Ports domain/report.go's RecomputeEventTime: when a report's fields
+// carry the Date_UTC/Time_UTC pair (only log-abstract does today), the
+// combined value becomes the report's EventTime — the source of truth
+// the whole continuity engine chains off of. Schemas without that pair
+// keep whatever eventTime was already provided.
+function recomputeEventTime(fields: Record<string, any>, fallback: string): string {
+  const dateUTC = fields.Date_UTC;
+  const timeUTC = fields.Time_UTC;
+  if (typeof dateUTC !== 'string' || typeof timeUTC !== 'string') return fallback;
+  const parsed = parseEventTime(dateUTC, timeUTC);
+  return parsed ? parsed.toISOString() : fallback;
+}
+
 @Injectable()
 export class ReportsService {
   constructor(
     @Inject(DATABASE_CONNECTION)
     private readonly db: BetterSQLite3Database<typeof schema>,
+    private readonly validationService: ValidationService,
   ) {}
 
-  createReport(dto: CreateReportDto, username: string) {
+  async createReport(dto: CreateReportDto, username: string) {
     const reportId = randomUUID();
     const versionNo = 1;
     const now = new Date().toISOString();
+    const eventTime = recomputeEventTime(dto.fields, dto.eventTime);
 
     const report = {
       reportId,
       versionNo,
       schemaName: dto.schemaName,
       eventType: dto.eventType,
-      eventTime: dto.eventTime,
+      eventTime,
       fields: dto.fields, // better-sqlite3 handles JSON parsing if mode is 'json'
       state: 'draft',
       createdAt: now,
@@ -62,12 +81,21 @@ export class ReportsService {
       actor: username,
     };
 
-    return this.db.transaction((tx) => {
+    const result = this.db.transaction((tx) => {
       tx.insert(schema.reports).values(report).run();
       tx.insert(schema.reportEvents).values(event).run();
 
       return report;
     });
+
+    // A brand-new draft never joins the committed chain (see
+    // ValidationService.getCommittedChain's own comment on why drafts
+    // are excluded), so this has no practical effect today — kept for
+    // fidelity with the original, which calls runCascade
+    // unconditionally after every report-chain mutation.
+    await this.validationService.runCascade(dto.schemaName);
+
+    return result;
   }
 
   async listReports(schemaName?: string) {
@@ -111,14 +139,18 @@ export class ReportsService {
     return versions[0];
   }
 
-  async saveSection(reportId: string, dto: SaveSectionDto, username: string) {
+  // Ports loadEditableReport — draft/ready gate shared by every
+  // still-editable-report action (saveSection, check, acknowledgeFinding).
+  private async loadEditableReport(reportId: string) {
     const report = await this.getReport(reportId);
-
     if (report.state !== 'draft' && report.state !== 'ready') {
-      throw new ConflictException(
-        `Report is ${report.state} and cannot be edited. Start a correction.`,
-      );
+      throw new ConflictException(`report is ${report.state} and locked; start a correction to edit it`);
     }
+    return report;
+  }
+
+  async saveSection(reportId: string, dto: SaveSectionDto, username: string) {
+    const report = await this.loadEditableReport(reportId);
 
     let currentFields: Record<string, any> = {};
     if (typeof report.fields === 'string') {
@@ -135,12 +167,14 @@ export class ReportsService {
       ...currentFields,
       ...dto.changes,
     };
+    const eventTime = recomputeEventTime(mergedFields, report.eventTime);
     const now = new Date().toISOString();
 
-    return this.db.transaction((tx) => {
+    const result = this.db.transaction((tx) => {
       tx.update(schema.reports)
         .set({
           fields: mergedFields,
+          eventTime,
           updatedAt: now,
           state: 'draft', // saving resets back to draft
         })
@@ -166,22 +200,40 @@ export class ReportsService {
       return {
         ...report,
         fields: mergedFields,
+        eventTime,
         updatedAt: now,
         state: 'draft',
       };
     });
+
+    await this.validationService.runCascade(report.schemaName);
+    return result;
   }
 
+  /**
+   * Submitting requires the report to have actually passed a health
+   * check first (state === 'ready', set by checkReport/MarkReady below)
+   * — previously any draft could submit directly with zero validation
+   * ever having run. A correction's first-ever resubmit (versionNo > 1)
+   * is recorded as a "resubmitted" event instead of "submitted", matching
+   * domain.Report.Submit exactly; the report's `state` column is
+   * "submitted" either way.
+   */
   async submitReport(reportId: string, username: string) {
     const report = await this.getReport(reportId);
 
-    if (report.state !== 'draft' && report.state !== 'ready') {
-      throw new ConflictException(`Report is already ${report.state}`);
+    if (report.state !== 'ready') {
+      throw new ConflictException(
+        report.state === 'draft'
+          ? 'report must pass Health Check before it can be submitted'
+          : `report is already ${report.state}`,
+      );
     }
 
     const now = new Date().toISOString();
+    const eventType = report.versionNo > 1 ? 'resubmitted' : 'submitted';
 
-    return this.db.transaction((tx) => {
+    const result = this.db.transaction((tx) => {
       tx.update(schema.reports)
         .set({
           state: 'submitted',
@@ -201,7 +253,7 @@ export class ReportsService {
         .values({
           reportId,
           versionNo: report.versionNo,
-          type: 'submitted',
+          type: eventType,
           at: now,
           actor: username,
         })
@@ -224,6 +276,9 @@ export class ReportsService {
         submittedBy: username,
       };
     });
+
+    await this.validationService.runCascade(report.schemaName);
+    return result;
   }
 
   /**
@@ -296,6 +351,147 @@ export class ReportsService {
         .run();
 
       return next;
+    });
+  }
+
+  /**
+   * Ports handleCheckReport — the only path to `ready`; submit requires
+   * it. Runs the full 3-pass evaluation (field rules + plausibility +
+   * continuity against the committed chain), then MarkReady: any
+   * error-severity finding keeps the report in `draft` (returned in the
+   * response, not thrown — a failed check is a normal, expected result,
+   * not a server error). Does NOT run cascade — check only reads
+   * already-persisted invalidated state via continuityImpact, it never
+   * recomputes it (cascade runs on create/saveSection/submit instead).
+   */
+  async checkReport(reportId: string, username: string) {
+    const report = await this.loadEditableReport(reportId);
+    const { findings, policy, events } = await this.validationService.evaluateReport(report);
+
+    let errors = 0;
+    let warnings = 0;
+    let info = 0;
+    for (const f of findings) {
+      if (f.severity === 'error') errors++;
+      else if (f.severity === 'warning') warnings++;
+      else info++;
+    }
+
+    const now = new Date().toISOString();
+    const nextState = errors > 0 ? 'draft' : 'ready';
+
+    const updated = this.db.transaction((tx) => {
+      tx.update(schema.reports)
+        .set({ state: nextState, updatedAt: now })
+        .where(and(eq(schema.reports.reportId, reportId), eq(schema.reports.versionNo, report.versionNo)))
+        .run();
+
+      // MarkReady's event has no actor in the original either — the
+      // domain method that builds it doesn't take a username, only the
+      // findings; a health check result belongs to the report's own
+      // computed state, not to whoever happened to click the button.
+      tx.insert(schema.reportEvents)
+        .values({
+          reportId,
+          versionNo: report.versionNo,
+          type: 'health_check_result',
+          at: now,
+          actor: '',
+          detail: { errors, warnings, info },
+        })
+        .run();
+
+      tx.insert(schema.syncOutbox)
+        .values({
+          id: randomUUID(),
+          eventType: 'health_check_result',
+          payload: JSON.stringify({ reportId, versionNo: report.versionNo, errors, warnings, info, at: now }),
+          createdAt: now,
+        })
+        .run();
+
+      return { ...report, state: nextState, updatedAt: now };
+    });
+
+    const regulatoryReadiness = await this.validationService.regulatoryReadinessFor(report, policy, events);
+
+    const fullChain = await this.validationService.getFullChain(report.schemaName);
+    const continuityImpact = fullChain
+      .filter(({ row }) => row.reportId !== reportId && row.state === 'invalidated')
+      .map(({ row }) => ({
+        reportId: row.reportId,
+        eventType: row.eventType,
+        eventTime: row.eventTime,
+        invalidatedRules: row.invalidatedRules,
+      }));
+
+    return { report: updated, findings, regulatoryReadiness, continuityImpact };
+  }
+
+  /**
+   * Ports handleValidateReport — a stateless preview for on-blur/
+   * debounced calls. No state gate (unlike checkReport): the original
+   * lets this run against a report in any state, since it never writes
+   * anything. Replaces `fields` wholesale with the caller's in-flight
+   * values (not merged with what's persisted) and evaluates against
+   * them, but does NOT recompute eventTime from the previewed
+   * Date_UTC/Time_UTC — the preview lags on time-chain findings until
+   * the officer actually saves, matching the original exactly.
+   */
+  async validateReport(reportId: string, fields: Record<string, any>) {
+    const report = await this.getReport(reportId);
+    const preview = { ...report, fields };
+    const { findings } = await this.validationService.evaluateReport(preview);
+    return { findings };
+  }
+
+  /**
+   * Ports handleAcknowledgeFinding — an append-only audit trail (no
+   * acknowledgements table, no read-back endpoint; the UI derives
+   * current state by replaying report_events). Enqueued to the outbox
+   * immediately, unlike most report events which wait for submit.
+   */
+  async acknowledgeFinding(
+    reportId: string,
+    dto: { ruleId: string; field?: string; message: string; acknowledged: boolean },
+    username: string,
+  ) {
+    if (!dto.ruleId) {
+      throw new BadRequestException('ruleId is required');
+    }
+    const report = await this.loadEditableReport(reportId);
+    const now = new Date().toISOString();
+    const detail = { ruleId: dto.ruleId, field: dto.field, message: dto.message, acknowledged: dto.acknowledged };
+
+    this.db.transaction((tx) => {
+      tx.insert(schema.reportEvents)
+        .values({
+          reportId,
+          versionNo: report.versionNo,
+          type: 'finding_acknowledged',
+          at: now,
+          actor: username,
+          detail,
+        })
+        .run();
+
+      tx.insert(schema.syncOutbox)
+        .values({
+          id: randomUUID(),
+          eventType: 'finding_acknowledged',
+          payload: JSON.stringify({ reportId, versionNo: report.versionNo, ...detail, at: now }),
+          createdAt: now,
+        })
+        .run();
+    });
+
+    return { acknowledged: dto.acknowledged };
+  }
+
+  async listInvalidationNotices(reportId: string) {
+    return this.db.query.invalidationNotices.findMany({
+      where: eq(schema.invalidationNotices.reportId, reportId),
+      orderBy: (n, { asc }) => [asc(n.computedAt)],
     });
   }
 

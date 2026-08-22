@@ -54,6 +54,26 @@ const SubmitReportSchema = Type.Object({
 });
 const SubmitReportCompiler = TypeCompiler.Compile(SubmitReportSchema);
 
+const ValidateReportSchema = Type.Object({
+  id: Type.String(),
+  fields: Type.Record(Type.String(), Type.Any()),
+});
+const ValidateReportCompiler = TypeCompiler.Compile(ValidateReportSchema);
+
+const AcknowledgeFindingSchema = Type.Object({
+  id: Type.String(),
+  ruleId: Type.String(),
+  field: Type.Optional(Type.String()),
+  message: Type.String(),
+  acknowledged: Type.Boolean(),
+});
+const AcknowledgeFindingCompiler = TypeCompiler.Compile(AcknowledgeFindingSchema);
+
+const ListInvalidationNoticesSchema = Type.Object({
+  reportId: Type.String(),
+});
+const ListInvalidationNoticesCompiler = TypeCompiler.Compile(ListInvalidationNoticesSchema);
+
 const ListEventsSchema = Type.Object({
   reportId: Type.String(),
 });
@@ -244,6 +264,39 @@ export class TrpcRouter {
             throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have permission to submit reports.' });
           }
           return this.reportsService.submitReport(input.id, ctx.user.username);
+        }),
+      check: this.protectedProcedure
+        .input((val: unknown) => {
+          if (!SubmitReportCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof SubmitReportSchema>;
+        })
+        .mutation(async ({ input, ctx }) => {
+          return this.reportsService.checkReport(input.id, ctx.user.username);
+        }),
+      validate: this.protectedProcedure
+        .input((val: unknown) => {
+          if (!ValidateReportCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof ValidateReportSchema>;
+        })
+        .mutation(async ({ input }) => {
+          return this.reportsService.validateReport(input.id, input.fields);
+        }),
+      acknowledgeFinding: this.protectedProcedure
+        .input((val: unknown) => {
+          if (!AcknowledgeFindingCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof AcknowledgeFindingSchema>;
+        })
+        .mutation(async ({ input, ctx }) => {
+          const { id, ...detail } = input;
+          return this.reportsService.acknowledgeFinding(id, detail, ctx.user.username);
+        }),
+      listInvalidationNotices: this.protectedProcedure
+        .input((val: unknown) => {
+          if (!ListInvalidationNoticesCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof ListInvalidationNoticesSchema>;
+        })
+        .query(async ({ input }) => {
+          return this.reportsService.listInvalidationNotices(input.reportId);
         }),
       startCorrection: this.protectedProcedure
         .input((val: unknown) => {
