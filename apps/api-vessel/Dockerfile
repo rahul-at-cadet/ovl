@@ -17,6 +17,12 @@ COPY packages/database/package.json packages/database/package.json
 COPY packages/vessel-database/package.json packages/vessel-database/package.json
 RUN npm ci
 COPY . .
+# api-vessel never imports @ovl/database itself, but nest build
+# type-checks the whole chain behind trpc.service.ts's type-only
+# AppRouter import — which reaches into api-office's source, which
+# does import it. Without building it here, that resolves to a bare
+# package.json with no dist/, and tsc fails with "Cannot find module".
+RUN npm run build --workspace=@ovl/database
 RUN npm run build --workspace=@ovl/vessel-database
 RUN npm run build --workspace=api-vessel
 
