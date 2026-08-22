@@ -1,6 +1,8 @@
 ovl
 node_modules
 .env
+.env.*
+!.env.*.example
 dist
 .turbo
 apps/api-vessel/attachments-store
