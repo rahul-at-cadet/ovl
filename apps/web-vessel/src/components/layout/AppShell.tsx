@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import { CadetlabsLogo } from '@/components/layout/CadetlabsLogo';
 import { trpc } from '@/lib/trpc';
 import { API_ORIGIN } from '@/lib/api-origin';
 
@@ -86,7 +87,8 @@ export function AppShell({ children }: AppShellProps) {
           md:relative md:translate-x-0 ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
           ${isSidebarOpen ? 'w-[260px]' : 'md:w-[80px] w-[260px]'}`}
       >
-        <div className="h-16 flex items-center px-4 border-b border-border/40 relative">
+        <div className="h-16 flex items-center gap-2 px-4 border-b border-border/40 relative">
+          <CadetlabsLogo className="h-6 w-6 shrink-0" />
           {(isSidebarOpen || isMobileSidebarOpen) && (
             <span className="font-semibold text-base tracking-wide whitespace-nowrap bg-clip-text text-transparent bg-gradient-to-r from-zinc-900 to-zinc-600 dark:from-zinc-100 dark:to-zinc-400">
               Cadetlabs
@@ -163,6 +165,13 @@ export function AppShell({ children }: AppShellProps) {
 
           <div className="flex items-center space-x-5">
             <ThemeToggle />
+            {/* Base UI's Popover.Root renders no wrapping element of its own —
+                it injects small focus-guard elements inline at this exact
+                nesting level when open. Left unwrapped, those become extra
+                flex children of this space-x-5 row and get margined like any
+                other child, visibly shifting later siblings. A plain div
+                contains them instead. */}
+            <div>
             <Popover>
               <PopoverTrigger
                 render={
@@ -212,11 +221,34 @@ export function AppShell({ children }: AppShellProps) {
                 )}
               </PopoverContent>
             </Popover>
+            </div>
 
-            <div className="w-9 h-9 rounded-xl bg-primary p-[1px] shadow-lg cursor-pointer hover:shadow-primary/25 transition-shadow">
-              <div className="w-full h-full rounded-[11px] bg-card border border-white/10 flex items-center justify-center">
-                <User className="w-4 h-4 text-foreground" />
-              </div>
+            <div>
+            <Popover>
+              <PopoverTrigger
+                render={
+                  <button className="w-9 h-9 rounded-xl bg-primary p-[1px] shadow-lg hover:shadow-primary/25 transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    <div className="w-full h-full rounded-[11px] bg-card border border-white/10 flex items-center justify-center">
+                      <User className="w-4 h-4 text-foreground" />
+                    </div>
+                  </button>
+                }
+              />
+              <PopoverContent align="end" className="w-48 bg-card/95 backdrop-blur-xl border-border shadow-2xl rounded-2xl text-foreground p-0 overflow-hidden">
+                <button
+                  onClick={handleLogout}
+                  disabled={isLoggingOut}
+                  className="w-full flex items-center px-3 py-2.5 text-sm text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                >
+                  {isLoggingOut ? (
+                    <Loader2 className="w-4 h-4 mr-2 shrink-0 animate-spin" />
+                  ) : (
+                    <LogOut className="w-4 h-4 mr-2 shrink-0" />
+                  )}
+                  Sign Out
+                </button>
+              </PopoverContent>
+            </Popover>
             </div>
           </div>
         </header>

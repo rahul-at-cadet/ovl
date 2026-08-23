@@ -13,6 +13,7 @@ import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { CadetlabsLogo } from '@/components/layout/CadetlabsLogo';
 import { trpc } from '@/lib/trpc';
+import { useCurrentUser } from '@/lib/useCurrentUser';
 
 interface AppShellProps {
   children: ReactNode;
@@ -51,6 +52,11 @@ export function AppShell({ children }: AppShellProps) {
     await signOut();
     router.push('/login');
   };
+
+  const { data: currentUser } = useCurrentUser();
+  const userInitials = currentUser?.username
+    ? currentUser.username.slice(0, 2).toUpperCase()
+    : '?';
 
   const utils = trpc.useUtils();
   const { data: notifications = [], isLoading } = trpc.notifications.list.useQuery(undefined, {
@@ -219,6 +225,13 @@ export function AppShell({ children }: AppShellProps) {
 
           <div className="flex items-center space-x-4">
             <ThemeToggle />
+            {/* Base UI's Popover.Root renders no wrapping element of its own —
+                it injects small focus-guard elements inline at this exact
+                nesting level when open. Left unwrapped, those become extra
+                flex children of this space-x-4 row and get margined like any
+                other child, visibly shifting later siblings. A plain div
+                contains them instead. */}
+            <div>
             <Popover>
               <PopoverTrigger
                 render={
@@ -289,11 +302,37 @@ export function AppShell({ children }: AppShellProps) {
                 </div>
               </PopoverContent>
             </Popover>
+            </div>
 
-            <Avatar className="h-8 w-8 border border-border">
-              <AvatarImage src="" />
-              <AvatarFallback className="bg-primary text-primary-foreground text-xs">AD</AvatarFallback>
-            </Avatar>
+            <div>
+            <Popover>
+              <PopoverTrigger
+                render={
+                  <button className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    <Avatar className="h-8 w-8 border border-border">
+                      <AvatarImage src="" />
+                      <AvatarFallback className="bg-primary text-primary-foreground text-xs">{userInitials}</AvatarFallback>
+                    </Avatar>
+                  </button>
+                }
+              />
+              <PopoverContent align="end" className="w-56 bg-card border-border text-foreground p-0 overflow-hidden">
+                <div className="p-3 border-b border-border">
+                  <p className="text-sm font-medium truncate">{currentUser?.username ?? 'Loading...'}</p>
+                  {currentUser?.roles ? (
+                    <p className="text-xs text-muted-foreground truncate">{currentUser.roles.join(', ')}</p>
+                  ) : null}
+                </div>
+                <button
+                  onClick={handleSignOut}
+                  className="w-full flex items-center px-3 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  <LogOut className="w-4 h-4 mr-2 shrink-0" />
+                  Sign Out
+                </button>
+              </PopoverContent>
+            </Popover>
+            </div>
           </div>
         </header>
 

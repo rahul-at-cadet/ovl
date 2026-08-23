@@ -150,4 +150,10 @@
   html {
     @apply font-sans;
   }
+  /* Tailwind's preflight resets button cursor to the browser default
+     (arrow) rather than pointer, unlike links — restore the pointer
+     cursor app-wide for anything actually clickable. */
+  button:not(:disabled) {
+    cursor: pointer;
+  }
 }
