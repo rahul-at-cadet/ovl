@@ -222,6 +222,21 @@ export class UsersService {
       throw new BadRequestException('New password must be at least 8 characters');
     }
 
+    // Updating only this table's own shadow copy would leave the real
+    // SuperTokens credential unchanged — login is verified against
+    // SuperTokens, not this column, so the person would be locked out
+    // with a "changed" password that never actually works. Same fix
+    // already applied to resetUserPassword; this path just never got it.
+    const stUsers = await supertokens.listUsersByAccountInfo('public', { email: user.username });
+    const recipeUserId = stUsers[0]?.loginMethods[0]?.recipeUserId;
+    if (!recipeUserId) {
+      throw new NotFoundException(`No SuperTokens login found for "${user.username}" — this user can't sign in and has no password to change.`);
+    }
+    const updateResult = await EmailPassword.updateEmailOrPassword({ recipeUserId, password: newPassword });
+    if (updateResult.status !== 'OK') {
+      throw new BadRequestException(`Failed to update password: ${updateResult.status}`);
+    }
+
     const newHash = await argon2.hash(newPassword, { type: argon2.argon2id });
     const [updated] = await this.db
       .update(schema.users)

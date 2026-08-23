@@ -6,6 +6,7 @@ export interface CurrentUser {
   username: string;
   roles: string[];
   active: boolean;
+  mustChangePassword: boolean;
 }
 
 // GET /users/me is a plain REST endpoint (api-office/src/users/users.controller.ts),

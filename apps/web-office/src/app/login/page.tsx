@@ -3,13 +3,14 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { signIn } from 'supertokens-auth-react/recipe/emailpassword';
-import { Building2, KeyRound, ShieldCheck } from 'lucide-react';
+import { Building2, KeyRound, ShieldCheck, ShieldAlert } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { CadetlabsLogo } from '@/components/layout/CadetlabsLogo';
 import { trpc } from '@/lib/trpc';
+import { API_ORIGIN } from '@/lib/api-origin';
 
 export default function OfficeLoginPage() {
   const router = useRouter();
@@ -17,6 +18,16 @@ export default function OfficeLoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+
+  // Set once a login succeeds with mustChangePassword true (a temp
+  // password, either first-issued or admin-reset) — swaps the form below
+  // for a forced change instead of continuing to the dashboard. Keeps the
+  // just-typed password in state as `password` below, since the
+  // self-service change endpoint requires the current one and there's
+  // nowhere else to get it once the temp-password login form is gone.
+  const [mustChangePassword, setMustChangePassword] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   // Mirrors the original's SetupAdmin screen: shown only once, when no
   // account exists anywhere yet, in place of the normal sign-in form.
@@ -38,7 +49,16 @@ export default function OfficeLoginPage() {
       });
 
       if (response.status === "OK") {
-        router.push('/');
+        // signIn() only confirms the SuperTokens session; whether this is
+        // a temp password needing a forced change lives in this app's own
+        // profile table, so that requires a separate authenticated call.
+        const meRes = await fetch(`${API_ORIGIN}/users/me`);
+        const me = meRes.ok ? await meRes.json() : null;
+        if (me?.mustChangePassword) {
+          setMustChangePassword(true);
+        } else {
+          router.push('/');
+        }
       } else {
         setError("Invalid email or password");
       }
@@ -48,6 +68,100 @@ export default function OfficeLoginPage() {
       setIsLoading(false);
     }
   };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (newPassword !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+    if (newPassword.length < 8) {
+      setError('Password must be at least 8 characters');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const res = await fetch(`${API_ORIGIN}/users/me/password`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword: password, newPassword }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.message || 'Failed to update password');
+      }
+      window.location.href = '/';
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'An error occurred updating the password');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (mustChangePassword) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="w-full max-w-[400px] z-10 p-4">
+          <Card className="bg-card border-border shadow-xl rounded-md">
+            <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-border/50">
+              <div className="flex justify-center mb-2">
+                <div className="p-3 bg-amber-500/10 text-amber-500 rounded-full border border-amber-500/20">
+                  <ShieldAlert className="w-6 h-6" />
+                </div>
+              </div>
+              <CardTitle className="text-xl font-medium tracking-tight text-foreground">Action Required</CardTitle>
+              <CardDescription className="text-muted-foreground mt-1 text-sm">
+                You must change your temporary password before continuing.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="pt-6">
+              <form onSubmit={handleChangePassword} className="space-y-4">
+                <div className="space-y-2">
+                  <Label className="text-foreground text-xs uppercase tracking-wider font-medium">New Password</Label>
+                  <div className="relative">
+                    <KeyRound className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="pl-9 bg-background/50 border-border focus-visible:ring-ring text-foreground rounded-sm h-9 text-sm"
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-foreground text-xs uppercase tracking-wider font-medium">Confirm Password</Label>
+                  <div className="relative">
+                    <KeyRound className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="pl-9 bg-background/50 border-border focus-visible:ring-ring text-foreground rounded-sm h-9 text-sm"
+                      required
+                    />
+                  </div>
+                </div>
+                {error && <div className="text-red-500 text-xs text-center">{error}</div>}
+                <Button
+                  type="submit"
+                  className="w-full bg-primary hover:bg-primary/90 text-primary-foreground rounded-sm h-9 text-sm font-medium mt-4"
+                  disabled={isLoading}
+                >
+                  {isLoading ? 'Updating...' : 'Update & Continue'}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   if (isSetupLoading) {
     return (
