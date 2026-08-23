@@ -720,9 +720,12 @@ export class TrpcRouter {
             role: 'master',
             mustChangePassword: false,
           });
+          // Secure defaults off — see auth.controller.ts's login cookie
+          // for why (a Secure cookie is silently dropped over plain
+          // HTTP, which is this app's common deployment).
           ctx.res.cookie('vessel_auth_token', access_token, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
+            secure: process.env.COOKIE_SECURE === 'true',
             sameSite: 'lax',
             maxAge: 24 * 60 * 60 * 1000,
           });
