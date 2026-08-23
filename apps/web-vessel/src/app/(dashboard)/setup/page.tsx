@@ -164,9 +164,22 @@ export default function SetupPage() {
                 {setupStatus?.isConfigured ? 'Configured' : 'Pending Setup'}
               </span>
             </p>
-            <Button onClick={() => setupStatus?.isConfigured ? router.push('/') : handleEnroll()} disabled={(!vesselName || !imoNumber || !apiKey) && !setupStatus?.isConfigured || enrollMutation.isPending} className="bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 rounded-md h-9 text-sm font-semibold transition-all">
+            <Button
+              onClick={() => {
+                if (!setupStatus?.isConfigured) return handleEnroll();
+                // Identity can be configured (an earlier enroll) while no
+                // admin account exists yet — only skip straight to the
+                // dashboard once both are actually done, otherwise this
+                // silently stranded a re-visiting officer with no way to
+                // ever reach the admin step and create the account.
+                if (setupStatus.hasUsers) return router.push('/');
+                setStep('admin');
+              }}
+              disabled={(!vesselName || !imoNumber || !apiKey) && !setupStatus?.isConfigured || enrollMutation.isPending}
+              className="bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 rounded-md h-9 text-sm font-semibold transition-all"
+            >
               <Save className="w-4 h-4 mr-2" />
-              {enrollMutation.isPending ? 'Enrolling...' : setupStatus?.isConfigured ? 'Go to Dashboard' : 'Enroll & Continue'}
+              {enrollMutation.isPending ? 'Enrolling...' : setupStatus?.isConfigured ? (setupStatus.hasUsers ? 'Go to Dashboard' : 'Continue to Admin Setup') : 'Enroll & Continue'}
             </Button>
           </CardFooter>
         </Card>
