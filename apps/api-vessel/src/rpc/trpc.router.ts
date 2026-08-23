@@ -574,7 +574,7 @@ export class TrpcRouter {
           return val as Static<typeof UpdateUserStatusSchema>;
         })
         .mutation(async ({ input, ctx }) => {
-          if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new Error('Unauthorized');
+          if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new TRPCError({ code: 'FORBIDDEN', message: 'Unauthorized' });
           await this.db.update(schema.users)
             .set({ active: input.active, updatedAt: new Date().toISOString() })
             .where(eq(schema.users.id, input.id));
@@ -586,7 +586,7 @@ export class TrpcRouter {
           return val as Static<typeof UpdateUserRoleSchema>;
         })
         .mutation(async ({ input, ctx }) => {
-          if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new Error('Unauthorized');
+          if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new TRPCError({ code: 'FORBIDDEN', message: 'Unauthorized' });
           await this.db.update(schema.users)
             .set({ role: input.role, updatedAt: new Date().toISOString() })
             .where(eq(schema.users.id, input.id));
@@ -598,7 +598,7 @@ export class TrpcRouter {
           return val as Static<typeof AdminResetPasswordSchema>;
         })
         .mutation(async ({ input, ctx }) => {
-          if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new Error('Unauthorized');
+          if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new TRPCError({ code: 'FORBIDDEN', message: 'Unauthorized' });
           const argon2 = await import('argon2');
           const crypto = await import('crypto');
           
@@ -676,7 +676,7 @@ export class TrpcRouter {
           } catch (e: any) {
             // Revert on failure
             await this.db.delete(schema.configStore).where(eq(schema.configStore.key, 'api_key'));
-            throw new Error(`Failed to authenticate with Office API: ${e.message}`);
+            throw new TRPCError({ code: 'BAD_REQUEST', message: `Failed to authenticate with Office API: ${e.message}` });
           }
         }),
       // Wizard step 3, mirroring the original's handleSetupMaster
@@ -745,7 +745,7 @@ export class TrpcRouter {
       // Master/Admin-only, mirroring the original's requireSuperAdmin
       // gate on the equivalent config endpoints.
       get: this.protectedProcedure.query(async ({ ctx }) => {
-        if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new Error('Unauthorized');
+        if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new TRPCError({ code: 'FORBIDDEN', message: 'Unauthorized' });
         return this.sensorsService.getSource();
       }),
       save: this.protectedProcedure
@@ -754,8 +754,8 @@ export class TrpcRouter {
           return val as Static<typeof SaveSensorSourceSchema>;
         })
         .mutation(async ({ input, ctx }) => {
-          if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new Error('Unauthorized');
-          if (!input.baseUrl || !input.apiKey) throw new Error('baseUrl and apiKey are required');
+          if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new TRPCError({ code: 'FORBIDDEN', message: 'Unauthorized' });
+          if (!input.baseUrl || !input.apiKey) throw new TRPCError({ code: 'BAD_REQUEST', message: 'baseUrl and apiKey are required' });
           return this.sensorsService.saveSource(input.baseUrl, input.apiKey, input.enabled);
         }),
       test: this.protectedProcedure
@@ -764,7 +764,7 @@ export class TrpcRouter {
           return val as Static<typeof TestSensorSourceSchema>;
         })
         .mutation(async ({ input, ctx }) => {
-          if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new Error('Unauthorized');
+          if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new TRPCError({ code: 'FORBIDDEN', message: 'Unauthorized' });
           return this.sensorsService.testSource(input.baseUrl, input.apiKey);
         }),
     }),
@@ -772,7 +772,7 @@ export class TrpcRouter {
       // Master/Admin-only, mirroring the original's requireSuperAdmin
       // gate on the equivalent config endpoints.
       get: this.protectedProcedure.query(async ({ ctx }) => {
-        if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new Error('Unauthorized');
+        if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new TRPCError({ code: 'FORBIDDEN', message: 'Unauthorized' });
         return this.vmsService.getSource();
       }),
       save: this.protectedProcedure
@@ -781,8 +781,8 @@ export class TrpcRouter {
           return val as Static<typeof SaveVmsSourceSchema>;
         })
         .mutation(async ({ input, ctx }) => {
-          if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new Error('Unauthorized');
-          if (!input.baseUrl || !input.apiKey) throw new Error('baseUrl and apiKey are required');
+          if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new TRPCError({ code: 'FORBIDDEN', message: 'Unauthorized' });
+          if (!input.baseUrl || !input.apiKey) throw new TRPCError({ code: 'BAD_REQUEST', message: 'baseUrl and apiKey are required' });
           return this.vmsService.saveSource(input.baseUrl, input.apiKey, input.enabled);
         }),
       test: this.protectedProcedure
@@ -791,7 +791,7 @@ export class TrpcRouter {
           return val as Static<typeof TestVmsSourceSchema>;
         })
         .mutation(async ({ input, ctx }) => {
-          if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new Error('Unauthorized');
+          if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new TRPCError({ code: 'FORBIDDEN', message: 'Unauthorized' });
           return this.vmsService.testSource(input.baseUrl, input.apiKey);
         }),
     }),

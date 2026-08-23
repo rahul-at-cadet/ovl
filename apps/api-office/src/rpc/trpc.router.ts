@@ -221,7 +221,7 @@ const DeleteOfficeUserSchema = Type.Object({
 const DeleteOfficeUserCompiler = TypeCompiler.Compile(DeleteOfficeUserSchema);
 
 const CreateOfficeUserSchema = Type.Object({
-  username: Type.String({ format: 'email' }),
+  username: Type.String(),
   roles: Type.Array(Type.Enum(UserRole), { minItems: 1 }),
 });
 const CreateOfficeUserCompiler = TypeCompiler.Compile(CreateOfficeUserSchema);
@@ -362,7 +362,7 @@ export const router = t.router;
 const isEdgeAuthed = t.middleware(async ({ ctx, next }) => {
   const authHeader = ctx.req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ovl_prod_')) {
-    throw new Error('UNAUTHORIZED');
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Missing or malformed API key' });
   }
 
   const rawToken = authHeader.split('Bearer ovl_prod_')[1];
@@ -551,7 +551,7 @@ export class TrpcRouter {
             .where(eq(schema.apiKeys.tokenLookupHash, ctx.tokenLookupHash));
           
           if (keys.length === 0 || keys[0].tokenHash !== ctx.tokenHash || keys[0].revokedAt) {
-            throw new Error('UNAUTHORIZED: Invalid or revoked API key');
+            throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid or revoked API key' });
           }
 
           // 2. Lookup Vessel by IMO
@@ -869,7 +869,7 @@ export class TrpcRouter {
           return val as Static<typeof RenameVesselGroupSchema>;
         })
         .mutation(async ({ input }) => {
-          if (!input.from || !input.to) throw new Error('from and to are both required');
+          if (!input.from || !input.to) throw new TRPCError({ code: 'BAD_REQUEST', message: 'from and to are both required' });
           const all = await this.db.select({ id: schema.vessels.id, groups: schema.vessels.groups }).from(schema.vessels);
           let updated = 0;
           for (const v of all) {
@@ -887,7 +887,7 @@ export class TrpcRouter {
           return val as Static<typeof DeleteVesselGroupSchema>;
         })
         .mutation(async ({ input }) => {
-          if (!input.group) throw new Error('group is required');
+          if (!input.group) throw new TRPCError({ code: 'BAD_REQUEST', message: 'group is required' });
           const all = await this.db.select({ id: schema.vessels.id, groups: schema.vessels.groups }).from(schema.vessels);
           let updated = 0;
           for (const v of all) {
@@ -1020,9 +1020,12 @@ export class TrpcRouter {
         .input((val: unknown) => {
           if (!CreateOfficeUserCompiler.Check(val)) throw new Error('Invalid input');
           const parsed = val as Static<typeof CreateOfficeUserSchema>;
-          // TypeBox's own `format: 'email'` is a no-op unless a format
-          // validator is registered (none is, in this project) — checked
-          // for real here instead of silently trusting the hint.
+          // Deliberately not `Type.String({ format: 'email' })`: with no
+          // format validator registered (none is, in this project),
+          // TypeBox's compiled checker doesn't skip the hint, it treats
+          // the format as unsatisfiable and rejects every value — which
+          // made this procedure 400 unconditionally, blocking even the
+          // very first admin bootstrap. Checked for real here instead.
           if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(parsed.username)) {
             throw new Error('username must be a valid email');
           }
@@ -1209,7 +1212,7 @@ export class TrpcRouter {
             .limit(1);
 
           if (!report.length) {
-            throw new Error('Report not found');
+            throw new TRPCError({ code: 'NOT_FOUND', message: 'Report not found' });
           }
 
           const r = report[0];
@@ -1298,7 +1301,7 @@ export class TrpcRouter {
             .from(schema.reportVersions)
             .where(eq(schema.reportVersions.reportId, input.reportId))
             .limit(1);
-          if (!latest.length) throw new Error('Report not found');
+          if (!latest.length) throw new TRPCError({ code: 'NOT_FOUND', message: 'Report not found' });
           const vesselId = latest[0].vesselId;
 
           const localUser = await this.supertokensService.getLocalUser(ctx.session.getUserId());
