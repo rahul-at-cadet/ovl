@@ -30,7 +30,32 @@ export default function SettingsPage() {
   });
 
   const handleCopy = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
+    // navigator.clipboard requires a secure context (HTTPS or localhost)
+    // — over plain HTTP on a real host (this deployment's common case),
+    // it's simply undefined in most browsers, so the call above threw
+    // synchronously with nothing catching it, silently doing nothing.
+    // document.execCommand('copy') has no such restriction, so it's the
+    // fallback here rather than the primary path failing invisibly.
+    const copyViaFallback = () => {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      try {
+        document.execCommand('copy');
+      } finally {
+        document.body.removeChild(textarea);
+      }
+    };
+
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).catch(copyViaFallback);
+    } else {
+      copyViaFallback();
+    }
     setCopied(id);
     setTimeout(() => setCopied(null), 2000);
   };
