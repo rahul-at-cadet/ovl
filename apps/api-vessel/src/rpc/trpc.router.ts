@@ -640,6 +640,56 @@ export class TrpcRouter {
             throw new Error(`Failed to authenticate with Office API: ${e.message}`);
           }
         }),
+      // Wizard step 3, mirroring the original's handleSetupMaster
+      // (ovl/vessel/httpapi/setup.go) — a dedicated bootstrap path for the
+      // very first user, distinct from users.create/AuthService.createLocalUser
+      // (which deliberately reject role=master, since every user after the
+      // first must go through an authenticated admin). Unlike createLocalUser,
+      // the master chooses their own password here and is logged in
+      // immediately, rather than getting a generated temporary one.
+      createMaster: publicProcedure
+        .input((val: unknown) => {
+          const v = val as { username: string; password: string };
+          if (!v.username || !v.password) throw new Error('Invalid input');
+          return v;
+        })
+        .mutation(async ({ input, ctx }) => {
+          const existingUsers = await this.db.select().from(schema.users).limit(1);
+          if (existingUsers.length > 0) {
+            throw new TRPCError({ code: 'CONFLICT', message: 'A user already exists; use the login screen instead.' });
+          }
+
+          const argon2 = await import('argon2');
+          const passwordHash = await argon2.hash(input.password);
+          const id = crypto.randomUUID();
+          const now = new Date().toISOString();
+          await this.db.insert(schema.users).values({
+            id,
+            username: input.username,
+            passwordHash,
+            role: 'master',
+            canSubmit: true,
+            mustChangePassword: false,
+            active: true,
+            createdAt: now,
+            updatedAt: now,
+          });
+
+          const { access_token } = await this.authService.login({
+            id,
+            username: input.username,
+            role: 'master',
+            mustChangePassword: false,
+          });
+          ctx.res.cookie('vessel_auth_token', access_token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: 24 * 60 * 60 * 1000,
+          });
+
+          return { success: true };
+        }),
     }),
     system: router({
       getTelemetry: publicProcedure.query(async () => {
