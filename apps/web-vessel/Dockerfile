@@ -7,16 +7,22 @@ FROM node:22-bookworm-slim AS builder
 # module's transitive imports to compute the type — which pulls in
 # api-vessel's own dependency tree, including better-sqlite3 (a native
 # module), so build tools are needed here even though web-vessel itself
-# has none. api-office/web-office/@ovl/database aren't referenced
-# anywhere in this chain and are omitted entirely.
+# has none. The chain goes one hop further too: api-vessel's
+# trpc.router.ts imports trpc.service.ts, which does its OWN type-only
+# import of api-office's AppRouter — so api-office's package.json and
+# @ovl/database (which api-office's source imports) are needed here as
+# well, even though web-vessel never touches either directly.
 RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json package-lock.json ./
+COPY apps/api-office/package.json apps/api-office/package.json
 COPY apps/api-vessel/package.json apps/api-vessel/package.json
 COPY apps/web-vessel/package.json apps/web-vessel/package.json
+COPY packages/database/package.json packages/database/package.json
 COPY packages/vessel-database/package.json packages/vessel-database/package.json
 RUN npm ci
 COPY . .
+RUN npm run build --workspace=@ovl/database
 RUN npm run build --workspace=@ovl/vessel-database
 RUN npm run build --workspace=web-vessel
 
