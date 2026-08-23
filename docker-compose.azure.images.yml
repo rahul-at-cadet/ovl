@@ -5,19 +5,62 @@ name: ovl-node-azure
 # instead of building from source, so the VM needs no repo checkout or
 # build toolchain, just Docker itself and .env.azure.
 #
+# Postgres here is a dedicated container for this Node stack only —
+# not the Go binary's native instance. On a brand-new volume it starts
+# completely empty; before api-office will work, push this repo's
+# schema onto it once (from the repo root, with DATABASE_URL pointed
+# at this container's exposed port, 5433 — 5432 is already the Go
+# binary's native Postgres on this host):
+#   DATABASE_URL=postgresql://<user>:<pass>@<vm-host>:5433/<db> npm run push --workspace=@ovl/database
+#
 # Usage on the VM (after `docker load`-ing the images tarball):
 #   docker compose -f docker-compose.azure.images.yml --env-file .env.azure up -d
 
 services:
+  # Dedicated to this Node stack only — fully separate from the Go
+  # binary's native Postgres (no shared tables, no shared migrations,
+  # no risk of one side's schema assumptions breaking the other's data).
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      # 5433, not 5432 — the Go binary's native Postgres already owns
+      # 5432 on this host. Only needed for running drizzle-kit push
+      # from outside the compose network; safe to remove once the
+      # schema's been pushed if you'd rather not expose it at all.
+      - "5433:5432"
+    volumes:
+      - node-postgres-data:/var/lib/postgresql/data
+      # Only runs on a brand-new (empty) volume — creates a separate
+      # "supertokens" database so its auto-created tables never mix
+      # with this app's own drizzle-managed schema in POSTGRES_DB.
+      - ./deploy/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   supertokens:
     image: registry.supertokens.io/supertokens/supertokens-postgresql:latest
     restart: unless-stopped
     ports:
       - "3567:3567"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     environment:
-      POSTGRESQL_CONNECTION_URI: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@host.docker.internal:5432/${POSTGRES_DB}?sslmode=disable"
+      # No ?sslmode=disable here (unlike api-office's DATABASE_URL below)
+      # — verified empirically that this image's JDBC driver fails to
+      # connect with that query param present against a plain postgres:16
+      # container (generic "connection attempt failed", no clearer
+      # error), even though this same param works fine for node-postgres
+      # (api-office) and for psql against the identical container.
+      POSTGRESQL_CONNECTION_URI: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/supertokens"
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: >
         bash -c 'exec 3<>/dev/tcp/127.0.0.1/3567 && echo -e "GET /hello HTTP/1.1\r\nhost: 127.0.0.1:3567\r\nConnection: close\r\n\r\n" >&3 && cat <&3 | grep "Hello"'
@@ -30,13 +73,13 @@ services:
     restart: unless-stopped
     ports:
       - "3001:3001"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@host.docker.internal:5432/${POSTGRES_DB}?sslmode=disable
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
       - SUPERTOKENS_CONNECTION_URI=http://supertokens:3567
       - PORT=3001
     depends_on:
+      postgres:
+        condition: service_healthy
       supertokens:
         condition: service_healthy
 
@@ -70,3 +113,4 @@ services:
 
 volumes:
   vessel-db-data:
+  node-postgres-data:
