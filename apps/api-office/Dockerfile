@@ -56,6 +56,10 @@ COPY --from=builder /app/packages/database/dist ./packages/database/dist
 COPY --from=builder /app/packages/database/package.json ./packages/database/package.json
 COPY --from=builder /app/apps/api-office/dist ./apps/api-office/dist
 COPY --from=builder /app/apps/api-office/package.json ./apps/api-office/package.json
+# SchemaVersionsService reads these from process.cwd() + src/schemas at
+# runtime to seed the curated schema set — mirrors api-vessel's own
+# Dockerfile, which needs the identical line for its schema registry.
+COPY --from=builder /app/apps/api-office/src/schemas ./apps/api-office/src/schemas
 WORKDIR /app/apps/api-office
 EXPOSE 3001
 CMD ["node", "dist/main"]
