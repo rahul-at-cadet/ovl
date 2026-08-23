@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { trpc } from '@/lib/trpc';
+import { API_ORIGIN } from '@/lib/api-origin';
 
 interface AppShellProps {
   children: ReactNode;
@@ -47,7 +48,7 @@ export function AppShell({ children }: AppShellProps) {
     setIsLoggingOut(true);
     
     try {
-      await fetch('http://localhost:3003/auth/logout', {
+      await fetch(`${API_ORIGIN}/auth/logout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

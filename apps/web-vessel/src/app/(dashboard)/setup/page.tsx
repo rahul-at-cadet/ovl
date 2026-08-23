@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Ship, Globe, Save, Database, User, CheckCircle, Copy, Check, AlertTriangle } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+import { API_ORIGIN } from '@/lib/api-origin';
 import { useRouter } from 'next/navigation';
 import { useToastManager } from '@/components/ui/toast';
 
@@ -62,7 +63,7 @@ export default function SetupPage() {
       // Establish a real session for the admin we just created, so they land
       // on the dashboard already logged in instead of hitting the login wall
       // the middleware now enforces on every other route.
-      await fetch('http://localhost:3003/auth/login', {
+      await fetch(`${API_ORIGIN}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

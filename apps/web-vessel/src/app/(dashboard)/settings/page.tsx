@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Satellite, Database, Activity, RefreshCw, Save, Cpu, Loader2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+import { API_ORIGIN } from '@/lib/api-origin';
 import { useToastManager } from '@/components/ui/toast';
 import { Switch } from '@/components/ui/switch';
 
@@ -169,7 +170,7 @@ export default function SettingsPage() {
                   <p className="text-sm font-medium text-muted-foreground">Database using 14.2 MB of space.</p>
                   
                   <div className="flex gap-4 mt-6">
-                    <Button variant="outline" className="border-border bg-background hover:bg-card text-foreground" onClick={() => window.open('http://localhost:3003/system/backup/download')}>
+                    <Button variant="outline" className="border-border bg-background hover:bg-card text-foreground" onClick={() => window.open(`${API_ORIGIN}/system/backup/download`)}>
                       <Save className="w-4 h-4 mr-2" />
                       Download Full Backup
                     </Button>

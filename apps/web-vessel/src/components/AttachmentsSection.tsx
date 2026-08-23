@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Paperclip, UploadCloud, File, X, Loader2, Download } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { API_ORIGIN as API_BASE } from '@/lib/api-origin';
 
 interface Attachment {
   id: string;
@@ -13,8 +14,6 @@ interface Attachment {
 interface AttachmentsSectionProps {
   reportId: string;
 }
-
-const API_BASE = 'http://localhost:3003';
 
 export function AttachmentsSection({ reportId }: AttachmentsSectionProps) {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
