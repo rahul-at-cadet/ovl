@@ -42,7 +42,7 @@ const FETCH_TIMEOUT_MS = 10_000;
 
 function maskApiKey(key: string): string {
   if (key.length <= 4) return '••••';
-  return `${'•'.repeat(key.length - 4)}${key.slice(-4)}`;
+  return `••••${key.slice(-4)}`;
 }
 
 @Injectable()

@@ -6,6 +6,7 @@ import { ReportsService } from '../reports/reports.service';
 import { SchemaRegistryService } from '../reports/schema-registry.service';
 import { SensorsService } from '../sensors/sensors.service';
 import { VmsService } from '../sensors/vms.service';
+import { VoyageService } from '../sensors/voyage.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { DATABASE_CONNECTION } from '../database/database.module';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
@@ -127,6 +128,25 @@ const TestSensorSourceSchema = Type.Object({
 });
 const TestSensorSourceCompiler = TypeCompiler.Compile(TestSensorSourceSchema);
 
+const SaveVmsSourceSchema = Type.Object({
+  baseUrl: Type.String(),
+  apiKey: Type.String(),
+  enabled: Type.Boolean(),
+});
+const SaveVmsSourceCompiler = TypeCompiler.Compile(SaveVmsSourceSchema);
+
+const TestVmsSourceSchema = Type.Object({
+  baseUrl: Type.String(),
+  apiKey: Type.String(),
+});
+const TestVmsSourceCompiler = TypeCompiler.Compile(TestVmsSourceSchema);
+
+const FetchVmsDataSchema = Type.Object({
+  schemaName: Type.String(),
+  eventTime: Type.String(),
+});
+const FetchVmsDataCompiler = TypeCompiler.Compile(FetchVmsDataSchema);
+
 const CreateUserSchema = Type.Object({
   username: Type.String(),
   role: Type.String(),
@@ -171,6 +191,7 @@ export class TrpcRouter {
     private readonly schemaRegistryService: SchemaRegistryService,
     private readonly sensorsService: SensorsService,
     private readonly vmsService: VmsService,
+    private readonly voyageService: VoyageService,
     private readonly syncService: SyncService,
     private readonly authService: AuthService,
     private readonly notificationsService: NotificationsService,
@@ -421,6 +442,19 @@ export class TrpcRouter {
         .query(async ({ input }) => {
           return this.schemaRegistryService.resolveEnum(input.name) ?? [];
         }),
+      // Any authenticated user (matches opening the report form itself) —
+      // not admin/master-gated like vms.get/save/test, since this is a
+      // read-only external query triggered from the form, not a
+      // configuration change.
+      fetchVmsData: this.protectedProcedure
+        .input((val: unknown) => {
+          if (!FetchVmsDataCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof FetchVmsDataSchema>;
+        })
+        .mutation(async ({ input }) => {
+          const fields = await this.vmsService.fetchFieldsForReport(input.schemaName, new Date(input.eventTime));
+          return { fields };
+        }),
       // Field-level policy (hidden/optional/recommended/mandatory,
       // prefill class, per-event narrowing) for one schema, read from the
       // config bundle office already syncs down (SyncService.pullConfiguration
@@ -588,10 +622,15 @@ export class TrpcRouter {
       status: publicProcedure.query(async () => {
         const configs = await this.db.select().from(schema.configStore);
         const configMap = configs.reduce((acc, c) => ({ ...acc, [c.key]: c.value }), {} as Record<string, string>);
-        
+
         const isConfigured = !!configMap['vessel_id'];
-        return { 
-          isConfigured, 
+        // Public (no auth) — lets the login page point a first-time
+        // visitor at /setup instead of a login form for an account that
+        // doesn't exist yet. No sensitive data, just an existence check.
+        const existingUsers = await this.db.select().from(schema.users).limit(1);
+        return {
+          isConfigured,
+          hasUsers: existingUsers.length > 0,
           vesselId: configMap['vessel_id'] || null,
           vesselName: configMap['vessel_name'] || '',
           imoNumber: configMap['imo_number'] || configMap['imoNumber'] || '', // Fallback in case of old key
@@ -696,7 +735,7 @@ export class TrpcRouter {
         return this.sensorsService.getTelemetry();
       }),
       getActiveVoyage: publicProcedure.query(async () => {
-        return this.vmsService.getActiveVoyage();
+        return this.voyageService.getActiveVoyage();
       }),
     }),
     sensors: router({
@@ -724,6 +763,33 @@ export class TrpcRouter {
         .mutation(async ({ input, ctx }) => {
           if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new Error('Unauthorized');
           return this.sensorsService.testSource(input.baseUrl, input.apiKey);
+        }),
+    }),
+    vms: router({
+      // Master/Admin-only, mirroring the original's requireSuperAdmin
+      // gate on the equivalent config endpoints.
+      get: this.protectedProcedure.query(async ({ ctx }) => {
+        if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new Error('Unauthorized');
+        return this.vmsService.getSource();
+      }),
+      save: this.protectedProcedure
+        .input((val: unknown) => {
+          if (!SaveVmsSourceCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof SaveVmsSourceSchema>;
+        })
+        .mutation(async ({ input, ctx }) => {
+          if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new Error('Unauthorized');
+          if (!input.baseUrl || !input.apiKey) throw new Error('baseUrl and apiKey are required');
+          return this.vmsService.saveSource(input.baseUrl, input.apiKey, input.enabled);
+        }),
+      test: this.protectedProcedure
+        .input((val: unknown) => {
+          if (!TestVmsSourceCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof TestVmsSourceSchema>;
+        })
+        .mutation(async ({ input, ctx }) => {
+          if (!ctx.user.role.toLowerCase().includes('admin') && !ctx.user.role.toLowerCase().includes('master')) throw new Error('Unauthorized');
+          return this.vmsService.testSource(input.baseUrl, input.apiKey);
         }),
     }),
     notifications: router({
