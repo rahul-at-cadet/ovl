@@ -1,8 +1,10 @@
-import { Injectable, Inject, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException, Logger, OnModuleInit } from '@nestjs/common';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { eq, desc } from 'drizzle-orm';
 import * as schema from '@ovl/database';
 import Ajv from 'ajv';
+import * as fs from 'fs';
+import * as path from 'path';
 import { DATABASE_CONNECTION } from '../../database/database.module';
 import { SchemaField, diffSchemaFields, SchemaDiff } from '../logic/fieldPolicy';
 
@@ -24,11 +26,50 @@ export interface PreviewResult {
 }
 
 @Injectable()
-export class SchemaVersionsService {
+export class SchemaVersionsService implements OnModuleInit {
+  private readonly logger = new Logger(SchemaVersionsService.name);
+
   constructor(
     @Inject(DATABASE_CONNECTION)
     private readonly db: NodePgDatabase<typeof schema>,
   ) {}
+
+  /**
+   * Ports ovl/office/main.go's seedCuratedSchemas: office is meant to be
+   * the authoritative source for the curated OVD schema set (vessel only
+   * ever embedded its own copy as a bootstrapping convenience before
+   * office->vessel config sync existed), but on a fresh database nothing
+   * has ever published them, so the schema picker in Configuration is
+   * empty. Idempotent — skips any schema name that already has a
+   * published version — so running this on every boot is safe and never
+   * clobbers a real admin-uploaded version.
+   */
+  async onModuleInit() {
+    const curatedDir = path.join(process.cwd(), 'src', 'schemas');
+    if (!fs.existsSync(curatedDir)) {
+      this.logger.warn(`Curated schemas directory not found at ${curatedDir}`);
+      return;
+    }
+    const files = fs.readdirSync(curatedDir).filter((f) => f.endsWith('.json'));
+    for (const file of files) {
+      try {
+        const content = fs.readFileSync(path.join(curatedDir, file), 'utf-8');
+        const parsed = JSON.parse(content);
+        if (!parsed.schemaName || !parsed.version) continue;
+        const existing = await this.getLatest(parsed.schemaName);
+        if (existing) continue;
+        await this.publish({
+          schemaName: parsed.schemaName,
+          version: parsed.version,
+          source: 'project-curated',
+          content,
+        });
+        this.logger.log(`Seeded curated schema ${parsed.schemaName}@${parsed.version}`);
+      } catch (e: any) {
+        this.logger.error(`Failed to seed curated schema ${file}: ${e.message}`);
+      }
+    }
+  }
 
   async list() {
     const results = await this.db
