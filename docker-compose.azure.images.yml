@@ -7,13 +7,17 @@ name: ovl-node-azure
 #
 # Postgres here is a dedicated container for this Node stack only —
 # not the Go binary's native instance. On a brand-new volume it starts
-# completely empty; before api-office will work, push this repo's
-# schema onto it once (from the repo root, with DATABASE_URL pointed
-# at this container's exposed port, 5433 — 5432 is already the Go
-# binary's native Postgres on this host):
-#   DATABASE_URL=postgresql://<user>:<pass>@<vm-host>:5433/<db> npm run push --workspace=@ovl/database
+# completely empty; before api-office will work, run this repo's
+# bootstrap script against it once (see packages/database/bootstrap/
+# fresh-database.sql's own header for why this, not drizzle-kit push —
+# short version: this package's migration history can only patch a
+# database that already matches its shape, it can't create one from
+# nothing, and drizzle-kit push has its own bug on a truly empty target):
+#   docker compose -f docker-compose.azure.images.yml --env-file .env.azure up -d postgres
+#   docker exec -i ovl-node-azure-postgres-1 psql -U <user> -d <db> \
+#     < packages/database/bootstrap/fresh-database.sql
 #
-# Usage on the VM (after `docker load`-ing the images tarball):
+# Then usage as normal:
 #   docker compose -f docker-compose.azure.images.yml --env-file .env.azure up -d
 
 services:
