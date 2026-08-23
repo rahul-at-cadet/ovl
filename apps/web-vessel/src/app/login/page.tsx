@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { API_ORIGIN } from '@/lib/api-origin';
+import { trpc } from '@/lib/trpc';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -15,6 +16,13 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // No account has ever been created on this node yet — a login form is
+  // useless without one, and a first-time visitor has no way to know
+  // /setup even exists. hasUsers is a public, no-auth check for exactly
+  // this (see setup.status's own comment).
+  const { data: setupStatus } = trpc.setup.status.useQuery();
+  const needsSetup = setupStatus?.hasUsers === false;
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,7 +58,22 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="w-full max-w-[400px] z-10 p-4">
+      <div className="w-full max-w-[400px] z-10 p-4 space-y-4">
+        {needsSetup && (
+          <Card className="bg-primary/10 border-primary/30 shadow-xl rounded-md">
+            <CardContent className="pt-6 text-center space-y-3">
+              <p className="text-sm text-foreground">
+                No account exists on this node yet — set it up before signing in.
+              </p>
+              <Button
+                onClick={() => router.push('/setup')}
+                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground rounded-sm h-11 text-base font-medium"
+              >
+                Set Up This Vessel
+              </Button>
+            </CardContent>
+          </Card>
+        )}
         <Card className="bg-card border-border shadow-xl rounded-md">
           <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-border/50">
             <div>

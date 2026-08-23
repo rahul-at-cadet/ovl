@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Satellite, Database, Activity, RefreshCw, Save, Cpu, Loader2 } from 'lucide-react';
+import { Satellite, Database, Activity, RefreshCw, Save, Cpu, Loader2, Navigation } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { API_ORIGIN } from '@/lib/api-origin';
 import { useToastManager } from '@/components/ui/toast';
@@ -73,6 +73,35 @@ export default function SettingsPage() {
     onError: (err) => setTestResult({ ok: false, message: err.message }),
   });
 
+  const { data: vmsSource } = trpc.vms.get.useQuery();
+  const [vmsBaseUrl, setVmsBaseUrl] = useState('');
+  const [vmsApiKey, setVmsApiKey] = useState('');
+  const [vmsEnabled, setVmsEnabled] = useState(false);
+  const [vmsTestResult, setVmsTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  useEffect(() => {
+    if (vmsSource) {
+      setVmsBaseUrl(vmsSource.baseUrl);
+      setVmsEnabled(vmsSource.enabled);
+      // apiKey comes back masked (e.g. "••••1234") — never prefill the
+      // input with a masked value the officer could accidentally save
+      // back as the real key.
+    }
+  }, [vmsSource]);
+
+  const saveVmsMutation = trpc.vms.save.useMutation({
+    onSuccess: () => {
+      toastManager.add({ title: 'VMS source saved', type: 'success' });
+      utils.vms.get.invalidate();
+      setVmsApiKey('');
+    },
+    onError: (err) => toastManager.add({ title: 'Failed to save VMS source', description: err.message, type: 'error' }),
+  });
+  const testVmsMutation = trpc.vms.test.useMutation({
+    onSuccess: (result) => setVmsTestResult(result),
+    onError: (err) => setVmsTestResult({ ok: false, message: err.message }),
+  });
+
   if (isLoading) {
     return <div className="p-8 text-muted-foreground">Loading settings...</div>;
   }
@@ -108,8 +137,15 @@ export default function SettingsPage() {
               <Cpu className="w-4 h-4 mr-3" />
               Hardware Sensors
             </TabsTrigger>
-            <TabsTrigger 
-              value="diagnostics" 
+            <TabsTrigger
+              value="vms"
+              className="w-full justify-start px-4 py-2.5 text-sm font-medium data-[state=active]:bg-muted/50 data-[state=active]:text-foreground text-muted-foreground hover:bg-card/50 transition-all rounded-md"
+            >
+              <Navigation className="w-4 h-4 mr-3" />
+              VMS
+            </TabsTrigger>
+            <TabsTrigger
+              value="diagnostics"
               className="w-full justify-start px-4 py-2.5 text-sm font-medium data-[state=active]:bg-muted/50 data-[state=active]:text-foreground text-muted-foreground hover:bg-card/50 transition-all rounded-md"
             >
               <Activity className="w-4 h-4 mr-3" />
@@ -173,9 +209,6 @@ export default function SettingsPage() {
                     <Button variant="outline" className="border-border bg-background hover:bg-card text-foreground" onClick={() => window.open(`${API_ORIGIN}/system/backup/download`)}>
                       <Save className="w-4 h-4 mr-2" />
                       Download Full Backup
-                    </Button>
-                    <Button variant="outline" className="border-border bg-background hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30 text-foreground">
-                      Clear Synced Records
                     </Button>
                   </div>
                 </CardContent>
@@ -246,7 +279,73 @@ export default function SettingsPage() {
                 </CardContent>
               </Card>
             </TabsContent>
-            
+
+            <TabsContent value="vms" className="mt-0">
+              <Card className="bg-card/40 border-border/60 shadow-xl overflow-hidden rounded-xl backdrop-blur-md">
+                <CardHeader className="border-b border-border/60 pb-4 bg-card/20">
+                  <CardTitle className="text-sm font-semibold tracking-tight text-foreground">VMS Data Source</CardTitle>
+                  <CardDescription className="text-xs text-muted-foreground">
+                    Configures the VMS (voyage management system) service the report form&apos;s
+                    &quot;Fetch voyage data&quot; button queries. The vessel pulls voyage plan and cargo
+                    manifest data from this URL — nothing is ever pushed to the vessel unsolicited.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="pt-6 space-y-4">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">Base URL</Label>
+                    <Input
+                      type="text"
+                      placeholder="https://vms.example.com"
+                      value={vmsBaseUrl}
+                      onChange={(e) => setVmsBaseUrl(e.target.value)}
+                      className="bg-background/80 border-border/80 focus-visible:ring-ring text-foreground text-sm h-10"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">API Key</Label>
+                    <Input
+                      type="password"
+                      placeholder={vmsSource?.configured ? `Enter a new key to change it (currently ${vmsSource.apiKey})` : 'Enter API key'}
+                      value={vmsApiKey}
+                      onChange={(e) => setVmsApiKey(e.target.value)}
+                      className="bg-background/80 border-border/80 focus-visible:ring-ring text-foreground text-sm h-10"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between rounded-md border border-border bg-background/50 px-3 py-2.5">
+                    <div>
+                      <Label className="text-foreground">Enabled</Label>
+                      <p className="text-xs text-muted-foreground">Disabled sources are never queried, even if configured.</p>
+                    </div>
+                    <Switch checked={vmsEnabled} onCheckedChange={setVmsEnabled} />
+                  </div>
+                  {vmsTestResult && (
+                    <div className={`text-xs p-2.5 rounded-md border ${vmsTestResult.ok ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
+                      {vmsTestResult.message}
+                    </div>
+                  )}
+                  <div className="flex gap-2 mt-2">
+                    <Button
+                      onClick={() => saveVmsMutation.mutate({ baseUrl: vmsBaseUrl, apiKey: vmsApiKey, enabled: vmsEnabled })}
+                      disabled={saveVmsMutation.isPending || !vmsBaseUrl || (!vmsSource?.configured && !vmsApiKey)}
+                      className="bg-primary hover:bg-primary/90 text-white rounded-md h-9 text-sm font-semibold shadow-sm transition-all"
+                    >
+                      {saveVmsMutation.isPending ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Save className="w-3.5 h-3.5 mr-1.5" />}
+                      Save VMS Config
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => testVmsMutation.mutate({ baseUrl: vmsBaseUrl, apiKey: vmsApiKey })}
+                      disabled={testVmsMutation.isPending || !vmsBaseUrl || (!vmsSource?.configured && !vmsApiKey)}
+                      className="border-border bg-background text-foreground hover:text-foreground rounded-md h-9 text-sm"
+                    >
+                      {testVmsMutation.isPending ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : null}
+                      Test Connection
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
             <TabsContent value="diagnostics" className="mt-0">
               <Card className="bg-card/40 border-border/60 shadow-xl overflow-hidden rounded-xl backdrop-blur-md">
                 <CardHeader className="border-b border-border/60 pb-4 bg-card/20">
