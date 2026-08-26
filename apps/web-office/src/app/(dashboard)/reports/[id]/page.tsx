@@ -3,7 +3,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@ovl/ui/components/card';
 import { Button } from '@ovl/ui/components/button';
 import { StatusBadge } from '@ovl/ui/components/status-badge';
-import { ArrowLeft, CheckCircle2, Clock, FileText, User, Ship, MessageSquare, Send, Flag, X, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, MessageSquare, Send, Flag, X, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState, useRef, useEffect } from 'react';
@@ -96,7 +96,7 @@ export default function ReportDetailPage() {
   }
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-5xl mx-auto">
+    <div className="flex flex-col gap-4 max-w-7xl">
       <div className="flex items-center text-sm text-muted-foreground mb-4">
         <Link href="/reports" className="hover:text-primary flex items-center transition-colors">
           <ArrowLeft className="w-4 h-4 mr-1" />
@@ -104,21 +104,30 @@ export default function ReportDetailPage() {
         </Link>
       </div>
 
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-card/50 p-6 rounded-xl border border-border shadow-lg backdrop-blur-sm">
-        <div className="flex items-start gap-4">
-          <div className="p-3 bg-muted rounded-lg border border-border">
-            <FileText className="w-8 h-8 text-primary" />
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 bg-card p-4 rounded-sm border border-border">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-xl font-semibold tracking-tight text-foreground">{report.type}</h1>
+            <StatusBadge status={report.status} />
           </div>
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold tracking-tight text-foreground">{report.type}</h1>
-              <StatusBadge status={report.status} />
+          <p className="text-muted-foreground mt-1 font-mono text-xs break-all">{report.id}</p>
+          <dl className="grid grid-cols-1 sm:grid-cols-3 gap-x-6 gap-y-2 mt-3 pt-3 border-t border-border text-sm">
+            <div className="min-w-0">
+              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Vessel</dt>
+              <dd className="text-foreground truncate">{report.vessel} ({report.imo})</dd>
             </div>
-            <p className="text-muted-foreground mt-1 font-mono text-sm">ID: {report.id}</p>
-          </div>
+            <div className="min-w-0">
+              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Submitted by</dt>
+              <dd className="text-foreground truncate">{report.author}</dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Submitted</dt>
+              <dd className="text-foreground font-mono text-xs">{new Date(report.submittedAt).toLocaleString()}</dd>
+            </div>
+          </dl>
         </div>
 
-        <div className="flex gap-3 w-full md:w-auto">
+        <div className="flex gap-3 w-full lg:w-auto shrink-0">
           {report.reviewed ? (
             <span className="flex items-center gap-2 text-sm text-status-ok px-3 py-2">
               <CheckCircle2 className="w-4 h-4" />
@@ -128,7 +137,7 @@ export default function ReportDetailPage() {
             <Button
               onClick={() => markReviewed.mutate({ reportId: id })}
               disabled={markReviewed.isPending}
-              className="flex-1 md:flex-none"
+              className="flex-1 lg:flex-none justify-center"
             >
               <CheckCircle2 className="w-4 h-4 mr-2" />
               {markReviewed.isPending ? 'Marking...' : 'Mark Reviewed'}
@@ -138,7 +147,7 @@ export default function ReportDetailPage() {
       </div>
 
       {report.status === 'invalidated' && report.brokenRules && report.brokenRules.length > 0 && (
-        <div className="flex items-start gap-3 p-4 rounded-xl border border-status-critical/30 bg-status-critical/10">
+        <div className="flex items-start gap-3 p-4 rounded-sm border border-status-critical/30 bg-status-critical/10">
           <AlertTriangle className="w-5 h-5 text-status-critical shrink-0 mt-0.5" />
           <div>
             <p className="text-sm font-semibold text-status-critical">
@@ -149,42 +158,7 @@ export default function ReportDetailPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Metadata Sidebar */}
-        <div className="space-y-6">
-          <Card className="bg-card/50 border-border">
-            <CardHeader>
-              <CardTitle className="text-lg">Audit Trail</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center gap-3 text-sm">
-                <Ship className="w-4 h-4 text-muted-foreground" />
-                <div className="flex flex-col">
-                  <span className="text-muted-foreground">Vessel</span>
-                  <span className="text-foreground font-medium">{report.vessel} ({report.imo})</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 text-sm">
-                <User className="w-4 h-4 text-muted-foreground" />
-                <div className="flex flex-col">
-                  <span className="text-muted-foreground">Submitted By</span>
-                  <span className="text-foreground font-medium">{report.author}</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 text-sm">
-                <Clock className="w-4 h-4 text-muted-foreground" />
-                <div className="flex flex-col">
-                  <span className="text-muted-foreground">Timestamp</span>
-                  <span className="text-foreground font-medium">{new Date(report.submittedAt).toLocaleString()}</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Data Payload */}
-        <div className="md:col-span-2 space-y-6">
-          <Card className="bg-card/50 border-border">
+          <Card className="bg-card border-border rounded-sm">
             <CardHeader className="border-b border-border pb-4 flex flex-row items-center justify-between">
               <div>
                 <CardTitle>Report Payload</CardTitle>
@@ -256,7 +230,7 @@ export default function ReportDetailPage() {
                 const sectionOrder = sectionsInOrder(knownFields);
                 if (sectionOrder.length === 0) {
                   return (
-                    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-8">
+                    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
                       {Object.keys(fields).map((key) => renderField(key, key.replace(/_/g, ' ')))}
                     </dl>
                   );
@@ -282,7 +256,7 @@ export default function ReportDetailPage() {
                           <h3 className="text-xs font-semibold uppercase tracking-widest text-primary mb-4">
                             {sectionLabel(section)}
                           </h3>
-                          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-8">
+                          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
                             {entries.map(({ key, label }) => renderField(key, label))}
                           </dl>
                         </div>
@@ -291,7 +265,7 @@ export default function ReportDetailPage() {
                     {unmatched.length > 0 && (
                       <div>
                         <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-4">Other</h3>
-                        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-8">
+                        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
                           {unmatched.map((key) => renderField(key, key.replace(/_/g, ' ')))}
                         </dl>
                       </div>
@@ -300,11 +274,10 @@ export default function ReportDetailPage() {
                 );
               })()}
             </CardContent>
-          </Card>
-        </div>
-      </div>
+      </Card>
 
-      <Card className="bg-card/50 border-border h-[420px] flex flex-col">
+      <div className="grid gap-4 xl:grid-cols-2">
+      <Card className="bg-card border-border rounded-sm h-[420px] flex flex-col">
         <CardHeader className="border-b border-border pb-4 shrink-0">
           <CardTitle className="text-lg flex items-center gap-2">
             <MessageSquare className="w-4 h-4 text-muted-foreground" />
@@ -319,7 +292,7 @@ export default function ReportDetailPage() {
             ) : chatMessages?.length ? (
               chatMessages.map((msg: any) => (
                 <div key={msg.id} className={`flex flex-col ${msg.direction === 'office' ? 'items-end' : 'items-start'}`}>
-                  <div className={`px-4 py-2 rounded-xl max-w-[80%] ${msg.direction === 'office' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'}`}>
+                  <div className={`px-4 py-2 rounded-sm max-w-[80%] ${msg.direction === 'office' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'}`}>
                     <p className="text-sm">{msg.body}</p>
                   </div>
                   <span className="text-xs text-muted-foreground mt-1">{msg.sender} • {new Date(msg.sentAt).toLocaleTimeString()}</span>
@@ -356,7 +329,7 @@ export default function ReportDetailPage() {
         </CardContent>
       </Card>
 
-      <Card className="bg-card/50 border-border">
+      <Card className="bg-card border-border rounded-sm">
         <CardHeader className="border-b border-border pb-4">
           <CardTitle className="text-lg flex items-center gap-2">
             <Flag className="w-4 h-4 text-muted-foreground" />
@@ -396,6 +369,7 @@ export default function ReportDetailPage() {
           </div>
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }
