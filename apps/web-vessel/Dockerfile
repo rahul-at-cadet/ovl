@@ -20,6 +20,9 @@ COPY apps/api-vessel/package.json apps/api-vessel/package.json
 COPY apps/web-vessel/package.json apps/web-vessel/package.json
 COPY packages/database/package.json packages/database/package.json
 COPY packages/vessel-database/package.json packages/vessel-database/package.json
+# @ovl/ui is a workspace in package-lock.json, so npm ci needs its manifest
+# present or the install fails before any source is copied.
+COPY packages/ui/package.json packages/ui/package.json
 RUN npm ci
 COPY . .
 RUN npm run build --workspace=@ovl/database

@@ -11,6 +11,9 @@ COPY package.json package-lock.json ./
 COPY apps/api-office/package.json apps/api-office/package.json
 COPY apps/web-office/package.json apps/web-office/package.json
 COPY packages/database/package.json packages/database/package.json
+# @ovl/ui is a workspace in package-lock.json, so npm ci needs its manifest
+# present or the install fails before any source is copied.
+COPY packages/ui/package.json packages/ui/package.json
 RUN npm ci
 COPY . .
 RUN npm run build --workspace=@ovl/database
