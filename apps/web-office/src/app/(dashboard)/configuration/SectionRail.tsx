@@ -72,7 +72,7 @@ function SectionRow({
       type="button"
       onClick={onClick}
       className={`w-full flex items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-sm mb-0.5 cursor-pointer ${
-        active ? "bg-blue-500/10 text-blue-300" : "text-foreground hover:bg-muted/50"
+        active ? "bg-status-info/10 text-status-info" : "text-foreground hover:bg-muted/50"
       }`}
     >
       <span className="truncate">{label}</span>

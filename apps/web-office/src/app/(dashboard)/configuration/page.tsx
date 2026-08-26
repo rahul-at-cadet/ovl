@@ -1,20 +1,20 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@ovl/ui/components/tabs";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@ovl/ui/components/card";
+import { Button } from "@ovl/ui/components/button";
+import { Input } from "@ovl/ui/components/input";
+import { Label } from "@ovl/ui/components/label";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@ovl/ui/components/table";
+import { Badge } from "@ovl/ui/components/badge";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogFooter,
-} from "@/components/ui/dialog";
+} from "@ovl/ui/components/dialog";
 import { Upload, Plus, FileJson, Layers, Link as LinkIcon, ShieldAlert, ScrollText, Ship } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { FieldPolicyTab } from "./FieldPolicyTab";
@@ -223,7 +223,7 @@ function SchemasTab() {
                     {schemas?.map((s) => (
                       <TableRow key={s.id} className="border-border hover:bg-muted/50">
                         <TableCell className="font-medium text-foreground">{s.schemaName}</TableCell>
-                        <TableCell><span className="bg-blue-900/30 text-blue-400 px-2 py-0.5 rounded text-xs font-mono">{s.version}</span></TableCell>
+                        <TableCell><span className="bg-status-info/30 text-status-info px-2 py-0.5 rounded text-xs font-mono">{s.version}</span></TableCell>
                         <TableCell className="text-muted-foreground capitalize">{s.source}</TableCell>
                         <TableCell className="text-muted-foreground">{new Date(s.publishedAt).toLocaleDateString()}</TableCell>
                       </TableRow>
@@ -285,7 +285,7 @@ function SchemasTab() {
                 <button
                   type="button"
                   onClick={handleFilePick}
-                  className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                  className="text-xs text-status-info hover:text-status-info flex items-center gap-1"
                 >
                   <FileJson className="w-3 h-3" />
                   Upload .json file
@@ -303,32 +303,32 @@ function SchemasTab() {
                 rows={10}
                 value={content}
                 onChange={e => { setContent(e.target.value); invalidatePreview(); }}
-                className="w-full bg-background border border-border text-foreground font-mono text-xs rounded-md p-3 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
+                className="w-full bg-background border border-border text-foreground font-mono text-xs rounded-md p-3 focus:outline-none focus:ring-2 focus:ring-status-info focus:border-transparent"
               />
             </div>
 
-            {error && <p className="text-red-400 text-sm">{error}</p>}
+            {error && <p className="text-status-critical text-sm">{error}</p>}
 
             {previewIsCurrent && (
               preview!.valid ? (
-                <div className="rounded-md border border-emerald-300 bg-emerald-50 dark:border-emerald-900/50 dark:bg-emerald-950/30 p-3 space-y-2">
-                  <p className="text-sm text-emerald-700 dark:text-emerald-400 font-medium">Valid schema</p>
+                <div className="rounded-md border border-status-ok/30 bg-status-ok/10 p-3 space-y-2">
+                  <p className="text-sm text-status-ok font-medium">Valid schema</p>
                   {preview!.diff ? (
                     <div className="flex flex-wrap gap-1.5">
                       {preview!.diff.added.length > 0 && (
-                        <Badge variant="outline" className="border-emerald-700 text-emerald-400">+{preview!.diff.added.length} added</Badge>
+                        <Badge variant="outline" className="border-status-ok/25 text-status-ok">+{preview!.diff.added.length} added</Badge>
                       )}
                       {preview!.diff.removed.length > 0 && (
-                        <Badge variant="outline" className="border-red-700 text-red-400">-{preview!.diff.removed.length} removed</Badge>
+                        <Badge variant="outline" className="border-status-critical/25 text-status-critical">-{preview!.diff.removed.length} removed</Badge>
                       )}
                       {preview!.diff.typeChanged.length > 0 && (
-                        <Badge variant="outline" className="border-amber-700 text-amber-400">{preview!.diff.typeChanged.length} type changed</Badge>
+                        <Badge variant="outline" className="border-status-warn/25 text-status-warn">{preview!.diff.typeChanged.length} type changed</Badge>
                       )}
                       {preview!.diff.mandatorinessChanged.length > 0 && (
-                        <Badge variant="outline" className="border-amber-700 text-amber-400">{preview!.diff.mandatorinessChanged.length} mandatoriness changed</Badge>
+                        <Badge variant="outline" className="border-status-warn/25 text-status-warn">{preview!.diff.mandatorinessChanged.length} mandatoriness changed</Badge>
                       )}
                       {preview!.diff.enumChanged.length > 0 && (
-                        <Badge variant="outline" className="border-amber-700 text-amber-400">{preview!.diff.enumChanged.length} enum changed</Badge>
+                        <Badge variant="outline" className="border-status-warn/25 text-status-warn">{preview!.diff.enumChanged.length} enum changed</Badge>
                       )}
                       {preview!.diff.added.length === 0 &&
                         preview!.diff.removed.length === 0 &&
@@ -343,8 +343,8 @@ function SchemasTab() {
                   )}
                 </div>
               ) : (
-                <div className="rounded-md border border-red-300 bg-red-50 dark:border-red-900/50 dark:bg-red-950/30 p-3">
-                  <p className="text-sm text-red-700 dark:text-red-400">{preview!.error}</p>
+                <div className="rounded-md border border-status-critical/30 bg-status-critical/10 p-3">
+                  <p className="text-sm text-status-critical">{preview!.error}</p>
                 </div>
               )
             )}
@@ -361,7 +361,7 @@ function SchemasTab() {
               <Button
                 onClick={handleUpload}
                 disabled={publishSchema.isPending || !previewIsCurrent || !preview?.valid}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                className="flex-1"
               >
                 <Upload className="w-4 h-4 mr-2" />
                 {publishSchema.isPending ? "Publishing..." : "Publish"}
@@ -434,7 +434,7 @@ function BundlesTab() {
               onChange={(e) => setLabel(e.target.value)}
               className="w-64 bg-background border-border text-foreground"
             />
-            <Button onClick={() => setConfirmOpen(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+            <Button onClick={() => setConfirmOpen(true)}>
               <Plus className="w-4 h-4 mr-2" />
               Publish Bundle
             </Button>
@@ -455,7 +455,7 @@ function BundlesTab() {
             <Button variant="ghost" onClick={() => setConfirmOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handlePublish} disabled={publishBundle.isPending} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+            <Button onClick={handlePublish} disabled={publishBundle.isPending}>
               {publishBundle.isPending ? "Publishing..." : "Publish"}
             </Button>
           </DialogFooter>
@@ -503,7 +503,7 @@ function BundlesTab() {
                       {assignedToByBundle.has(b.id) ? (
                         <div className="flex flex-col gap-1">
                           {assignedToByBundle.get(b.id)!.map((s, i) => (
-                            <span key={i} className="text-xs text-emerald-400">
+                            <span key={i} className="text-xs text-status-ok">
                               {s}
                             </span>
                           ))}
@@ -547,7 +547,7 @@ function AssignmentsTab() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-heading font-medium text-foreground">Bundle Assignments</h2>
-        <Button onClick={() => setDialogOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white">
+        <Button onClick={() => setDialogOpen(true)}>
           <LinkIcon className="w-4 h-4 mr-2" />
           Assign Bundle
         </Button>
@@ -576,7 +576,7 @@ function AssignmentsTab() {
               </select>
             </div>
             {!canAssign && (
-              <p className="text-xs text-amber-400">Select both a bundle and a target scope to continue.</p>
+              <p className="text-xs text-status-warn">Select both a bundle and a target scope to continue.</p>
             )}
           </div>
           <DialogFooter>
@@ -586,7 +586,6 @@ function AssignmentsTab() {
             <Button
               disabled={!canAssign || assignBundle.isPending}
               onClick={() => assignBundle.mutate({ scope: assignScope, bundleId })}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
             >
               {assignBundle.isPending ? "Assigning..." : "Assign"}
             </Button>

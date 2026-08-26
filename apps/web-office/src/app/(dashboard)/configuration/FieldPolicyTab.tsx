@@ -10,10 +10,10 @@ import {
   type Row,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@ovl/ui/components/card";
+import { Input } from "@ovl/ui/components/input";
+import { Button } from "@ovl/ui/components/button";
+import { Badge } from "@ovl/ui/components/badge";
 import { Loader2, Search, Save, CalendarClock } from "lucide-react";
 
 import {
@@ -100,7 +100,7 @@ function EventsCell({
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
         className={`text-xs rounded-md border px-2 py-1 cursor-pointer inline-block ${
-          selectedEvents.length > 0 ? "border-blue-500 bg-blue-500/10 text-blue-300" : "border-border text-muted-foreground"
+          selectedEvents.length > 0 ? "border-status-info/25 bg-status-info/10 text-status-info" : "border-border text-muted-foreground"
         } ${disabled ? "opacity-50 pointer-events-none" : ""}`}
       >
         {label}
@@ -402,8 +402,8 @@ export function FieldPolicyTab() {
                   })}
                   className={`text-xs px-1.5 py-0.5 rounded-full cursor-pointer whitespace-nowrap ${
                     reviewed.has(field.name)
-                      ? "bg-emerald-500/10 text-emerald-400"
-                      : "bg-amber-500/10 text-amber-400"
+                      ? "bg-status-ok/10 text-status-ok"
+                      : "bg-status-warn/10 text-status-warn"
                   }`}
                 >
                   {reviewed.has(field.name) ? "Reviewed" : "New — review"}
@@ -448,7 +448,7 @@ export function FieldPolicyTab() {
               }
               setPolicyOverrides(newOverrides);
             }}
-            className={`w-32 h-8 rounded-md border bg-background text-xs px-2 disabled:opacity-50 disabled:cursor-not-allowed ${explicit ? 'border-blue-500 bg-blue-500/10 text-blue-300' : 'border-border text-foreground'}`}
+            className={`w-32 h-8 rounded-md border bg-background text-xs px-2 disabled:opacity-50 disabled:cursor-not-allowed ${explicit ? 'border-status-info/25 bg-status-info/10 text-status-info' : 'border-border text-foreground'}`}
           >
             <option value="inherit">
               Inherit ({POLICY_STATES.find(s => s.value === effectiveState(field, {}))?.label})
@@ -517,7 +517,7 @@ export function FieldPolicyTab() {
               }
               setPrefillOverrides(newOverrides);
             }}
-            className={`w-36 h-8 rounded-md border bg-background text-xs px-2 ${explicit ? 'border-blue-500 bg-blue-500/10 text-blue-300' : 'border-border text-foreground'}`}
+            className={`w-36 h-8 rounded-md border bg-background text-xs px-2 ${explicit ? 'border-status-info/25 bg-status-info/10 text-status-info' : 'border-border text-foreground'}`}
           >
             <option value="inherit">Inherit (none)</option>
             {PREFILL_CLASSES.map(s => (
@@ -614,7 +614,7 @@ export function FieldPolicyTab() {
             <Button
               onClick={handleSave}
               disabled={!isDirty || savePolicy.isPending}
-              className={isDirty ? "bg-blue-600 hover:bg-blue-700 text-white" : "bg-muted text-muted-foreground"}
+              className={isDirty ? undefined : "bg-muted text-muted-foreground"}
             >
               {savePolicy.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
               {isDirty ? "Save Changes" : "Up to Date"}
@@ -624,7 +624,7 @@ export function FieldPolicyTab() {
       </Card>
 
       {migration && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30 px-4 py-3 text-sm text-amber-700 dark:text-amber-300 flex items-start gap-2">
+        <div className="rounded-md border border-status-warn/30 bg-status-warn/10 px-4 py-3 text-sm text-status-warn flex items-start gap-2">
           <CalendarClock className="w-4 h-4 mt-0.5 shrink-0" />
           <div>
             Migrating field policy from v{migration.fromVersion} to v{policyData?.version} —{" "}

@@ -50,7 +50,7 @@ export function PositionField({ axis, label, control, degreeName, minutesName, h
   const degreePlaceholder = '0'.repeat(axis === 'lat' ? 2 : 3);
 
   return (
-    <div className="flex items-center gap-1.5 bg-background/50 border border-border rounded-md px-3 h-10 focus-within:ring-1 focus-within:ring-primary">
+    <div className="flex items-center gap-1.5 bg-card border border-input rounded-sm px-3 min-h-12 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50">
       <Controller
         name={degreeName}
         control={control}

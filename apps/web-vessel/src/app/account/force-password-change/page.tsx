@@ -3,10 +3,10 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { KeyRound, ShieldAlert } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@ovl/ui/components/card';
+import { Input } from '@ovl/ui/components/input';
+import { Label } from '@ovl/ui/components/label';
+import { Button } from '@ovl/ui/components/button';
 import { trpc } from '@/lib/trpc';
 
 export default function ForcePasswordChangePage() {
@@ -45,10 +45,10 @@ export default function ForcePasswordChangePage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="w-full max-w-[400px] z-10 p-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        <Card className="bg-card border-border shadow-xl rounded-md">
-          <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-border/50">
+        <Card className="bg-card border-border rounded-sm">
+          <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-border">
             <div className="flex justify-center mb-4">
-              <div className="p-3 bg-amber-500/10 text-amber-500 rounded-full border border-amber-500/20">
+              <div className="p-3 bg-status-warn/10 text-status-warn rounded-full border border-status-warn/25">
                 <ShieldAlert className="w-6 h-6" />
               </div>
             </div>
@@ -72,7 +72,7 @@ export default function ForcePasswordChangePage() {
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="••••••••" 
-                    className="pl-9 bg-background/50 border-border focus-visible:ring-ring text-foreground rounded-sm h-9 text-sm"
+                    className="pl-9 bg-card border-border focus-visible:ring-ring text-foreground rounded-sm h-9 text-sm"
                     required
                   />
                 </div>
@@ -86,21 +86,21 @@ export default function ForcePasswordChangePage() {
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="••••••••" 
-                    className="pl-9 bg-background/50 border-border focus-visible:ring-ring text-foreground rounded-sm h-9 text-sm"
+                    className="pl-9 bg-card border-border focus-visible:ring-ring text-foreground rounded-sm h-9 text-sm"
                     required
                   />
                 </div>
               </div>
               
               {error && (
-                <div className="text-red-400 text-xs font-medium bg-red-400/10 p-2 rounded-sm border border-red-400/20">
+                <div className="text-status-critical text-xs font-medium bg-status-critical/10 p-2 rounded-sm border border-status-critical/25">
                   {error}
                 </div>
               )}
               
               <Button 
                 type="submit" 
-                className="w-full bg-primary hover:bg-primary/90 text-white transition-all rounded-sm h-9 text-sm font-medium mt-4 shadow-lg shadow-primary/20"
+                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground transition-all rounded-sm h-9 text-sm font-medium mt-4 shadow-primary/20"
                 disabled={changePasswordMutation.isPending}
               >
                 {changePasswordMutation.isPending ? 'Updating...' : 'Update & Continue'}

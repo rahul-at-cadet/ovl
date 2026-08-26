@@ -4,13 +4,12 @@ import { ReactNode, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import Session, { signOut } from 'supertokens-auth-react/recipe/session';
-import { LayoutDashboard, Database, Ship, Users, Settings, Bell, Menu, LogOut, Search, Sliders, AlertTriangle, MessageSquare, CloudDownload, Briefcase } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { ThemeToggle } from '@/components/ui/theme-toggle';
+import { LayoutDashboard, Database, Ship, Users, Settings, Bell, Menu, LogOut, Sliders, AlertTriangle, MessageSquare, CloudDownload, Briefcase } from 'lucide-react';
+import { Button } from '@ovl/ui/components/button';
+import { Popover, PopoverContent, PopoverTrigger } from '@ovl/ui/components/popover';
+import { Avatar, AvatarFallback, AvatarImage } from '@ovl/ui/components/avatar';
+import { Sheet, SheetContent, SheetTrigger } from '@ovl/ui/components/sheet';
+import { ThemeToggle } from '@ovl/ui/components/theme-toggle';
 import { CadetlabsLogo } from '@/components/layout/CadetlabsLogo';
 import { trpc } from '@/lib/trpc';
 import { useCurrentUser } from '@/lib/useCurrentUser';
@@ -122,6 +121,14 @@ export function AppShell({ children }: AppShellProps) {
 
   return (
     <div className="min-h-screen bg-background text-foreground flex overflow-hidden">
+      {/* First thing in the tab order: without it, reaching page content by
+          keyboard means tabbing past every sidebar link on every navigation. */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50 focus:rounded-md focus:bg-card focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-ring"
+      >
+        Skip to main content
+      </a>
       {/* Sidebar */}
       <aside
         className={`h-screen bg-card border-r border-border flex flex-col relative z-20 shrink-0 hidden md:flex transition-all duration-200 ${isSidebarOpen ? 'w-[260px]' : 'w-[70px]'}`}
@@ -166,14 +173,14 @@ export function AppShell({ children }: AppShellProps) {
         {/* Top Header */}
         <header className="h-16 bg-card/50 backdrop-blur-md border-b border-border flex items-center justify-between px-4 lg:px-8 z-10 shrink-0">
           <div className="flex items-center flex-1">
-            <Button variant="ghost" size="icon" onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="hidden md:flex text-muted-foreground hover:text-foreground mr-4">
+            <Button variant="ghost" size="icon" aria-label={isSidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'} aria-expanded={isSidebarOpen} onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="hidden md:flex text-muted-foreground hover:text-foreground mr-4">
               <Menu className="w-5 h-5" />
             </Button>
             
             {/* Mobile Navigation */}
             <div className="md:hidden flex items-center">
               <Sheet>
-                <SheetTrigger render={<Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground mr-2 -ml-2" />}>
+                <SheetTrigger render={<Button variant="ghost" size="icon" aria-label="Open navigation menu" className="text-muted-foreground hover:text-foreground mr-2 -ml-2" />}>
                   <Menu className="w-5 h-5" />
                 </SheetTrigger>
                 <SheetContent side="left" className="w-[260px] bg-card border-r border-border p-0 flex flex-col">
@@ -214,13 +221,6 @@ export function AppShell({ children }: AppShellProps) {
                <span className="font-bold tracking-tight">Cadetlabs</span>
             </div>
 
-            <div className="hidden md:flex relative max-w-md w-full">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input 
-                placeholder="Search..." 
-                className="pl-9 bg-card border-border h-8 w-full text-sm rounded-sm"
-              />
-            </div>
           </div>
 
           <div className="flex items-center space-x-4">
@@ -235,10 +235,10 @@ export function AppShell({ children }: AppShellProps) {
             <Popover>
               <PopoverTrigger
                 render={
-                  <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-foreground h-8 w-8">
+                  <Button variant="ghost" size="icon" aria-label={unreadCount > 0 ? `Fleet alerts, ${unreadCount} unread` : 'Fleet alerts'} className="relative text-muted-foreground hover:text-foreground h-8 w-8">
                     <Bell className="w-4 h-4" />
                     {unreadCount > 0 && (
-                      <span className="absolute top-1 right-1 min-w-[14px] h-[14px] px-[3px] rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center leading-none">
+                      <span className="absolute top-1 right-1 min-w-[14px] h-[14px] px-[3px] rounded-full bg-status-critical text-background text-xs font-bold flex items-center justify-center leading-none">
                         {unreadCount > 9 ? '9+' : unreadCount}
                       </span>
                     )}
@@ -277,7 +277,7 @@ export function AppShell({ children }: AppShellProps) {
                   ) : filteredNotifications.length > 0 ? (
                     filteredNotifications.map((notification) => {
                       const Icon = notification.category === 'overdue' ? AlertTriangle : notification.category === 'remark' ? MessageSquare : CloudDownload;
-                      const color = notification.category === 'overdue' ? 'text-red-400' : notification.category === 'remark' ? 'text-amber-400' : 'text-emerald-400';
+                      const color = notification.category === 'overdue' ? 'text-status-critical' : notification.category === 'remark' ? 'text-status-warn' : 'text-status-ok';
                       return (
                         <button
                           key={notification.id}
@@ -308,7 +308,7 @@ export function AppShell({ children }: AppShellProps) {
             <Popover>
               <PopoverTrigger
                 render={
-                  <button className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <button aria-label="Account menu" className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     <Avatar className="h-8 w-8 border border-border">
                       <AvatarImage src="" />
                       <AvatarFallback className="bg-primary text-primary-foreground text-xs">{userInitials}</AvatarFallback>
@@ -337,7 +337,7 @@ export function AppShell({ children }: AppShellProps) {
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 overflow-y-auto p-4 lg:p-8">
+        <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto p-4 lg:p-8">
           <div className="max-w-7xl mx-auto min-h-full pb-10">
             {children}
           </div>

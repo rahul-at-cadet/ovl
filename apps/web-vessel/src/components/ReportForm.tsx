@@ -2,21 +2,23 @@
 
 import { useState, useEffect, useMemo, useRef, Fragment } from 'react';
 import { useForm, Controller, useWatch } from 'react-hook-form';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { AlertCircle, CheckCircle2, Save, Send, Loader2, Cpu, RotateCcw, Lock, LockOpen } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@ovl/ui/components/card';
+import { Button } from '@ovl/ui/components/button';
+import { Input } from '@ovl/ui/components/input';
+import { Label } from '@ovl/ui/components/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@ovl/ui/components/tabs';
+import { AlertCircle, AlertTriangle, CheckCircle2, Circle, Save, Send, Loader2, Cpu, RotateCcw, Lock, LockOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { trpc } from '@/lib/trpc';
 import { useRouter } from 'next/navigation';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ovl/ui/components/select';
 import { AttachmentsSection } from './AttachmentsSection';
-import { useToastManager } from '@/components/ui/toast';
+import { useToastManager } from '@ovl/ui/components/toast';
 import { effectiveState, type SchemaField } from '@/lib/config/fieldPolicyLogic';
 import { computeDerivedValues, computeTimeSincePreviousReport, DERIVED_FIELDS } from '@/lib/derivedFields';
 import { PositionField } from './PositionField';
+import { SaveStatus, type SaveState } from './SaveStatus';
+import { useScrollActiveTabIntoView } from './ScrollableTabs';
 
 // Degree/Minutes/Hemisphere triples rendered as one compound DMS
 // control (see PositionField.tsx) instead of three unrelated plain
@@ -31,6 +33,10 @@ const POSITION_CONSUMED_FIELDS = new Set(
   Object.values(POSITION_GROUPS).flatMap((g) => [g.minutes, g.hemisphere]),
 );
 
+function isEventLockField(field: { name: string; enumRef?: string | null }): boolean {
+  return field.name === 'Event' && field.enumRef === 'event-types';
+}
+
 interface ReportFormProps {
   reportId: string;
 }
@@ -38,6 +44,7 @@ interface ReportFormProps {
 export function ReportForm({ reportId }: ReportFormProps) {
   const router = useRouter();
   const toastManager = useToastManager();
+  const sectionTabsRef = useScrollActiveTabIntoView<HTMLDivElement>();
   const [serverErrors, setServerErrors] = useState<string[]>([]);
   // Which section tab is active, so Save/autosave persists the section the
   // user is actually looking at — this used to always write to sections[0]
@@ -98,8 +105,13 @@ export function ReportForm({ reportId }: ReportFormProps) {
   }, [enumRefs, enumQueries]);
 
   const submitReportMutation = trpc.reports.submitReport.useMutation();
-  const saveSectionMutation = trpc.reports.saveSection.useMutation();
-  const checkMutation = trpc.reports.check.useMutation();
+  // saveSection and check report through the panel and the save indicator
+  // below rather than the global mutation toast — a toast per autosave tick
+  // would be unreadable.
+  const saveSectionMutation = trpc.reports.saveSection.useMutation({
+    meta: { silentError: true },
+  });
+  const checkMutation = trpc.reports.check.useMutation({ meta: { silentError: true } });
   const trpcUtils = trpc.useUtils();
 
   // Finding acknowledgement (architecture 15): append-only, no
@@ -129,6 +141,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
   // find out about on save.
   const { data: me } = trpc.users.me.useQuery();
   const { data: locks = [] } = trpc.reports.listLocks.useQuery({ id: reportId }, { refetchInterval: 5000 });
+  const { data: syncStatus } = trpc.sync.status.useQuery();
   const acquireLockMutation = trpc.reports.acquireLock.useMutation();
   const releaseLockMutation = trpc.reports.releaseLock.useMutation();
   const forceReleaseLockMutation = trpc.reports.forceReleaseLock.useMutation();
@@ -227,6 +240,20 @@ export function ReportForm({ reportId }: ReportFormProps) {
   });
 
   const formValues = useWatch({ control });
+  // One stringify per value change, shared by the save indicator and the
+  // Health Check staleness effect below — both need the same snapshot and
+  // this form can carry 400+ fields.
+  const formSnapshot = useMemo(() => JSON.stringify(formValues), [formValues]);
+
+  // What the autosave is doing, and whether the officer has edits the last
+  // completed save didn't include. `savedSnapshotRef` is written only from
+  // mutation callbacks, and every write is paired with a setSaveState, so
+  // reading it during render always sees a value the render was scheduled
+  // for.
+  const [saveState, setSaveState] = useState<SaveState>({ kind: 'idle' });
+  const savedSnapshotRef = useRef<string | null>(null);
+  const hasUnsavedEdits =
+    savedSnapshotRef.current !== null && savedSnapshotRef.current !== formSnapshot;
 
   const derived = useMemo(() => {
     const combined = computeDerivedValues(formValues);
@@ -266,6 +293,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
   // Auto-save debounced effect
   useEffect(() => {
     if (!report || !schema || Object.keys(formValues).length === 0) return;
+    if (savedSnapshotRef.current === null) savedSnapshotRef.current = formSnapshot;
 
     const timer = setTimeout(() => {
       handleAction(formValues as Record<string, unknown>, 'draft', true);
@@ -281,11 +309,20 @@ export function ReportForm({ reportId }: ReportFormProps) {
   // (the debounced autosave's independent timer can fire just after it).
   useEffect(() => {
     if (!checkResult || checkedValuesRef.current === null) return;
-    if (JSON.stringify(formValues) !== checkedValuesRef.current) {
+    if (formSnapshot !== checkedValuesRef.current) {
       setCheckResult(null);
       checkedValuesRef.current = null;
     }
-  }, [formValues, checkResult]);
+  }, [formSnapshot, checkResult]);
+
+  // A report part-written and unsaved is the one thing on this screen that
+  // can't be recovered by reloading, so closing the tab has to ask first.
+  useEffect(() => {
+    if (!hasUnsavedEdits && saveState.kind !== 'failed') return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [hasUnsavedEdits, saveState.kind]);
 
   const handlePrefillSensors = () => {
     if (telemetry && schema) {
@@ -300,10 +337,38 @@ export function ReportForm({ reportId }: ReportFormProps) {
         if (f.name.toLowerCase().includes('wind')) updates[f.name] = telemetry.environment.windSpeedKnots.toFixed(1);
       });
 
+      // Same matching as before; the change is that the officer is told what
+      // actually happened rather than watching values silently appear.
+      const applied: string[] = [];
+      const skipped: string[] = [];
       Object.entries(updates).forEach(([key, value]) => {
+        const current = (getValues() as Record<string, unknown>)[key];
+        if (current !== undefined && current !== '' && current !== value) {
+          skipped.push(key);
+          return;
+        }
         setValue(key, value, { shouldValidate: true, shouldDirty: true });
+        applied.push(key);
       });
+
+      toastManager.add({
+        title: applied.length
+          ? `Filled ${applied.length} field${applied.length === 1 ? '' : 's'} from sensors`
+          : 'Nothing filled from sensors',
+        description: skipped.length
+          ? `${skipped.length} field${skipped.length === 1 ? '' : 's'} left alone because they already hold a different value: ${skipped.slice(0, 4).join(', ')}${skipped.length > 4 ? '…' : ''}`
+          : applied.length
+            ? 'Existing values were left untouched.'
+            : 'No matching fields were empty.',
+        type: applied.length ? 'success' : 'info',
+      });
+      return;
     }
+    toastManager.add({
+      title: 'Sensor data unavailable',
+      description: 'The local sensor source did not return a reading. Enter values manually.',
+      type: 'warning',
+    });
   };
 
   if (isReportLoading || isSchemaLoading) {
@@ -317,7 +382,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
 
   if (reportError || !report || schemaError || !schema) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 text-red-400">
+      <div className="flex flex-col items-center justify-center h-64 text-status-critical">
         <AlertCircle className="w-8 h-8 mb-4" />
         <p>Failed to load draft: {reportError?.message || schemaError?.message}</p>
       </div>
@@ -359,21 +424,26 @@ export function ReportForm({ reportId }: ReportFormProps) {
     } else {
       // Find current active section based on the DOM, or just save all as 'General'
       // In a robust implementation, we would track the active tab state
+      const snapshotAtSave = JSON.stringify(data);
+      setSaveState({ kind: 'saving' });
       saveSectionMutation.mutate({
         id: reportId,
         section: activeSection ?? sections[0],
         changes: parsedFields
       }, {
         onSuccess: () => {
+          savedSnapshotRef.current = snapshotAtSave;
+          setSaveState({ kind: 'saved', at: new Date() });
           if (!isAutoSave) {
             trpcUtils.reports.getReport.invalidate({ id: reportId });
           }
           trpcUtils.reports.listReports.invalidate();
         },
         onError: (err) => {
-          if (!isAutoSave) {
-            setServerErrors([err.message]);
-          }
+          // An autosave failure used to be dropped on the floor here. It is
+          // the *more* important one to show, not the less: the officer
+          // didn't ask for it, so they have no reason to be watching for it.
+          setSaveState({ kind: 'failed', message: err.message });
         }
       });
     }
@@ -384,6 +454,31 @@ export function ReportForm({ reportId }: ReportFormProps) {
   // Section a finding's field lives in, for click-to-jump — mirrors the
   // same fallback the form's own field rendering uses (section ||
   // sections[0]) so a finding always resolves to a real tab.
+  // Per-section counts for the tab indicators. Plain derivation rather than a
+  // hook: `sections` only exists after the loading/error returns above, so a
+  // useMemo here would be a conditionally-called hook.
+  const sectionSummary = (section: string) => {
+    let missingRequired = 0;
+    for (const f of schema.fields) {
+      if ((f.section || sections[0]) !== section) continue;
+      const state = effectiveState(
+        { ...f, section: f.section || section, relevance: f.relevance || '' } as SchemaField,
+        policy,
+        policyEvents,
+        report?.eventType,
+      );
+      if (state !== 'schemaMandatory' && state !== 'companyMandatory') continue;
+      const v = (formValues as Record<string, unknown>)[f.name];
+      if (v === undefined || v === null || v === '') missingRequired += 1;
+    }
+    const findings = checkResult?.findings ?? [];
+    return {
+      missingRequired,
+      errors: findings.filter((x) => x.severity === 'error' && sectionForField(x.field) === section).length,
+      warnings: findings.filter((x) => x.severity === 'warning' && sectionForField(x.field) === section).length,
+    };
+  };
+
   const sectionForField = (fieldName: string | undefined) => {
     if (!fieldName) return sections[0];
     return schema.fields.find((f) => f.name === fieldName)?.section || sections[0];
@@ -408,13 +503,18 @@ export function ReportForm({ reportId }: ReportFormProps) {
     });
 
     try {
+      const snapshotAtSave = JSON.stringify(data);
+      setSaveState({ kind: 'saving' });
       await saveSectionMutation.mutateAsync({ id: reportId, section: activeSection ?? sections[0], changes: parsedFields });
+      savedSnapshotRef.current = snapshotAtSave;
+      setSaveState({ kind: 'saved', at: new Date() });
       trpcUtils.reports.listReports.invalidate();
       const result = await checkMutation.mutateAsync({ id: reportId });
       checkedValuesRef.current = JSON.stringify(getValues());
       setCheckResult(result);
       trpcUtils.reports.getReport.invalidate({ id: reportId });
     } catch (err: any) {
+      setSaveState({ kind: 'failed', message: err.message });
       setServerErrors([err.message]);
     }
   };
@@ -422,19 +522,25 @@ export function ReportForm({ reportId }: ReportFormProps) {
   const canSubmit = report.state === 'ready';
 
   return (
-    <div className="flex flex-col xl:flex-row gap-6 items-start animate-in fade-in slide-in-from-bottom-4 duration-500 xl:h-[calc(100vh-140px)] xl:overflow-hidden">
+    <div className="flex flex-col 2xl:flex-row gap-4 items-stretch 2xl:items-start 2xl:h-[calc(100vh_-_140px)] 2xl:overflow-hidden">
       {/* Form Area */}
-      <div className="flex-1 w-full space-y-6 xl:h-full xl:min-h-0 flex flex-col">
-        <div className="flex justify-between items-center bg-card/50 p-4 rounded-xl border border-border backdrop-blur-sm shrink-0">
-          <div>
+      <div className="flex-1 w-full space-y-6 2xl:h-full 2xl:min-h-0 flex flex-col">
+        <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-3 bg-card p-4 rounded-sm border border-border shrink-0">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
             <h2 className="text-xl font-bold tracking-tight text-foreground whitespace-nowrap">Drafting: {schema.schemaName}</h2>
+            <SaveStatus
+              state={saveState}
+              hasUnsavedEdits={hasUnsavedEdits}
+              pendingSync={syncStatus?.pendingCount}
+              onRetry={() => handleAction(getValues(), 'draft')}
+            />
           </div>
-          <div className="flex gap-2">
-            <Button type="button" size="sm" onClick={() => handleAction(getValues(), 'draft')} variant="outline" className="border-border bg-background/50 text-foreground hover:text-foreground" disabled={saveSectionMutation.isPending || submitReportMutation.isPending}>
+          <div className="grid grid-cols-1 sm:grid-cols-3 lg:flex gap-2">
+            <Button type="button" size="sm" onClick={() => handleAction(getValues(), 'draft')} variant="outline" className="justify-center" disabled={saveSectionMutation.isPending || submitReportMutation.isPending}>
               <Save className="w-4 h-4 mr-1.5" />
               {saveSectionMutation.isPending ? 'Saving...' : 'Save Draft'}
             </Button>
-            <Button type="button" size="sm" onClick={handleRunCheck} variant="outline" className="border-border bg-background/50 text-foreground hover:text-foreground" disabled={checkMutation.isPending || submitReportMutation.isPending}>
+            <Button type="button" size="sm" onClick={handleRunCheck} variant="outline" className="justify-center" disabled={checkMutation.isPending || submitReportMutation.isPending}>
               <CheckCircle2 className="w-4 h-4 mr-1.5" />
               {checkMutation.isPending ? 'Checking...' : 'Run Health Check'}
             </Button>
@@ -442,7 +548,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
               type="button"
               size="sm"
               onClick={handleSubmit((d) => handleAction(d, 'submit'))}
-              className="bg-primary hover:bg-primary/90 text-white shadow-sm"
+              className="justify-center"
               disabled={saveSectionMutation.isPending || submitReportMutation.isPending || !canSubmit}
               title={canSubmit ? undefined : 'Run Health Check with zero errors before submitting'}
             >
@@ -452,14 +558,14 @@ export function ReportForm({ reportId }: ReportFormProps) {
           </div>
         </div>
 
-        <Card className="bg-card/50 border-border xl:flex-1 xl:min-h-0 flex flex-col">
-          <div className="p-4 border-b border-border flex justify-between items-center shrink-0">
+        <Card className="bg-card border-border rounded-sm 2xl:flex-1 2xl:min-h-0 flex flex-col">
+          <div className="px-4 pt-4 pb-3 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 shrink-0">
             <h3 className="text-sm font-medium text-muted-foreground">Form Details</h3>
             <Button
               type="button"
               variant="outline"
               size="sm"
-              className="text-xs bg-background border-border text-primary hover:text-primary hover:bg-muted"
+              className="w-full sm:w-auto justify-center"
               onClick={handlePrefillSensors}
               disabled={telemetryLoading || !telemetry}
             >
@@ -467,42 +573,80 @@ export function ReportForm({ reportId }: ReportFormProps) {
               {telemetryLoading ? 'Reading Sensors...' : 'Pre-fill from Sensors'}
             </Button>
           </div>
-          <Tabs value={activeSection ?? sections[0]} onValueChange={setActiveSection} className="w-full xl:flex-1 xl:min-h-0 flex flex-col">
+          <Tabs value={activeSection ?? sections[0]} onValueChange={setActiveSection} className="w-full 2xl:flex-1 2xl:min-h-0 flex flex-col">
             {sections.length > 1 && (
-              <CardHeader className="border-b border-border pb-0 pt-4 px-4 shrink-0">
-                <TabsList className="bg-background/50 border border-border w-full justify-start h-auto p-1 overflow-x-auto">
+              <div className="border-b border-border shrink-0 scroll-x">
+                <TabsList ref={sectionTabsRef} className="bg-transparent w-full justify-start h-auto p-0 gap-0 rounded-none">
                   {sections.map(section => {
                     const lock = lockBySection.get(section);
                     const lockedByOther = !!lock && lock.userId !== me?.id;
+                    const summary = sectionSummary(section);
                     return (
                       <Fragment key={section}>
                         <TabsTrigger
                           value={section}
                           disabled={lockedByOther && !isMaster}
                           title={lockedByOther ? `Locked by ${lock.username}` : undefined}
-                          className="data-[state=active]:bg-primary/15 data-[state=active]:text-primary data-[state=active]:shadow-sm px-6 py-2 capitalize"
+                          className="relative !flex-none rounded-none border-0 bg-transparent text-muted-foreground px-4 min-h-12 capitalize whitespace-nowrap
+                            hover:bg-surface-hover
+                            data-active:bg-surface-active data-active:text-foreground data-active:font-semibold data-active:shadow-none
+                            after:absolute after:inset-x-0 after:-bottom-px after:h-[2px] after:bg-transparent data-active:after:bg-primary"
                         >
-                          {lockedByOther && <Lock className="w-3 h-3 mr-1.5 text-amber-500/80" />}
+                          {lockedByOther && <Lock className="w-3.5 h-3.5 mr-1.5 shrink-0" aria-hidden="true" />}
                           {section.replace(/([A-Z])/g, ' $1').trim()}
+                          {summary.errors > 0 ? (
+                            <span
+                              className="ml-2 inline-flex items-center gap-1 text-xs font-semibold text-status-critical"
+                              title={`${summary.errors} error${summary.errors === 1 ? '' : 's'}`}
+                            >
+                              <AlertCircle className="w-3.5 h-3.5" aria-hidden="true" />
+                              {summary.errors}
+                              <span className="sr-only">errors</span>
+                            </span>
+                          ) : summary.missingRequired > 0 ? (
+                            <span
+                              className="ml-2 inline-flex items-center gap-1 text-xs font-semibold text-status-warn"
+                              title={`${summary.missingRequired} required field${summary.missingRequired === 1 ? '' : 's'} outstanding`}
+                            >
+                              <Circle className="w-3.5 h-3.5" aria-hidden="true" />
+                              {summary.missingRequired}
+                              <span className="sr-only">required fields outstanding</span>
+                            </span>
+                          ) : summary.warnings > 0 ? (
+                            <span
+                              className="ml-2 inline-flex items-center gap-1 text-xs font-semibold text-status-warn"
+                              title={`${summary.warnings} warning${summary.warnings === 1 ? '' : 's'}`}
+                            >
+                              <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />
+                              {summary.warnings}
+                              <span className="sr-only">warnings</span>
+                            </span>
+                          ) : (
+                            <CheckCircle2
+                              className="ml-2 w-3.5 h-3.5 text-status-ok shrink-0"
+                              aria-label="Section complete"
+                            />
+                          )}
                         </TabsTrigger>
                         {lockedByOther && isMaster && (
                           <button
                             type="button"
                             title={`Force-release ${lock.username}'s lock`}
                             onClick={() => forceReleaseLockMutation.mutate({ id: reportId, section })}
-                            className="p-1 rounded text-muted-foreground hover:text-red-400 hover:bg-red-500/10 self-center"
+                            className="px-2 rounded-sm text-muted-foreground hover:text-status-critical hover:bg-status-critical/10 self-center shrink-0"
                           >
-                            <LockOpen className="w-3 h-3" />
+                            <LockOpen className="w-4 h-4" />
+                            <span className="sr-only">Force-release lock on {section}</span>
                           </button>
                         )}
                       </Fragment>
                     );
                   })}
                 </TabsList>
-              </CardHeader>
+              </div>
             )}
 
-            <CardContent className="pt-6 xl:flex-1 xl:min-h-0 xl:overflow-y-auto">
+            <CardContent className="pt-6 2xl:flex-1 2xl:min-h-0 2xl:overflow-y-auto">
               <form onSubmit={(e) => e.preventDefault()} noValidate>
                 {sections.map(section => {
                   const sectionFields = schema.fields
@@ -536,16 +680,18 @@ export function ReportForm({ reportId }: ReportFormProps) {
                   }
                   return (
                   <TabsContent key={section} value={section} className="space-y-6 mt-0">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-5">
                       {sectionFields.map(({ field, state }) => {
                         const positionGroup = POSITION_GROUPS[field.name];
                         if (positionGroup) {
                           return (
                             <div key={field.name} className="space-y-2 md:col-span-2">
-                              <Label className="text-foreground flex items-center">
-                                {positionGroup.label}
+                              <Label className="text-foreground flex flex-wrap items-center gap-x-2">
+                                <span className="font-medium">{positionGroup.label}</span>
                                 {(state === 'schemaMandatory' || state === 'companyMandatory') && (
-                                  <span className="text-red-400 ml-1">*</span>
+                                  <span className="instrument-label text-status-critical">
+                                    <span aria-hidden="true">*</span> Required
+                                  </span>
                                 )}
                               </Label>
                               <PositionField
@@ -565,18 +711,18 @@ export function ReportForm({ reportId }: ReportFormProps) {
                           <Label htmlFor={field.name} className="text-foreground flex items-center">
                             {field.label || field.name}
                             {(state === 'schemaMandatory' || state === 'companyMandatory') && (
-                              <span className="text-red-400 ml-1">*</span>
+                              <span className="text-status-critical ml-1">*</span>
                             )}
                             {state === 'recommended' && (
-                              <span className="ml-2 text-xs font-normal uppercase tracking-wide text-amber-500/80">Recommended</span>
+                              <span className="ml-2 text-xs font-normal uppercase tracking-wide text-status-warn/80">Recommended</span>
                             )}
                           </Label>
                           {field.description && (
                             <p className="text-xs text-muted-foreground">{field.description}</p>
                           )}
                           {derived[field.name] && (
-                            <div className="flex items-center gap-2 text-xs text-primary/80">
-                              <span>{derived[field.name].formula}</span>
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                              <span className="inline-flex items-center gap-1"><Cpu className="w-3 h-3 shrink-0" aria-hidden="true" />Computed: {derived[field.name].formula}</span>
                               {overriddenFields.has(field.name) && (
                                 <button
                                   type="button"
@@ -608,7 +754,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
                                       value={controllerField.value ?? ''}
                                       onChange={(e) => controllerField.onChange(e.target.value)}
                                       type="text"
-                                      className="bg-background/50 border-border focus-visible:ring-primary text-foreground"
+                                      className="bg-card"
                                     />
                                   );
                                 }
@@ -617,17 +763,17 @@ export function ReportForm({ reportId }: ReportFormProps) {
                                 // and locked from then on — mirrors the original's
                                 // FieldRow.tsx LOCKED_FIELDS: "no way to ever set it
                                 // afterward, start a new report to change it."
-                                const isLockedEventField = field.name === 'Event' && field.enumRef === 'event-types' && !!report.eventType;
+                                const isLockedEventField = isEventLockField(field) && !!report.eventType;
                                 return (
                                   <Select
                                     onValueChange={controllerField.onChange}
                                     value={controllerField.value ?? ''}
                                     disabled={isLockedEventField}
                                   >
-                                    <SelectTrigger className="bg-background/50 border-border text-foreground focus:ring-primary disabled:opacity-70 disabled:cursor-not-allowed">
+                                    <SelectTrigger className="bg-card disabled:opacity-100 disabled:bg-muted disabled:cursor-not-allowed">
                                       <SelectValue placeholder="Select an option" />
                                     </SelectTrigger>
-                                    <SelectContent className="bg-card border-border text-foreground">
+                                    <SelectContent className="bg-popover">
                                       {enumValues.map((code) => (
                                         <SelectItem key={code} value={code}>{code}</SelectItem>
                                       ))}
@@ -645,7 +791,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
                                     value={controllerField.value ?? ''}
                                     onChange={(e) => controllerField.onChange(e.target.value)}
                                     type="datetime-local"
-                                    className="bg-background/50 border-border focus-visible:ring-primary text-foreground"
+                                    className="bg-card"
                                   />
                                 );
                               }
@@ -664,7 +810,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
                                     controllerField.onChange(e.target.value);
                                   }}
                                   type={field.type === 'wholeNumber' || field.type === 'decimal' ? 'number' : 'text'}
-                                  className="bg-background/50 border-border focus-visible:ring-primary text-foreground"
+                                  className="bg-card"
                                 />
                               );
                             }}
@@ -683,8 +829,8 @@ export function ReportForm({ reportId }: ReportFormProps) {
       </div>
 
       {/* Health Check Panel */}
-      <div className="w-full xl:w-80 xl:h-full xl:min-h-0 shrink-0 flex flex-col">
-        <Card className="bg-card/50 border-border xl:flex-1 xl:min-h-0 flex flex-col">
+      <div className="w-full 2xl:w-80 2xl:h-full 2xl:min-h-0 shrink-0 flex flex-col">
+        <Card className="bg-card border-border rounded-sm 2xl:flex-1 2xl:min-h-0 flex flex-col">
           <CardHeader className="border-b border-border pb-4 shrink-0">
             <CardTitle className="text-lg flex items-center">
               Health Check
@@ -693,12 +839,12 @@ export function ReportForm({ reportId }: ReportFormProps) {
               {checkResult ? 'Field rules, plausibility, and continuity against the committed chain' : 'Not yet checked'}
             </CardDescription>
           </CardHeader>
-          <CardContent className="pt-4 xl:flex-1 xl:min-h-0 flex flex-col">
+          <CardContent className="pt-4 2xl:flex-1 2xl:min-h-0 flex flex-col">
             <AnimatePresence mode="wait">
               {serverErrors.length > 0 && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mb-3 space-y-2 shrink-0">
                   {serverErrors.map((err, idx) => (
-                    <div key={idx} className="flex items-center text-red-400 bg-red-500/10 p-3 rounded-lg border border-red-500/20 text-xs">
+                    <div key={idx} className="flex items-center text-status-critical bg-status-critical/10 p-3 rounded-sm border border-status-critical/25 text-xs">
                       <AlertCircle className="w-4 h-4 mr-2 shrink-0" />
                       {err}
                     </div>
@@ -722,19 +868,19 @@ export function ReportForm({ reportId }: ReportFormProps) {
                   </div>
                 </motion.div>
               ) : (
-                <motion.div key="checked" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-3 xl:flex-1 xl:min-h-0 flex flex-col">
+                <motion.div key="checked" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-3 2xl:flex-1 2xl:min-h-0 flex flex-col">
                   {(() => {
                     const errors = checkResult.findings.filter((f) => f.severity === 'error');
                     const warnings = checkResult.findings.filter((f) => f.severity === 'warning');
                     return (
                       <>
                         {errors.length === 0 ? (
-                          <div className="flex items-center text-emerald-400 bg-emerald-500/10 p-3 rounded-lg border border-emerald-500/20 shrink-0">
+                          <div className="flex items-center text-status-ok bg-status-ok/10 p-3 rounded-sm border border-status-ok/25 shrink-0">
                             <CheckCircle2 className="w-5 h-5 mr-2 shrink-0" />
                             <span className="text-sm font-medium">Ready for submission</span>
                           </div>
                         ) : (
-                          <div className="flex items-center text-red-400 bg-red-500/10 p-3 rounded-lg border border-red-500/20 shrink-0">
+                          <div className="flex items-center text-status-critical bg-status-critical/10 p-3 rounded-sm border border-status-critical/25 shrink-0">
                             <AlertCircle className="w-5 h-5 mr-2 shrink-0" />
                             <span className="text-sm font-medium">{errors.length} error{errors.length === 1 ? '' : 's'} must be fixed</span>
                           </div>
@@ -750,7 +896,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
                             {checkResult.regulatoryReadiness.map((p) => (
                               <div key={p.profile} className="flex items-center justify-between text-xs">
                                 <span className="text-foreground">{p.profile.toUpperCase()}</span>
-                                <span className={p.ready ? 'text-emerald-400' : 'text-amber-500/80'}>
+                                <span className={p.ready ? 'text-status-ok' : 'text-status-warn/80'}>
                                   {p.ready ? 'Ready' : `${p.missingFields.length} missing`}
                                 </span>
                               </div>
@@ -759,7 +905,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
                         )}
                         {checkResult.continuityImpact.length > 0 && (
                           <div className="shrink-0 space-y-1.5">
-                            <p className="text-xs font-medium uppercase tracking-wide text-red-400">Other reports invalidated</p>
+                            <p className="text-xs font-medium uppercase tracking-wide text-status-critical">Other reports invalidated</p>
                             {checkResult.continuityImpact.map((c) => (
                               <div key={c.reportId} className="text-xs text-muted-foreground">
                                 {c.eventType} · {c.invalidatedRules.join(', ')}
@@ -769,23 +915,26 @@ export function ReportForm({ reportId }: ReportFormProps) {
                         )}
 
                         {warnings.length > 0 && (
-                          <div className="text-xs text-amber-500/80 font-medium uppercase tracking-wide shrink-0 pt-1 border-t border-border/50">
+                          <div className="text-xs text-status-warn/80 font-medium uppercase tracking-wide shrink-0 pt-1 border-t border-border">
                             {warnings.length} warning{warnings.length === 1 ? '' : 's'}
                           </div>
                         )}
-                        <div className="space-y-2 xl:flex-1 xl:min-h-0 xl:overflow-y-auto">
+                        <p className="instrument-label shrink-0 pt-1">
+                          {errors.length + warnings.length} finding{errors.length + warnings.length === 1 ? '' : 's'}
+                        </p>
+                        <div className="space-y-2 max-h-[22rem] overflow-y-auto border-t border-border pt-2 2xl:max-h-none 2xl:border-t-0 2xl:pt-0 2xl:flex-1 2xl:min-h-0">
                           {[...errors, ...warnings].map((f, idx) => {
                             const ackKey = `${f.ruleId}:${f.field ?? ''}`;
                             const acknowledged = acknowledgedFindings.get(ackKey) ?? false;
                             return (
                               <div
                                 key={`${f.ruleId}-${f.field ?? ''}-${idx}`}
-                                className={`w-full text-xs p-2 rounded bg-background/50 border transition-colors ${
+                                className={`w-full text-xs p-2 rounded bg-card border transition-colors ${
                                   f.severity === 'error'
-                                    ? 'border-red-500/30 text-foreground'
+                                    ? 'border-status-critical/30 text-foreground'
                                     : acknowledged
-                                      ? 'border-border/30 text-muted-foreground/60'
-                                      : 'border-border/50 text-muted-foreground'
+                                      ? 'border-border text-muted-foreground/60'
+                                      : 'border-border text-muted-foreground'
                                 }`}
                               >
                                 <button
@@ -808,7 +957,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
                                       })
                                     }
                                     disabled={acknowledgeFindingMutation.isPending}
-                                    className={`mt-1 text-[0.7rem] font-medium ${acknowledged ? 'text-emerald-400 hover:text-emerald-300' : 'text-primary hover:text-primary/80'}`}
+                                    className={`mt-1 text-[0.7rem] font-medium ${acknowledged ? 'text-status-ok hover:text-status-ok' : 'text-primary hover:text-primary/80'}`}
                                   >
                                     {acknowledged ? '✓ Acknowledged — undo' : 'Acknowledge'}
                                   </button>

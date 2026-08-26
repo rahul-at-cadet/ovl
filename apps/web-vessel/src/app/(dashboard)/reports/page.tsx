@@ -2,12 +2,13 @@
 
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, Plus, FileText, ChevronRight, ArrowUpDown, ChevronLeft, ChevronRight as ChevronRightIcon } from 'lucide-react';
+import { Card, CardContent, CardHeader } from '@ovl/ui/components/card';
+import { Button } from '@ovl/ui/components/button';
+import { Input } from '@ovl/ui/components/input';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@ovl/ui/components/table';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ovl/ui/components/select';
+import { Search, Plus, FileText, ChevronRight, ArrowUp, ArrowDown, ChevronLeft, ChevronRight as ChevronRightIcon } from 'lucide-react';
+import { StatusBadge } from '@ovl/ui/components/status-badge';
 import { trpc } from '@/lib/trpc';
 
 const ITEMS_PER_PAGE = 10;
@@ -67,30 +68,28 @@ export default function ReportsPage() {
   const toggleSort = () => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc');
 
   return (
-    <div className="h-[calc(100vh-140px)] flex flex-col space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-hidden">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
+    <div className="flex flex-col gap-4 pb-4 xl:pb-0 xl:h-[calc(100vh_-_88px)] xl:overflow-hidden">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 shrink-0">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">Reports</h1>
-          <p className="text-muted-foreground mt-1">Manage and submit your vessel reports.</p>
-        </div>
-        <Link href="/reports/new">
-          <Button className="bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 h-11 text-base px-5">
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground">Reports</h1>
+                  </div>
+        <Link href="/reports/new" className="w-full sm:w-auto">
+          <Button className="w-full sm:w-auto justify-center px-5">
             <Plus className="w-5 h-5 mr-2" />
             New Report
           </Button>
         </Link>
       </div>
 
-      <Card className="flex-1 flex flex-col bg-card/50 border-border min-h-0 overflow-hidden">
-        <CardHeader className="pb-3 border-b border-border/50 shrink-0">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <CardTitle>All Reports</CardTitle>
-            <div className="flex flex-col sm:flex-row items-center gap-2">
-              <div className="relative w-full sm:w-64">
+      <Card className="flex flex-col border-border bg-card rounded-sm xl:flex-1 xl:min-h-0 xl:overflow-hidden">
+        <CardHeader className="border-b border-border px-4 py-3 shrink-0">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <div className="contents">
+              <div className="relative w-full sm:flex-1 sm:max-w-xs">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Search reports..."
-                  className="pl-9 bg-background/50 border-border h-9"
+                  className="pl-9 w-full"
                   value={searchQuery}
                   onChange={(e) => {
                     setSearchQuery(e.target.value);
@@ -99,7 +98,7 @@ export default function ReportsPage() {
                 />
               </div>
               <Select value={statusFilter} onValueChange={(val) => { setStatusFilter(val || 'all'); setCurrentPage(1); }}>
-                <SelectTrigger className="w-full sm:w-40 bg-background/50 border-border h-9 text-foreground">
+                <SelectTrigger className="w-full sm:w-44">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent className="bg-background border-border">
@@ -113,22 +112,77 @@ export default function ReportsPage() {
           </div>
         </CardHeader>
         
-        <CardContent className="flex-1 p-0 flex flex-col min-h-0 overflow-hidden relative">
-          <div className="flex-1 overflow-auto">
+        <CardContent className="p-0 flex flex-col xl:flex-1 xl:min-h-0">
+          <ul className="md:hidden divide-y divide-border border-b border-border">
+            {isLoading ? (
+              <li className="p-4 text-sm text-muted-foreground">Loading reports…</li>
+            ) : error ? (
+              <li className="p-4 text-sm text-status-critical">Failed to load reports.</li>
+            ) : paginatedReports.length === 0 ? (
+              <li className="p-4 text-sm text-muted-foreground">No reports match your filters.</li>
+            ) : (
+              paginatedReports.map((report) => (
+                <li key={report.reportId}>
+                  <Link
+                    href={`/reports/${report.reportId}`}
+                    className="flex flex-col gap-2 p-4 hover:bg-accent focus-visible:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                  >
+                    <span className="flex items-start justify-between gap-3">
+                      <span className="flex items-center gap-2 min-w-0">
+                        <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+                        <span className="text-sm font-medium text-foreground break-all">{report.schemaName}</span>
+                      </span>
+                      <StatusBadge status={report.state} size="sm" className="shrink-0" />
+                    </span>
+                    <span className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      <span className="readout break-all">#{report.reportId.slice(0, 8)}</span>
+                      <span className="break-words">{report.eventType || '—'}</span>
+                      <span className="readout col-span-2">
+                        {new Date(report.createdAt).toISOString().replace('T', ' ').slice(0, 19)} UTC
+                      </span>
+                      {(report as any).voyageNumber && (
+                        <span className="col-span-2 break-words">Voyage {(report as any).voyageNumber}</span>
+                      )}
+                    </span>
+                  </Link>
+                </li>
+              ))
+            )}
+          </ul>
+
+          <div className="hidden md:block overflow-x-auto xl:overflow-y-auto border-b border-border xl:flex-1 xl:min-h-0">
             <Table>
-              <TableHeader className="bg-background/90 backdrop-blur-sm sticky top-0 z-10">
-                <TableRow className="border-border hover:bg-transparent">
+              <TableHeader className="bg-muted sticky top-0 z-10">
+                <TableRow className="border-b-2 border-border hover:bg-transparent">
                   <TableHead className="text-muted-foreground font-medium">Type</TableHead>
                   <TableHead className="hidden md:table-cell text-muted-foreground font-medium">Event</TableHead>
-                  <TableHead className="hidden lg:table-cell text-muted-foreground font-medium cursor-pointer hover:text-foreground transition-colors" onClick={toggleSort}>
-                    <div className="flex items-center">
+                  {/* A click handler on the <th> itself took no keyboard
+                      focus and announced no sort state. A real button inside
+                      the header cell does both, and aria-sort is what tells a
+                      screen reader which way the column is currently ordered. */}
+                  <TableHead
+                    aria-sort={sortOrder === 'asc' ? 'ascending' : 'descending'}
+                    className="hidden lg:table-cell text-muted-foreground font-medium p-0"
+                  >
+                    <button
+                      type="button"
+                      onClick={toggleSort}
+                      className="flex items-center w-full min-h-11 px-2 hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+                    >
                       UTC Timestamp
-                      <ArrowUpDown className="w-3 h-3 ml-2" />
-                    </div>
+                      {sortOrder === 'asc' ? (
+                        <ArrowUp className="w-3 h-3 ml-2" />
+                      ) : (
+                        <ArrowDown className="w-3 h-3 ml-2" />
+                      )}
+                      <span className="sr-only">
+                        {sortOrder === 'asc' ? '(oldest first)' : '(newest first)'}
+                      </span>
+                    </button>
                   </TableHead>
                   <TableHead className="hidden lg:table-cell text-muted-foreground font-medium">Voyage</TableHead>
                   <TableHead className="text-muted-foreground font-medium">State</TableHead>
-                  <TableHead className="text-right text-muted-foreground font-medium">Action</TableHead>
+                  <TableHead className="text-right text-muted-foreground font-medium pr-4">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -136,17 +190,17 @@ export default function ReportsPage() {
                   // Skeleton Loading State
                   Array.from({ length: ITEMS_PER_PAGE }).map((_, i) => (
                     <TableRow key={i} className="border-border">
-                      <TableCell><div className="h-4 w-32 bg-muted/50 animate-pulse rounded"></div></TableCell>
-                      <TableCell className="hidden md:table-cell"><div className="h-4 w-24 bg-muted/50 animate-pulse rounded"></div></TableCell>
-                      <TableCell className="hidden lg:table-cell"><div className="h-4 w-36 bg-muted/50 animate-pulse rounded"></div></TableCell>
-                      <TableCell className="hidden lg:table-cell"><div className="h-4 w-20 bg-muted/50 animate-pulse rounded"></div></TableCell>
-                      <TableCell><div className="h-5 w-20 bg-muted/50 animate-pulse rounded-full"></div></TableCell>
-                      <TableCell className="text-right"><div className="h-8 w-16 bg-muted/50 animate-pulse rounded ml-auto"></div></TableCell>
+                      <TableCell><div className="h-4 w-32 bg-muted animate-pulse rounded"></div></TableCell>
+                      <TableCell className="hidden md:table-cell"><div className="h-4 w-24 bg-muted animate-pulse rounded"></div></TableCell>
+                      <TableCell className="hidden lg:table-cell"><div className="h-4 w-36 bg-muted animate-pulse rounded"></div></TableCell>
+                      <TableCell className="hidden lg:table-cell"><div className="h-4 w-20 bg-muted animate-pulse rounded"></div></TableCell>
+                      <TableCell><div className="h-8 w-24 bg-muted animate-pulse rounded-sm"></div></TableCell>
+                      <TableCell className="text-right pr-4"><div className="h-8 w-16 bg-muted animate-pulse rounded-sm ml-auto"></div></TableCell>
                     </TableRow>
                   ))
                 ) : error ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-32 text-center text-red-500">
+                    <TableCell colSpan={6} className="h-32 text-center text-status-critical">
                       Failed to load reports.
                     </TableCell>
                   </TableRow>
@@ -158,7 +212,7 @@ export default function ReportsPage() {
                   </TableRow>
                 ) : (
                   paginatedReports.map((report) => (
-                    <TableRow key={report.reportId} className="border-border hover:bg-muted/30 transition-colors group">
+                    <TableRow key={report.reportId} className="border-border hover:bg-accent transition-colors">
                       <TableCell className="font-medium">
                         <div className="flex items-center">
                           <FileText className="w-4 h-4 text-muted-foreground mr-2" />
@@ -170,22 +224,17 @@ export default function ReportsPage() {
                       <TableCell className="hidden lg:table-cell text-muted-foreground font-mono text-sm">{new Date(report.createdAt).toISOString().replace('T', ' ').slice(0, 19)}</TableCell>
                       <TableCell className="hidden lg:table-cell text-muted-foreground">{(report as any).voyageNumber || '-'}</TableCell>
                       <TableCell>
-                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${
-                          report.state === 'submitted' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                          report.state === 'draft' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
-                          report.state === 'remarked' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' :
-                          report.state === 'invalidated' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
-                          'bg-blue-500/10 text-blue-400 border-blue-500/20'
-                        }`}>
-                          {report.state.charAt(0).toUpperCase() + report.state.slice(1)}
-                        </span>
+                        <StatusBadge status={report.state} />
                       </TableCell>
-                      <TableCell className="text-right">
-                        <Link href={`/reports/${report.reportId}`}>
-                          <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-primary">
-                            View <ChevronRight className="w-4 h-4 ml-1" />
-                          </Button>
-                        </Link>
+                      <TableCell className="text-right pr-4">
+                        <Button
+                          variant="ghost"
+                          render={<Link href={`/reports/${report.reportId}`} />}
+                          nativeButton={false}
+                          className="text-muted-foreground hover:text-primary pr-0"
+                        >
+                          View <ChevronRight className="w-4 h-4 ml-1" />
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))
@@ -196,7 +245,7 @@ export default function ReportsPage() {
           
           {/* Pagination Controls */}
           {!isLoading && filteredAndSortedReports.length > 0 && (
-            <div className="border-t border-border/50 p-4 bg-background/30 flex items-center justify-between shrink-0">
+            <div className="p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
               <div className="text-sm text-muted-foreground">
                 Showing <span className="font-medium text-foreground">{(currentPage - 1) * ITEMS_PER_PAGE + 1}</span> to <span className="font-medium text-foreground">{Math.min(currentPage * ITEMS_PER_PAGE, filteredAndSortedReports.length)}</span> of <span className="font-medium text-foreground">{filteredAndSortedReports.length}</span> results
               </div>
@@ -204,7 +253,7 @@ export default function ReportsPage() {
                 <Button 
                   variant="outline" 
                   size="sm" 
-                  className="h-8 border-border bg-background hover:bg-card text-muted-foreground hover:text-foreground"
+                  className="flex-1 sm:flex-none justify-center"
                   onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                   disabled={currentPage === 1}
                 >
@@ -217,7 +266,7 @@ export default function ReportsPage() {
                 <Button 
                   variant="outline" 
                   size="sm" 
-                  className="h-8 border-border bg-background hover:bg-card text-muted-foreground hover:text-foreground"
+                  className="flex-1 sm:flex-none justify-center"
                   onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
                   disabled={currentPage === totalPages}
                 >

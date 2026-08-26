@@ -1,16 +1,16 @@
 'use client';
 
 import { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Card, CardContent, CardHeader, CardTitle } from '@ovl/ui/components/card';
+import { Button } from '@ovl/ui/components/button';
+import { Input } from '@ovl/ui/components/input';
+import { Textarea } from '@ovl/ui/components/textarea';
+import { Label } from '@ovl/ui/components/label';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@ovl/ui/components/table';
+import { Badge } from '@ovl/ui/components/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@ovl/ui/components/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ovl/ui/components/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@ovl/ui/components/dialog';
 import { Plus, FileText, Loader2, AlertCircle } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 
@@ -84,6 +84,9 @@ export default function CommercialPage() {
   const [findings, setFindings] = useState<{ field?: string; message: string }[]>([]);
 
   const createMutation = trpc.commercial.create.useMutation({
+    // Rendered inline in the dialog below, so the global mutation toast
+    // would just say the same thing twice.
+    meta: { silentError: true },
     onSuccess: (result) => {
       if (result.report) {
         setIsCreateOpen(false);
@@ -150,13 +153,13 @@ export default function CommercialPage() {
             </DialogHeader>
 
             {createMutation.error && (
-              <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-md p-3">
+              <div className="flex items-center gap-2 text-sm text-status-critical bg-status-critical/10 border border-status-critical/25 rounded-md p-3">
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 {createMutation.error.message}
               </div>
             )}
             {findings.length > 0 && (
-              <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-md p-3">
+              <div className="text-sm text-status-critical bg-status-critical/10 border border-status-critical/25 rounded-md p-3">
                 {findings.length} issue{findings.length === 1 ? '' : 's'} must be fixed before this can be submitted.
               </div>
             )}
@@ -185,25 +188,25 @@ export default function CommercialPage() {
                     <div key={f.name} className={`space-y-1.5 ${isLongTextField(f) ? 'sm:col-span-2' : ''}`}>
                       <Label className="text-foreground text-sm flex items-center">
                         {f.label}
-                        {f.schemaMandatory && <span className="text-red-400 ml-1">*</span>}
+                        {f.schemaMandatory && <span className="text-status-critical ml-1">*</span>}
                       </Label>
                       {isLongTextField(f) ? (
                         <Textarea
                           value={fieldValues[f.name] ?? ''}
                           onChange={(e) => setFieldValues((prev) => ({ ...prev, [f.name]: e.target.value }))}
                           maxLength={f.maxLength ?? undefined}
-                          className={`bg-background/50 border-border focus-visible:ring-primary text-foreground ${findingByField.has(f.name) ? 'border-red-500/50' : ''}`}
+                          className={`bg-background/50 border-border focus-visible:ring-primary text-foreground ${findingByField.has(f.name) ? 'border-status-critical/50' : ''}`}
                         />
                       ) : (
                         <Input
                           type={nativeInputType(f.type)}
                           value={fieldValues[f.name] ?? ''}
                           onChange={(e) => setFieldValues((prev) => ({ ...prev, [f.name]: e.target.value }))}
-                          className={`bg-background/50 border-border focus-visible:ring-primary text-foreground ${findingByField.has(f.name) ? 'border-red-500/50' : ''}`}
+                          className={`bg-background/50 border-border focus-visible:ring-primary text-foreground ${findingByField.has(f.name) ? 'border-status-critical/50' : ''}`}
                         />
                       )}
                       {findingByField.has(f.name) && (
-                        <p className="text-xs text-red-400">{findingByField.get(f.name)}</p>
+                        <p className="text-xs text-status-critical">{findingByField.get(f.name)}</p>
                       )}
                     </div>
                   ))}
@@ -272,7 +275,7 @@ export default function CommercialPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+                        <Badge variant="outline" className="bg-status-ok/10 text-status-ok border-status-ok/25">
                           {r.status}
                         </Badge>
                       </TableCell>

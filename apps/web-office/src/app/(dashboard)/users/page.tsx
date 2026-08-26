@@ -1,27 +1,28 @@
 'use client';
 
 import { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Shield, UserPlus, Search, UserCheck, ShieldAlert, ArrowUpDown, Filter, Edit, Trash2, Check } from 'lucide-react';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@ovl/ui/components/card';
+import { Button } from '@ovl/ui/components/button';
+import { Input } from '@ovl/ui/components/input';
+import { Shield, UserPlus, Search, UserCheck, ShieldAlert, Edit, Trash2, Check } from 'lucide-react';
+import { Avatar, AvatarFallback } from '@ovl/ui/components/avatar';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogFooter,
-} from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
+} from '@ovl/ui/components/dialog';
+import { Label } from '@ovl/ui/components/label';
+import { Switch } from '@ovl/ui/components/switch';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+} from '@ovl/ui/components/dropdown-menu';
 
+import { CopyField } from '@ovl/ui/components/copy-field';
 import { trpc } from '@/lib/trpc';
 
 // Mirrors apps/api-office/src/users/dto/create-user.dto.ts's UserRole
@@ -56,6 +57,7 @@ export default function UsersPage() {
   const { data: users = [], isLoading } = trpc.users.list.useQuery();
 
   const updateMutation = trpc.users.update.useMutation({
+    meta: { errorTitle: "Couldn't update that user" },
     onSuccess: () => {
       utils.users.list.invalidate();
       setIsDialogOpen(false);
@@ -63,6 +65,7 @@ export default function UsersPage() {
   });
 
   const deleteMutation = trpc.users.delete.useMutation({
+    meta: { errorTitle: "Couldn't delete that user" },
     onSuccess: () => {
       utils.users.list.invalidate();
       setDeleteTarget(null);
@@ -70,6 +73,9 @@ export default function UsersPage() {
   });
 
   const createMutation = trpc.users.create.useMutation({
+    // Rendered inline in the dialog below, so the global mutation toast
+    // would just say the same thing twice.
+    meta: { silentError: true },
     onSuccess: (data) => {
       setGeneratedPassword(data.temporaryPassword);
       utils.users.list.invalidate();
@@ -77,6 +83,9 @@ export default function UsersPage() {
   });
 
   const resetPasswordMutation = trpc.users.resetPassword.useMutation({
+    // Rendered inline in the dialog below, so the global mutation toast
+    // would just say the same thing twice.
+    meta: { silentError: true },
     onSuccess: (data) => {
       setResetPasswordGenerated(data.temporaryPassword);
     },
@@ -143,13 +152,13 @@ export default function UsersPage() {
           <p className="text-muted-foreground mt-1.5 text-sm font-medium">Control roles, permissions, and security policies across the fleet.</p>
         </div>
         <div className="flex gap-3 w-full md:w-auto">
-          <div className="relative w-full md:w-72 shadow-sm">
+          <div className="relative w-full md:w-72">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search by username or role..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 bg-background/80 border-border/80 text-foreground rounded-md h-9 text-sm w-full transition-all"
+              className="pl-9 h-9 text-sm w-full"
             />
           </div>
           <Button onClick={() => setIsCreateOpen(true)} className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-9 text-sm font-semibold shadow-sm shrink-0 transition-all">
@@ -169,7 +178,7 @@ export default function UsersPage() {
             <table className="w-full text-sm text-left text-muted-foreground">
               <thead className="text-xs text-muted-foreground uppercase tracking-wider bg-background/90 backdrop-blur-sm border-b border-border/60 sticky top-0 z-10">
                 <tr>
-                  <th scope="col" className="px-4 py-2 font-semibold flex items-center gap-2">User <ArrowUpDown className="w-3 h-3" /></th>
+                  <th scope="col" className="px-4 py-2 font-semibold">User</th>
                   <th scope="col" className="hidden md:table-cell px-4 py-2 font-semibold">Security Role</th>
                   <th scope="col" className="px-4 py-2 font-semibold">Account Status</th>
                   <th scope="col" className="px-4 py-2 text-right font-semibold">Manage</th>
@@ -203,12 +212,12 @@ export default function UsersPage() {
                       </td>
                       <td className="hidden md:table-cell px-4 py-2.5">
                         <div className="flex items-center gap-2">
-                          {isAdmin ? <ShieldAlert className="w-4 h-4 text-amber-500/80" /> : <Shield className="w-4 h-4 text-muted-foreground" />}
+                          {isAdmin ? <ShieldAlert className="w-4 h-4 text-status-warn/80" /> : <Shield className="w-4 h-4 text-muted-foreground" />}
                           <span className="text-foreground font-medium capitalize">{displayRole}</span>
                         </div>
                       </td>
                       <td className="px-4 py-2.5">
-                        <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold tracking-wide uppercase border ${user.active ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-muted/50 text-muted-foreground border-border/50'}`}>
+                        <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold tracking-wide uppercase border ${user.active ? 'bg-status-ok/10 text-status-ok border-status-ok/25' : 'bg-muted/50 text-muted-foreground border-border/50'}`}>
                           {user.active && <UserCheck className="w-3 h-3" />}
                           {user.active ? 'Active' : 'Inactive'}
                         </div>
@@ -217,21 +226,21 @@ export default function UsersPage() {
                         <DropdownMenu>
                           <DropdownMenuTrigger
                             render={
-                              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors" />
+                              <Button variant="ghost" size="icon" aria-label={`Manage ${user.username}`} className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors" />
                             }
                           >
                             <Edit className="w-4 h-4" />
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-48 bg-background border-border">
-                            <DropdownMenuItem onClick={() => openEditDialog(user)} className="hover:bg-muted cursor-pointer text-foreground focus:bg-muted focus:text-white">
+                            <DropdownMenuItem onClick={() => openEditDialog(user)} className="hover:bg-muted cursor-pointer text-foreground focus:bg-muted focus:text-foreground">
                               <Edit className="mr-2 h-4 w-4" />
                               <span>Edit User</span>
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => { setResetTarget({ id: user.id, username: user.username }); setResetPasswordGenerated(''); }} className="hover:bg-muted cursor-pointer text-foreground focus:bg-muted focus:text-white">
+                            <DropdownMenuItem onClick={() => { setResetTarget({ id: user.id, username: user.username }); setResetPasswordGenerated(''); }} className="hover:bg-muted cursor-pointer text-foreground focus:bg-muted focus:text-foreground">
                               <ShieldAlert className="mr-2 h-4 w-4" />
                               <span>Reset Password</span>
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleDelete(user.id, user.username)} className="text-red-400 hover:bg-red-500/10 cursor-pointer focus:bg-red-500/10 focus:text-red-400">
+                            <DropdownMenuItem onClick={() => handleDelete(user.id, user.username)} className="text-status-critical hover:bg-status-critical/10 cursor-pointer focus:bg-status-critical/10 focus:text-status-critical">
                               <Trash2 className="mr-2 h-4 w-4" />
                               <span>Delete User</span>
                             </DropdownMenuItem>
@@ -324,7 +333,7 @@ export default function UsersPage() {
             <Button
               onClick={confirmDelete}
               disabled={deleteMutation.isPending}
-              className="bg-red-600 hover:bg-red-700 text-white"
+              variant="destructive"
             >
               {deleteMutation.isPending ? 'Deleting...' : 'Delete User'}
             </Button>
@@ -381,21 +390,19 @@ export default function UsersPage() {
                 </div>
               </div>
               {createMutation.error && (
-                <p className="text-sm text-red-400">{createMutation.error.message}</p>
+                <p className="text-sm text-status-critical">{createMutation.error.message}</p>
               )}
             </div>
           ) : (
             <div className="py-6 space-y-4 text-center">
-              <div className="bg-emerald-500/10 text-emerald-400 p-3 rounded-md border border-emerald-500/20 text-sm">
+              <div className="bg-status-ok/10 text-status-ok p-3 rounded-md border border-status-ok/25 text-sm">
                 User successfully created!
               </div>
               <div className="space-y-2">
                 <p className="text-sm text-muted-foreground">Temporary Password (Reveal Once):</p>
-                <div className="text-xl font-mono tracking-wider bg-card p-4 rounded border border-border select-all">
-                  {generatedPassword}
-                </div>
+                <CopyField value={generatedPassword} />
               </div>
-              <p className="text-xs text-amber-500/90 mt-2">
+              <p className="text-xs text-status-warn/90 mt-2">
                 Make sure to copy this now. You won&apos;t be able to see it again.
               </p>
             </div>
@@ -432,7 +439,7 @@ export default function UsersPage() {
                 invalidate their current one. They will be required to change it on next login.
               </p>
               {resetPasswordMutation.error && (
-                <p className="text-sm text-red-400 mb-4">{resetPasswordMutation.error.message}</p>
+                <p className="text-sm text-status-critical mb-4">{resetPasswordMutation.error.message}</p>
               )}
               <DialogFooter>
                 <Button variant="outline" onClick={() => setResetTarget(null)} className="bg-transparent border-border text-foreground hover:bg-muted hover:text-foreground">
@@ -441,7 +448,7 @@ export default function UsersPage() {
                 <Button
                   onClick={() => resetTarget && resetPasswordMutation.mutate({ id: resetTarget.id })}
                   disabled={resetPasswordMutation.isPending}
-                  className="bg-red-600 hover:bg-red-700 text-white"
+                  variant="destructive"
                 >
                   {resetPasswordMutation.isPending ? 'Resetting...' : 'Confirm Reset'}
                 </Button>
@@ -451,9 +458,7 @@ export default function UsersPage() {
             <div className="py-4">
               <div className="bg-card border border-border rounded-md p-4 mt-2">
                 <p className="text-sm text-muted-foreground mb-1 font-medium uppercase tracking-wider text-xs">New Temporary Password</p>
-                <div className="flex items-center justify-between">
-                  <code className="text-xl font-mono text-emerald-400">{resetPasswordGenerated}</code>
-                </div>
+                <CopyField value={resetPasswordGenerated} />
               </div>
               <p className="text-xs text-muted-foreground mt-4">
                 Please provide this password to the user. It will only be shown once.

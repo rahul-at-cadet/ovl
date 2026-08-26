@@ -3,10 +3,10 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { User, KeyRound, ShieldCheck } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@ovl/ui/components/card';
+import { Input } from '@ovl/ui/components/input';
+import { Label } from '@ovl/ui/components/label';
+import { Button } from '@ovl/ui/components/button';
 import { API_ORIGIN } from '@/lib/api-origin';
 import { trpc } from '@/lib/trpc';
 
@@ -60,7 +60,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="w-full max-w-[400px] z-10 p-4 space-y-4">
         {needsSetup && (
-          <Card className="bg-primary/10 border-primary/30 shadow-xl rounded-md">
+          <Card className="bg-primary/10 border-primary/30 rounded-sm">
             <CardContent className="pt-6 text-center space-y-3">
               <p className="text-sm text-foreground">
                 No account exists on this node yet — set it up before signing in.
@@ -74,8 +74,8 @@ export default function LoginPage() {
             </CardContent>
           </Card>
         )}
-        <Card className="bg-card border-border shadow-xl rounded-md">
-          <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-border/50">
+        <Card className="bg-card border-border rounded-sm">
+          <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-border">
             <div>
               <CardTitle className="text-xl font-medium tracking-tight text-foreground">
                 Cadetlabs
@@ -96,7 +96,7 @@ export default function LoginPage() {
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     placeholder="e.g. master"
-                    className="pl-10 bg-background/50 border-border focus-visible:ring-ring text-foreground rounded-sm h-12 text-base"
+                    className="pl-10 bg-card border-border focus-visible:ring-ring text-foreground rounded-sm h-12 text-base"
                     required
                   />
                 </div>
@@ -113,13 +113,13 @@ export default function LoginPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
-                    className="pl-10 bg-background/50 border-border focus-visible:ring-ring text-foreground rounded-sm h-12 text-base"
+                    className="pl-10 bg-card border-border focus-visible:ring-ring text-foreground rounded-sm h-12 text-base"
                     required
                   />
                 </div>
               </div>
               {error && (
-                <div className="text-red-400 text-xs font-medium bg-red-400/10 p-2 rounded-sm border border-red-400/20">
+                <div className="text-status-critical text-xs font-medium bg-status-critical/10 p-2 rounded-sm border border-status-critical/25">
                   {error}
                 </div>
               )}

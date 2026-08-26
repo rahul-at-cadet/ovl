@@ -3,13 +3,13 @@
 import { ReactNode, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, FileText, Settings, Users, Ship, Bell, Menu, LogOut, Search, Loader2, X, User, AlertTriangle, MessageSquare, Clock } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { ThemeToggle } from '@/components/ui/theme-toggle';
+import { LayoutDashboard, FileText, Settings, Users, Ship, Bell, Menu, LogOut, Loader2, X, User, AlertTriangle, MessageSquare, Clock, KeyRound } from 'lucide-react';
+import { Button } from '@ovl/ui/components/button';
+import { Popover, PopoverContent, PopoverTrigger } from '@ovl/ui/components/popover';
+import { ThemeToggle } from '@ovl/ui/components/theme-toggle';
 import { CadetlabsLogo } from '@/components/layout/CadetlabsLogo';
 import { trpc } from '@/lib/trpc';
+import { ChangePasswordDialog } from '@/components/ChangePasswordDialog';
 import { API_ORIGIN } from '@/lib/api-origin';
 
 interface AppShellProps {
@@ -34,6 +34,14 @@ export function AppShell({ children }: AppShellProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+
+  // Users administration is Master-only, matching the original app's own
+  // route guard (ovl/web/vessel/src/App.tsx redirects a non-master away from
+  // /users). Without this the nav offered every crew member a screen whose
+  // actions the API would then refuse.
+  const { data: me } = trpc.users.me.useQuery();
+  const isMaster = (me?.role ?? '').toLowerCase() === 'master';
 
   const { data: notifications = [] } = trpc.notifications.list.useQuery(undefined, {
     refetchInterval: 60_000,
@@ -65,60 +73,69 @@ export function AppShell({ children }: AppShellProps) {
   const navItems = [
     { href: '/', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/reports', label: 'Reports', icon: FileText },
-    { href: '/users', label: 'Users', icon: Users },
+    ...(isMaster ? [{ href: '/users', label: 'Users', icon: Users }] : []),
     { href: '/setup', label: 'Vessel Setup', icon: Ship },
     { href: '/settings', label: 'Settings', icon: Settings },
   ];
 
   return (
     <div className="min-h-screen bg-background text-foreground flex overflow-hidden font-sans selection:bg-primary/30">
-      
+      {/* First thing in the tab order: without it, reaching page content by
+          keyboard means tabbing past every sidebar link on every navigation. */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50 focus:rounded-sm focus:bg-card focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:border focus:border-border focus:outline-none focus:ring-2 focus:ring-ring"
+      >
+        Skip to main content
+      </a>
+
       {/* Mobile Sidebar Overlay */}
       {isMobileSidebarOpen && (
         <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden transition-opacity"
+          className="fixed inset-0 bg-foreground/40 z-40 md:hidden"
           onClick={() => setIsMobileSidebarOpen(false)}
         />
       )}
 
       {/* Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex flex-col bg-background/80 backdrop-blur-xl border-r border-border/60 shadow-sm transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)]
+        className={`fixed inset-y-0 left-0 z-50 flex flex-col bg-sidebar border-r border-sidebar-border transition-[width,transform] duration-200 ease-out
           md:relative md:translate-x-0 ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
           ${isSidebarOpen ? 'w-[260px]' : 'md:w-[80px] w-[260px]'}`}
       >
-        <div className="h-16 flex items-center gap-2 px-4 border-b border-border/40 relative">
+        <div className="h-14 flex items-center gap-2.5 px-4 border-b border-sidebar-border relative">
           <CadetlabsLogo className="h-6 w-6 shrink-0" />
           {(isSidebarOpen || isMobileSidebarOpen) && (
-            <span className="font-semibold text-base tracking-wide whitespace-nowrap bg-clip-text text-transparent bg-gradient-to-r from-zinc-900 to-zinc-600 dark:from-zinc-100 dark:to-zinc-400">
+            <span className="font-semibold text-base tracking-wide whitespace-nowrap text-foreground">
               Cadetlabs
             </span>
           )}
           <Button 
             variant="ghost" 
-            size="icon" 
-            onClick={() => setIsMobileSidebarOpen(false)} 
+            size="icon"
+            aria-label="Close navigation menu"
+            onClick={() => setIsMobileSidebarOpen(false)}
             className="absolute right-2 md:hidden text-muted-foreground hover:text-foreground"
           >
             <X className="w-5 h-5" />
           </Button>
         </div>
 
-        <div className="flex-1 overflow-y-auto py-6 px-3 space-y-1.5 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
           {navItems.map((item) => {
             const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
             return (
               <Link key={item.href} href={item.href} className="block group">
-                <div className={`flex items-center px-3 py-2.5 rounded-xl transition-all duration-200 relative overflow-hidden
+                <div className={`flex items-center px-3 min-h-12 rounded-sm transition-colors relative
                   ${isActive
-                    ? 'bg-primary/10 text-primary dark:text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] ring-1 ring-inset ring-primary/20'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'}`}>
+                    ? 'bg-sidebar-accent text-foreground font-semibold'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60'}`}>
                   {isActive && (
-                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-1/2 bg-primary rounded-r-full shadow-[0_0_8px_rgba(47,80,108,0.8)]" />
+                    <div className="absolute left-0 inset-y-0 w-[2px] bg-primary" aria-hidden="true" />
                   )}
-                  <item.icon className={`w-[18px] h-[18px] shrink-0 z-10 transition-colors ${isActive ? 'text-primary dark:text-primary' : 'text-muted-foreground group-hover:text-foreground'}`} />
+                  <item.icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'}`} />
                   {(isSidebarOpen || isMobileSidebarOpen) && (
-                    <span className="ml-3.5 font-medium text-sm z-10 whitespace-nowrap tracking-wide">{item.label}</span>
+                    <span className="ml-3 text-[0.8125rem] font-medium whitespace-nowrap">{item.label}</span>
                   )}
                 </div>
               </Link>
@@ -126,16 +143,16 @@ export function AppShell({ children }: AppShellProps) {
           })}
         </div>
 
-        <div className="p-4 border-t border-border/40 bg-background/50">
+        <div className="p-4 border-t border-border bg-card">
           <button 
             onClick={handleLogout}
             disabled={isLoggingOut}
-            className="w-full flex items-center px-3 py-2.5 rounded-xl text-muted-foreground hover:text-red-400 hover:bg-red-500/10 hover:ring-1 hover:ring-inset hover:ring-red-500/20 transition-all duration-200 disabled:opacity-50 group"
+            className="w-full flex items-center px-3 min-h-12 rounded-sm text-muted-foreground hover:text-status-critical hover:bg-status-critical/10 hover:ring-1 hover:ring-inset hover:ring-status-critical/20 transition-all duration-200 disabled:opacity-50 group"
           >
             {isLoggingOut ? (
-              <Loader2 className="w-[18px] h-[18px] shrink-0 animate-spin text-red-400" />
+              <Loader2 className="w-[18px] h-[18px] shrink-0 animate-spin text-status-critical" />
             ) : (
-              <LogOut className="w-[18px] h-[18px] shrink-0 group-hover:text-red-400 transition-colors" />
+              <LogOut className="w-[18px] h-[18px] shrink-0 group-hover:text-status-critical transition-colors" />
             )}
             {(isSidebarOpen || isMobileSidebarOpen) && <span className="ml-3.5 font-medium text-sm">Sign Out</span>}
           </button>
@@ -145,25 +162,17 @@ export function AppShell({ children }: AppShellProps) {
       {/* Main Content */}
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Top Header */}
-        <header className="h-16 bg-background/60 backdrop-blur-xl border-b border-border/50 flex items-center justify-between px-4 lg:px-8 z-10 shrink-0 sticky top-0 shadow-sm">
+        <header className="h-14 bg-background border-b border-border flex items-center justify-between px-4 lg:px-6 z-10 shrink-0 sticky top-0">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => setIsMobileSidebarOpen(true)} className="md:hidden text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-lg">
+            <Button variant="ghost" size="icon" aria-label="Open navigation menu" onClick={() => setIsMobileSidebarOpen(true)} className="md:hidden text-muted-foreground hover:text-foreground">
               <Menu className="w-5 h-5" />
             </Button>
-            <Button variant="ghost" size="icon" onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="hidden md:flex text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-lg transition-transform active:scale-95">
+            <Button variant="ghost" size="icon" aria-label={isSidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'} aria-expanded={isSidebarOpen} onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="hidden md:flex text-muted-foreground hover:text-foreground">
               <Menu className="w-5 h-5" />
             </Button>
-            {/* Search */}
-            <div className="hidden md:flex relative max-w-md w-64 group">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
-              <Input 
-                placeholder="Search resources..." 
-                className="pl-10 bg-card/50 border-border focus-visible:ring-1 focus-visible:ring-primary/50 h-9 w-full text-sm rounded-xl shadow-inner placeholder:text-muted-foreground transition-all focus-visible:bg-card"
-              />
-            </div>
           </div>
 
-          <div className="flex items-center space-x-5">
+          <div className="flex items-center gap-1">
             <ThemeToggle />
             {/* Base UI's Popover.Root renders no wrapping element of its own —
                 it injects small focus-guard elements inline at this exact
@@ -175,18 +184,18 @@ export function AppShell({ children }: AppShellProps) {
             <Popover>
               <PopoverTrigger
                 render={
-                  <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-foreground h-9 w-9 rounded-xl hover:bg-muted/50 transition-colors">
+                  <Button variant="ghost" size="icon" aria-label={notifications.length > 0 ? `Notifications, ${notifications.length} unread` : 'Notifications'} className="relative text-muted-foreground hover:text-foreground">
                     <Bell className="w-4 h-4" />
                     {notifications.length > 0 && (
-                      <span className="absolute top-1.5 right-1.5 min-w-[16px] h-[16px] px-[3px] rounded-full bg-primary ring-2 ring-background shadow-[0_0_8px_rgba(47,80,108,0.8)] text-[9px] font-bold text-primary-foreground flex items-center justify-center leading-none">
+                      <span className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 rounded-sm bg-status-critical ring-2 ring-background text-xs font-semibold text-background flex items-center justify-center leading-none tabular-nums">
                         {notifications.length > 9 ? '9+' : notifications.length}
                       </span>
                     )}
                   </Button>
                 }
               />
-              <PopoverContent align="end" className="w-80 max-h-[420px] flex flex-col bg-card/95 backdrop-blur-xl border-border shadow-2xl rounded-2xl text-foreground p-0 overflow-hidden">
-                <div className="p-4 border-b border-border/50 bg-background/50 shrink-0">
+              <PopoverContent align="end" className="w-80 max-h-[420px] flex flex-col bg-popover border-border rounded-sm text-popover-foreground p-0 overflow-hidden">
+                <div className="p-4 border-b border-border bg-card shrink-0">
                   <h4 className="font-semibold text-sm tracking-wide text-foreground">Notifications</h4>
                 </div>
                 {notifications.length === 0 ? (
@@ -201,12 +210,12 @@ export function AppShell({ children }: AppShellProps) {
                   <div className="flex-1 overflow-y-auto">
                     {notifications.map((n) => {
                       const Icon = n.category === 'invalidated' ? AlertTriangle : n.category === 'overdue' ? Clock : MessageSquare;
-                      const color = n.category === 'invalidated' ? 'text-red-400' : n.category === 'overdue' ? 'text-red-400' : 'text-amber-400';
+                      const color = n.category === 'invalidated' ? 'text-status-critical' : n.category === 'overdue' ? 'text-status-critical' : 'text-status-warn';
                       return (
                         <button
                           key={n.id}
                           onClick={() => router.push(`/reports/${n.reportId}`)}
-                          className="w-full flex gap-3 items-start px-4 py-3 border-b border-border/50 last:border-0 hover:bg-muted/40 transition-colors text-left"
+                          className="w-full flex gap-3 items-start px-4 py-3 border-b border-border last:border-0 hover:bg-muted transition-colors text-left"
                         >
                           <Icon className={`w-4 h-4 shrink-0 mt-0.5 ${color}`} />
                           <div className="flex-1 min-w-0">
@@ -227,18 +236,29 @@ export function AppShell({ children }: AppShellProps) {
             <Popover>
               <PopoverTrigger
                 render={
-                  <button className="w-9 h-9 rounded-xl bg-primary p-[1px] shadow-lg hover:shadow-primary/25 transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                    <div className="w-full h-full rounded-[11px] bg-card border border-white/10 flex items-center justify-center">
-                      <User className="w-4 h-4 text-foreground" />
-                    </div>
+                  <button aria-label="Account menu" className="size-12 rounded-sm flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    <User className="w-5 h-5" />
                   </button>
                 }
               />
-              <PopoverContent align="end" className="w-48 bg-card/95 backdrop-blur-xl border-border shadow-2xl rounded-2xl text-foreground p-0 overflow-hidden">
+              <PopoverContent align="end" className="w-56 bg-popover border-border rounded-sm text-popover-foreground p-0 overflow-hidden">
+                {me && (
+                  <div className="px-3 py-2.5 border-b border-border">
+                    <p className="text-sm font-medium text-foreground truncate">{me.username}</p>
+                    <p className="text-xs text-muted-foreground truncate capitalize">{me.role}</p>
+                  </div>
+                )}
+                <button
+                  onClick={() => setIsChangePasswordOpen(true)}
+                  className="w-full flex items-center px-3 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                >
+                  <KeyRound className="w-4 h-4 mr-2 shrink-0" />
+                  Change password&hellip;
+                </button>
                 <button
                   onClick={handleLogout}
                   disabled={isLoggingOut}
-                  className="w-full flex items-center px-3 py-2.5 text-sm text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                  className="w-full flex items-center px-3 py-2.5 text-sm text-muted-foreground hover:text-status-critical hover:bg-status-critical/10 transition-colors disabled:opacity-50"
                 >
                   {isLoggingOut ? (
                     <Loader2 className="w-4 h-4 mr-2 shrink-0 animate-spin" />
@@ -254,14 +274,13 @@ export function AppShell({ children }: AppShellProps) {
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth custom-scrollbar relative">
-          <div className="absolute inset-0 bg-[url('/noise.png')] opacity-[0.015] pointer-events-none mix-blend-overlay" />
-          <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-primary/10 blur-[120px] rounded-full pointer-events-none" />
-          <div className="max-w-[1400px] mx-auto min-h-full pb-12 relative z-10">
+        <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto p-4 md:p-8 xl:pb-0 scroll-smooth relative">
+          <div className="max-w-[1400px] mx-auto min-h-full pb-12 xl:pb-0 relative z-10">
             {children}
           </div>
         </main>
       </div>
+      <ChangePasswordDialog open={isChangePasswordOpen} onOpenChange={setIsChangePasswordOpen} />
     </div>
   );
 }

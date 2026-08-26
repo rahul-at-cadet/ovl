@@ -4,6 +4,7 @@ import "./globals.css";
 import { TRPCProvider } from "@/components/providers/trpc-provider";
 import { SuperTokensProvider } from "@/components/providers/supertokens-provider";
 import { ThemeProvider } from "@/components/providers/theme-provider";
+import { ToastProvider, Toaster } from "@ovl/ui/components/toast";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -27,9 +28,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     >
       <body className="min-h-full flex flex-col" suppressHydrationWarning>
         <ThemeProvider>
-          <SuperTokensProvider>
-            <TRPCProvider>{children}</TRPCProvider>
-          </SuperTokensProvider>
+          <ToastProvider>
+            <SuperTokensProvider>
+              <TRPCProvider>{children}</TRPCProvider>
+            </SuperTokensProvider>
+            <Toaster />
+          </ToastProvider>
         </ThemeProvider>
       </body>
     </html>

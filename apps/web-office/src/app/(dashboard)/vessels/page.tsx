@@ -2,10 +2,10 @@
 
 import { useState } from 'react';
 import dynamic from 'next/dynamic';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Ship, Search, ArrowUpDown, Filter, Plus, Activity, Wifi, WifiOff, Edit, Trash2, Users, List, Map as MapIcon } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@ovl/ui/components/card';
+import { Button } from '@ovl/ui/components/button';
+import { Input } from '@ovl/ui/components/input';
+import { Ship, Search, Plus, Activity, Wifi, WifiOff, Edit, Trash2, Users, List, Map as MapIcon } from 'lucide-react';
 import { VesselUsersDialog } from './VesselUsersDialog';
 
 // Leaflet touches window/document at import time, so the map view can
@@ -21,14 +21,14 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
-} from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
+} from '@ovl/ui/components/dialog';
+import { Label } from '@ovl/ui/components/label';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+} from '@ovl/ui/components/dropdown-menu';
 
 import { trpc } from '@/lib/trpc';
 
@@ -121,13 +121,13 @@ export default function VesselsPage() {
         </div>
         <div className="flex gap-3 w-full md:w-auto">
           {view === 'list' && (
-            <div className="relative w-full md:w-72 shadow-sm">
+            <div className="relative w-full md:w-72">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search by vessel name or IMO..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 bg-background/80 border-border/80 text-foreground rounded-md h-9 text-sm w-full transition-all"
+                className="pl-9 h-9 text-sm w-full"
               />
             </div>
           )}
@@ -169,7 +169,7 @@ export default function VesselsPage() {
             <table className="w-full text-sm text-left text-muted-foreground">
               <thead className="text-xs text-muted-foreground uppercase tracking-wider bg-background/90 backdrop-blur-sm border-b border-border/60 sticky top-0 z-10">
                 <tr>
-                  <th scope="col" className="px-4 py-2 font-semibold flex items-center gap-2">Vessel Details <ArrowUpDown className="w-3 h-3" /></th>
+                  <th scope="col" className="px-4 py-2 font-semibold">Vessel Details</th>
                   <th scope="col" className="hidden md:table-cell px-4 py-2 font-semibold">IMO Number</th>
                   <th scope="col" className="hidden lg:table-cell px-4 py-2 font-semibold">Vessel Type</th>
                   <th scope="col" className="px-4 py-2 font-semibold">Edge Node Status</th>
@@ -206,12 +206,12 @@ export default function VesselsPage() {
                       </td>
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-2">
-                          {vessel.edgeStatus === 'Online' && <Wifi className="w-4 h-4 text-emerald-400" />}
-                          {vessel.edgeStatus === 'Syncing' && <Activity className="w-4 h-4 text-blue-400 animate-pulse" />}
-                          {vessel.edgeStatus === 'Offline' && <WifiOff className="w-4 h-4 text-red-400" />}
+                          {vessel.edgeStatus === 'Online' && <Wifi className="w-4 h-4 text-status-ok" />}
+                          {vessel.edgeStatus === 'Syncing' && <Activity className="w-4 h-4 text-status-info animate-pulse" />}
+                          {vessel.edgeStatus === 'Offline' && <WifiOff className="w-4 h-4 text-status-critical" />}
                           <span className={`font-semibold text-xs uppercase tracking-wider ${
-                            vessel.edgeStatus === 'Online' ? 'text-emerald-400' :
-                            vessel.edgeStatus === 'Syncing' ? 'text-blue-400' : 'text-red-400'
+                            vessel.edgeStatus === 'Online' ? 'text-status-ok' :
+                            vessel.edgeStatus === 'Syncing' ? 'text-status-info' : 'text-status-critical'
                           }`}>
                             {vessel.edgeStatus}
                           </span>
@@ -224,21 +224,21 @@ export default function VesselsPage() {
                         <DropdownMenu>
                           <DropdownMenuTrigger
                             render={
-                              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors" />
+                              <Button variant="ghost" size="icon" aria-label={`Manage ${vessel.name}`} className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors" />
                             }
                           >
                             <Edit className="w-4 h-4" />
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-48 bg-background border-border">
-                            <DropdownMenuItem onClick={() => openEditDialog(vessel)} className="hover:bg-muted cursor-pointer text-foreground focus:bg-muted focus:text-white">
+                            <DropdownMenuItem onClick={() => openEditDialog(vessel)} className="hover:bg-muted cursor-pointer text-foreground focus:bg-muted focus:text-foreground">
                               <Edit className="mr-2 h-4 w-4" />
                               <span>Edit Vessel</span>
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => setUsersTarget({ id: vessel.id, name: vessel.name })} className="hover:bg-muted cursor-pointer text-foreground focus:bg-muted focus:text-white">
+                            <DropdownMenuItem onClick={() => setUsersTarget({ id: vessel.id, name: vessel.name })} className="hover:bg-muted cursor-pointer text-foreground focus:bg-muted focus:text-foreground">
                               <Users className="mr-2 h-4 w-4" />
                               <span>Manage Users</span>
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleDelete(vessel.id, vessel.name)} className="text-red-400 hover:bg-red-500/10 cursor-pointer focus:bg-red-500/10 focus:text-red-400">
+                            <DropdownMenuItem onClick={() => handleDelete(vessel.id, vessel.name)} className="text-status-critical hover:bg-status-critical/10 cursor-pointer focus:bg-status-critical/10 focus:text-status-critical">
                               <Trash2 className="mr-2 h-4 w-4" />
                               <span>Delete Vessel</span>
                             </DropdownMenuItem>
@@ -329,7 +329,7 @@ export default function VesselsPage() {
             <Button
               onClick={confirmDelete}
               disabled={deleteMutation.isPending}
-              className="bg-red-600 hover:bg-red-700 text-white"
+              variant="destructive"
             >
               {deleteMutation.isPending ? 'Deleting...' : 'Delete Vessel'}
             </Button>

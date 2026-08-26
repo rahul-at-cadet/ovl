@@ -8,11 +8,12 @@ import {
   DialogTitle,
   DialogFooter,
   DialogDescription,
-} from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { UserPlus, KeyRound, ShieldCheck, Ban, RotateCcw } from 'lucide-react';
+} from '@ovl/ui/components/dialog';
+import { Button } from '@ovl/ui/components/button';
+import { Input } from '@ovl/ui/components/input';
+import { Label } from '@ovl/ui/components/label';
+import { UserPlus, KeyRound, ShieldCheck, Ban, RotateCcw, Clock, CheckCircle2, RadioTower } from 'lucide-react';
+import { CopyField } from '@ovl/ui/components/copy-field';
 import { trpc } from '@/lib/trpc';
 
 // vessel/auth.Role's own string values (architecture 9.3), same fixed
@@ -51,10 +52,21 @@ function commandLabel(cmd: { action: string; role?: string | null }): string {
   }
 }
 
+type CommandProgress = {
+  role: 'ok' | 'info' | 'warn';
+  label: string;
+  /** Whether a password issued by this command works on the vessel yet. */
+  live: boolean;
+};
+
+function commandProgress(cmd: { appliedAt: string | null; fetchedAt: string | null }): CommandProgress {
+  if (cmd.appliedAt) return { role: 'ok', label: 'Applied on vessel', live: true };
+  if (cmd.fetchedAt) return { role: 'info', label: 'Delivered — applying', live: false };
+  return { role: 'warn', label: 'Queued — awaiting next sync', live: false };
+}
+
 function commandStatus(cmd: { appliedAt: string | null; fetchedAt: string | null }): string {
-  if (cmd.appliedAt) return 'Applied';
-  if (cmd.fetchedAt) return 'Delivered to vessel';
-  return 'Queued — awaiting next sync';
+  return commandProgress(cmd).label;
 }
 
 interface VesselUsersDialogProps {
@@ -71,12 +83,15 @@ export function VesselUsersDialog({ vesselId, vesselName, open, onOpenChange }: 
   const [roleTarget, setRoleTarget] = useState<{ username: string } | null>(null);
   const [roleChoice, setRoleChoice] = useState(VESSEL_ROLES[0].value);
   const [deactivateTarget, setDeactivateTarget] = useState<{ username: string } | null>(null);
-  const [revealed, setRevealed] = useState<{ username: string; temporaryPassword: string } | null>(null);
+  const [revealed, setRevealed] = useState<{ username: string; temporaryPassword: string; commandId: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const utils = trpc.useUtils();
   const { data: roster = [] } = trpc.vessels.users.list.useQuery({ vesselId }, { enabled: open });
-  const { data: commands = [] } = trpc.vessels.users.listCommands.useQuery({ vesselId }, { enabled: open });
+  const { data: commands = [] } = trpc.vessels.users.listCommands.useQuery(
+    { vesselId },
+    { enabled: open, refetchInterval: open ? 10_000 : false },
+  );
 
   const invalidate = () => {
     utils.vessels.users.list.invalidate({ vesselId });
@@ -86,14 +101,14 @@ export function VesselUsersDialog({ vesselId, vesselName, open, onOpenChange }: 
   const createMutation = trpc.vessels.users.create.useMutation({
     onSuccess: (result) => {
       invalidate();
-      setRevealed({ username: result.command.username, temporaryPassword: result.temporaryPassword });
+      setRevealed({ username: result.command.username, temporaryPassword: result.temporaryPassword, commandId: result.command.id });
     },
     onError: (err) => setError(err.message),
   });
   const resetPasswordMutation = trpc.vessels.users.resetPassword.useMutation({
     onSuccess: (result) => {
       invalidate();
-      setRevealed({ username: result.command.username, temporaryPassword: result.temporaryPassword });
+      setRevealed({ username: result.command.username, temporaryPassword: result.temporaryPassword, commandId: result.command.id });
     },
     onError: (err) => setError(err.message),
   });
@@ -114,6 +129,18 @@ export function VesselUsersDialog({ vesselId, vesselName, open, onOpenChange }: 
     null;
   const isBusy =
     createMutation.isPending || resetPasswordMutation.isPending || setRoleMutation.isPending || setActiveMutation.isPending;
+
+  // The revealed password's own command, re-read from the polled list above,
+  // so the panel below tracks it from Queued through to Applied rather than
+  // stating a status once and going stale.
+  const revealedCommand = revealed
+    ? (commands as { id: string; appliedAt: string | null; fetchedAt: string | null }[]).find(
+        (c) => c.id === revealed.commandId,
+      )
+    : undefined;
+  const liveProgress = commandProgress(
+    revealedCommand ?? { appliedAt: null, fetchedAt: null },
+  );
 
   const handleAdd = () => {
     setError(null);
@@ -165,10 +192,48 @@ export function VesselUsersDialog({ vesselId, vesselName, open, onOpenChange }: 
               <DialogHeader>
                 <DialogTitle className="text-foreground">Temporary password — shown once</DialogTitle>
                 <DialogDescription className="text-muted-foreground">
-                  Relay this to the crew member now over the vessel&apos;s usual comms (satellite phone, email). It
-                  will not be shown again — the account applies automatically on the vessel&apos;s next sync.
+                  This password will not work until the vessel has pulled it. Watch for
+                  &ldquo;Applied on vessel&rdquo; below before the crew member tries to sign in.
                 </DialogDescription>
               </DialogHeader>
+
+              {/*
+                The lead used to be "Relay this to the crew member now", with the
+                sync caveat trailing as a subordinate clause. Admins read the
+                instruction, phoned it through, and the crew member hit "invalid
+                password" because the vessel hadn't pulled the command yet — the
+                delay is inherent (office can never write to a vessel's user
+                table directly, see VesselUsersService), so the UI has to lead
+                with it and then show the actual state rather than assert it.
+              */}
+              <div
+                className={`flex items-start gap-2.5 rounded-md border px-3 py-2.5 text-sm ${
+                  liveProgress.live
+                    ? 'border-status-ok/25 bg-status-ok/10 text-status-ok'
+                    : liveProgress.role === 'info'
+                      ? 'border-status-info/25 bg-status-info/10 text-status-info'
+                      : 'border-status-warn/25 bg-status-warn/10 text-status-warn'
+                }`}
+                role="status"
+                aria-live="polite"
+              >
+                {liveProgress.live ? (
+                  <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                ) : liveProgress.role === 'info' ? (
+                  <RadioTower className="w-4 h-4 shrink-0 mt-0.5" />
+                ) : (
+                  <Clock className="w-4 h-4 shrink-0 mt-0.5" />
+                )}
+                <div className="min-w-0">
+                  <p className="font-medium">{liveProgress.label}</p>
+                  <p className="text-xs opacity-80 mt-0.5">
+                    {liveProgress.live
+                      ? 'The crew member can sign in with this password now.'
+                      : 'Safe to relay it now, but tell them to wait for this to land before signing in.'}
+                  </p>
+                </div>
+              </div>
+
               <div className="space-y-3 py-2">
                 <div className="space-y-1">
                   <Label className="text-xs text-muted-foreground uppercase tracking-wider">Username</Label>
@@ -178,13 +243,15 @@ export function VesselUsersDialog({ vesselId, vesselName, open, onOpenChange }: 
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs text-muted-foreground uppercase tracking-wider">Temporary password</Label>
-                  <div className="font-mono text-sm text-foreground bg-muted rounded-md px-3 py-2 border border-border select-all">
-                    {revealed.temporaryPassword}
-                  </div>
+                  {/* Relayed by satellite phone, so a mistyped character costs a
+                      locked-out crew member and another round trip. */}
+                  <CopyField value={revealed.temporaryPassword} />
                 </div>
               </div>
               <DialogFooter>
-                <Button onClick={() => setRevealed(null)}>I&apos;ve relayed this</Button>
+                <Button variant="outline" onClick={() => setRevealed(null)}>
+                  Close
+                </Button>
               </DialogFooter>
             </>
           ) : (
@@ -198,7 +265,7 @@ export function VesselUsersDialog({ vesselId, vesselName, open, onOpenChange }: 
               </DialogHeader>
 
               {error ? (
-                <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-md px-3 py-2">
+                <div className="text-sm text-status-critical bg-status-critical/10 border border-status-critical/30 rounded-md px-3 py-2">
                   {error}
                 </div>
               ) : null}
@@ -229,7 +296,7 @@ export function VesselUsersDialog({ vesselId, vesselName, open, onOpenChange }: 
                             {u.username}{' '}
                             <span className="text-muted-foreground font-normal">· {vesselRoleLabel(u.role)}</span>
                           </div>
-                          <div className={`text-xs ${u.active ? 'text-emerald-400' : 'text-muted-foreground'}`}>
+                          <div className={`text-xs ${u.active ? 'text-status-ok' : 'text-muted-foreground'}`}>
                             {u.active ? 'Active' : 'Deactivated'}
                             {u.canSubmit ? ' · can submit' : ''}
                           </div>
@@ -263,7 +330,7 @@ export function VesselUsersDialog({ vesselId, vesselName, open, onOpenChange }: 
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="text-red-400 hover:text-red-400 hover:bg-red-500/10"
+                                className="text-status-critical hover:text-status-critical hover:bg-status-critical/10"
                                 disabled={isBusy && busyUsername === u.username}
                                 onClick={() => setDeactivateTarget({ username: u.username })}
                               >
@@ -306,7 +373,13 @@ export function VesselUsersDialog({ vesselId, vesselName, open, onOpenChange }: 
                           </div>
                         </div>
                         <div
-                          className={`text-xs whitespace-nowrap text-right ${cmd.appliedAt ? 'text-emerald-400' : 'text-muted-foreground'}`}
+                          className={`text-xs whitespace-nowrap text-right ${
+                            cmd.appliedAt
+                              ? 'text-status-ok'
+                              : cmd.fetchedAt
+                                ? 'text-status-info'
+                                : 'text-status-warn'
+                          }`}
                         >
                           {commandStatus(cmd)}
                         </div>
@@ -421,7 +494,7 @@ export function VesselUsersDialog({ vesselId, vesselName, open, onOpenChange }: 
             <Button
               onClick={handleDeactivate}
               disabled={setActiveMutation.isPending}
-              className="bg-red-600 hover:bg-red-700 text-white"
+              variant="destructive"
             >
               Deactivate
             </Button>

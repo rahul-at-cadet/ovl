@@ -1,20 +1,27 @@
 'use client';
 
 import { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@ovl/ui/components/card';
+import { Button } from '@ovl/ui/components/button';
+import { Input } from '@ovl/ui/components/input';
 import { Shield, UserPlus, Search, MoreHorizontal, UserCheck, ShieldAlert, ArrowUpDown, Users as UsersIcon, UserX } from 'lucide-react';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@ovl/ui/components/avatar';
+import { CopyField } from '@ovl/ui/components/copy-field';
 import { trpc } from '@/lib/trpc';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuGroup } from '@/components/ui/dropdown-menu';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Label } from '@/components/ui/label';
-import { useToastManager } from '@/components/ui/toast';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@ovl/ui/components/dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuGroup } from '@ovl/ui/components/dropdown-menu';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ovl/ui/components/select';
+import { Label } from '@ovl/ui/components/label';
+import { useToastManager } from '@ovl/ui/components/toast';
 
 
 export default function UsersPage() {
+  // Master-only, matching the original app's own route guard. The nav item is
+  // hidden for everyone else (AppShell), but a bookmarked URL has to be
+  // refused here too rather than rendering a screen whose every action fails.
+  const { data: me, isLoading: isMeLoading } = trpc.users.me.useQuery();
+  const isMaster = (me?.role ?? '').toLowerCase() === 'master';
+
   const [searchQuery, setSearchQuery] = useState('');
   const toastManager = useToastManager();
 
@@ -83,17 +90,34 @@ export default function UsersPage() {
 
   const stats = [
     { label: 'Total Crew', value: users.length.toString(), icon: UsersIcon, color: 'text-foreground' },
-    { label: 'Active', value: activeCount.toString(), icon: UserCheck, color: 'text-emerald-400' },
+    { label: 'Active', value: activeCount.toString(), icon: UserCheck, color: 'text-status-ok' },
     { label: 'Inactive', value: inactiveCount.toString(), icon: UserX, color: 'text-muted-foreground' },
-    { label: 'Admin / Master', value: adminCount.toString(), icon: ShieldAlert, color: 'text-amber-400' },
+    { label: 'Admin / Master', value: adminCount.toString(), icon: ShieldAlert, color: 'text-status-warn' },
   ];
 
+  if (isMeLoading) {
+    return <p className="text-sm text-muted-foreground">Checking permissions&hellip;</p>;
+  }
+
+  if (!isMaster) {
+    return (
+      <div className="max-w-md mx-auto text-center space-y-3 py-16">
+        <div className="mx-auto w-11 h-11 rounded-full bg-muted border border-border flex items-center justify-center">
+          <ShieldAlert className="w-5 h-5 text-muted-foreground" />
+        </div>
+        <h1 className="text-lg font-semibold text-foreground">Master access only</h1>
+        <p className="text-sm text-muted-foreground">
+          Crew accounts are managed by the vessel&apos;s Master, or from the shore office.
+        </p>
+      </div>
+    );
+  }
   return (
     // Fixed to the viewport, same as Dashboard — a crew roster shouldn't
     // require scrolling the whole page to find the onboarding button;
     // only the directory table scrolls internally.
-    <div className="h-[calc(100vh-140px)] flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border pb-4 shrink-0">
+    <div className="flex flex-col gap-4 pb-4 xl:pb-0 xl:h-[calc(100vh_-_88px)] xl:overflow-hidden">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shrink-0">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Crew & Access Management</h1>
           <p className="text-muted-foreground mt-1 text-sm">Control local node access and crew permissions.</p>
@@ -105,11 +129,11 @@ export default function UsersPage() {
               placeholder="Search by username or role..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 bg-background/80 border-border/80 focus-visible:ring-ring text-foreground rounded-md h-10 text-sm w-full transition-all"
+              className="pl-9 bg-card border-border focus-visible:ring-ring text-foreground rounded-sm h-10 text-sm w-full transition-all"
             />
           </div>
           <Dialog open={isCreateOpen} onOpenChange={handleCloseCreate}>
-            <DialogTrigger className="inline-flex items-center justify-center bg-primary hover:bg-primary/90 text-primary-foreground rounded-sm h-10 px-4 py-2 text-sm font-medium shadow-sm shrink-0 transition-all">
+            <DialogTrigger className="inline-flex items-center justify-center bg-primary hover:bg-primary/90 text-primary-foreground rounded-sm h-10 px-4 py-2 text-sm font-medium shrink-0 transition-all">
               <UserPlus className="w-4 h-4 mr-2" />
               Onboard Crew
             </DialogTrigger>
@@ -143,16 +167,14 @@ export default function UsersPage() {
                 </div>
               ) : (
                 <div className="py-6 space-y-4 text-center">
-                  <div className="bg-emerald-500/10 text-emerald-400 p-3 rounded-md border border-emerald-500/20 text-sm">
+                  <div className="bg-status-ok/10 text-status-ok p-3 rounded-sm border border-status-ok/25 text-sm">
                     User successfully created!
                   </div>
                   <div className="space-y-2">
                     <p className="text-sm text-muted-foreground">Temporary Password (Reveal Once):</p>
-                    <div className="text-xl font-mono tracking-wider bg-card p-4 rounded border border-border select-all">
-                      {generatedPassword}
-                    </div>
+                    <CopyField value={generatedPassword} />
                   </div>
-                  <p className="text-xs text-amber-500/90 mt-2">
+                  <p className="text-xs text-status-warn/90 mt-2">
                     Make sure to copy this now. You won't be able to see it again.
                   </p>
                 </div>
@@ -179,7 +201,7 @@ export default function UsersPage() {
           never part of the scrolling directory below. */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 shrink-0">
         {stats.map((stat) => (
-          <Card key={stat.label} className="bg-card/50 border-border rounded-md">
+          <Card key={stat.label} className="bg-card border-border rounded-sm">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-xs font-medium text-muted-foreground">
                 {stat.label}
@@ -193,15 +215,14 @@ export default function UsersPage() {
         ))}
       </div>
 
-      <Card className="flex-1 min-h-0 flex flex-col bg-card/40 border-border/60 shadow-xl overflow-hidden rounded-xl backdrop-blur-md">
-        <CardHeader className="border-b border-border/60 pb-4 bg-card/20 shrink-0">
-          <CardTitle className="text-sm font-semibold tracking-tight text-foreground">Local Directory</CardTitle>
+      <Card className="flex flex-col bg-card border-border overflow-hidden rounded-sm xl:flex-1 xl:min-h-0">
+        <CardHeader className="border-b border-border px-4 py-3 shrink-0">
           <CardDescription className="text-xs text-muted-foreground">Personnel authorized for edge-node access.</CardDescription>
         </CardHeader>
-        <CardContent className="flex-1 min-h-0 p-0 overflow-hidden">
-          <div className="h-full overflow-auto">
+        <CardContent className="p-0 flex flex-col xl:flex-1 xl:min-h-0">
+          <div className="overflow-x-auto xl:overflow-y-auto xl:flex-1 xl:min-h-0">
             <table className="w-full text-sm text-left text-muted-foreground">
-              <thead className="text-xs text-muted-foreground uppercase tracking-wider bg-background/90 backdrop-blur-sm border-b border-border/60 sticky top-0 z-10">
+              <thead className="text-xs text-muted-foreground uppercase tracking-wider bg-card border-b border-border sticky top-0 z-10">
                 <tr>
                   <th scope="col" className="px-6 py-3 font-semibold"><div className="flex items-center gap-2">User <ArrowUpDown className="w-3 h-3" /></div></th>
                   <th scope="col" className="hidden md:table-cell px-6 py-3 font-semibold">Security Role</th>
@@ -212,16 +233,16 @@ export default function UsersPage() {
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground bg-background/20">
+                    <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground bg-card">
                       Loading crew directory...
                     </td>
                   </tr>
                 ) : filteredUsers.length > 0 ? (
                   filteredUsers.map((user: any) => (
-                    <tr key={user.id} className="border-b border-border/40 hover:bg-muted/20 transition-all group">
+                    <tr key={user.id} className="border-b border-border hover:bg-muted transition-all group">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <Avatar className="h-9 w-9 bg-muted border border-border shadow-sm">
+                          <Avatar className="h-9 w-9 bg-muted border border-border">
                             <AvatarFallback className="text-foreground bg-transparent text-xs font-semibold">{user.username.substring(0, 2).toUpperCase()}</AvatarFallback>
                           </Avatar>
                           <div>
@@ -232,13 +253,13 @@ export default function UsersPage() {
                       </td>
                       <td className="hidden md:table-cell px-6 py-4">
                         <div className="flex items-center gap-2">
-                          {user.role.includes('Master') || user.role.includes('Admin') ? <ShieldAlert className="w-4 h-4 text-amber-500/80" /> : <Shield className="w-4 h-4 text-muted-foreground" />}
+                          {user.role.includes('Master') || user.role.includes('Admin') ? <ShieldAlert className="w-4 h-4 text-status-warn/80" /> : <Shield className="w-4 h-4 text-muted-foreground" />}
                           <span className="text-foreground font-medium">{user.role}</span>
                         </div>
                       </td>
                       <td className="px-6 py-4">
                         <div
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold tracking-wide uppercase border cursor-pointer hover:opacity-80 transition-opacity ${user.active ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-muted/50 text-muted-foreground border-border/50'}`}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-sm text-xs font-semibold tracking-wide uppercase border cursor-pointer hover:opacity-80 transition-opacity ${user.active ? 'bg-status-ok/10 text-status-ok border-status-ok/25' : 'bg-muted text-muted-foreground border-border'}`}
                           onClick={() => updateStatus.mutate({ id: user.id, active: !user.active })}
                         >
                           {user.active ? <UserCheck className="w-3 h-3" /> : <UserX className="w-3 h-3" />}
@@ -247,7 +268,10 @@ export default function UsersPage() {
                       </td>
                       <td className="px-6 py-4 text-right">
                         <DropdownMenu>
-                          <DropdownMenuTrigger className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-muted hover:text-foreground h-9 w-9 text-muted-foreground">
+                          <DropdownMenuTrigger
+                            aria-label={`Manage ${user.username}`}
+                            className="inline-flex items-center justify-center rounded-sm text-sm font-medium transition-colors hover:bg-surface-hover hover:text-foreground text-muted-foreground"
+                          >
                             <MoreHorizontal className="w-4 h-4" />
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="bg-background border-border text-foreground">
@@ -267,7 +291,7 @@ export default function UsersPage() {
                               </DropdownMenuItem>
                               <DropdownMenuSeparator className="bg-muted" />
                               <DropdownMenuItem
-                                className="focus:bg-card focus:text-foreground cursor-pointer text-red-400 focus:text-red-300"
+                                className="focus:bg-card focus:text-foreground cursor-pointer text-status-critical focus:text-status-critical"
                                 onClick={() => updateStatus.mutate({ id: user.id, active: !user.active })}
                               >
                                 {user.active ? 'Deactivate User' : 'Reactivate User'}
@@ -280,7 +304,7 @@ export default function UsersPage() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground bg-background/20">
+                    <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground bg-card">
                       No users found matching &quot;{searchQuery}&quot;.
                     </td>
                   </tr>
@@ -321,7 +345,7 @@ export default function UsersPage() {
             <Button
               onClick={() => updateRole.mutate({ id: selectedUserForRole.id, role: editRoleValue })}
               disabled={updateRole.isPending}
-              className="bg-primary hover:bg-primary/90 text-white"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground"
             >
               {updateRole.isPending ? 'Saving...' : 'Save Changes'}
             </Button>
@@ -354,7 +378,7 @@ export default function UsersPage() {
                 <Button
                   onClick={() => adminResetPassword.mutate({ id: selectedUserForPassword.id })}
                   disabled={adminResetPassword.isPending}
-                  className="bg-red-600 hover:bg-red-500 text-white"
+                  variant="destructive"
                 >
                   {adminResetPassword.isPending ? 'Resetting...' : 'Confirm Reset'}
                 </Button>
@@ -362,11 +386,9 @@ export default function UsersPage() {
             </div>
           ) : (
             <div className="py-4">
-              <div className="bg-card border border-border rounded-md p-4 mt-2">
-                <p className="text-sm text-muted-foreground mb-1 font-medium uppercase tracking-wider text-xs">New Temporary Password</p>
-                <div className="flex items-center justify-between">
-                  <code className="text-xl font-mono text-emerald-400">{resetPasswordGenerated}</code>
-                </div>
+              <div className="mt-2 space-y-2">
+                <p className="text-muted-foreground font-medium uppercase tracking-wider text-xs">New Temporary Password</p>
+                <CopyField value={resetPasswordGenerated} />
               </div>
               <p className="text-xs text-muted-foreground mt-4">
                 Please provide this password to the crew member. It will only be shown once.

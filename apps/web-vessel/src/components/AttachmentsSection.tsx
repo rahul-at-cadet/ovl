@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Paperclip, UploadCloud, File, X, Loader2, Download } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@ovl/ui/components/card';
+import { Button } from '@ovl/ui/components/button';
 import { API_ORIGIN as API_BASE } from '@/lib/api-origin';
 
 interface Attachment {
@@ -101,7 +101,7 @@ export function AttachmentsSection({ reportId }: AttachmentsSectionProps) {
   };
 
   return (
-    <Card className="bg-card/50 border-border">
+    <Card className="bg-card border-border">
       <CardHeader className="border-b border-border pb-4">
         <CardTitle className="text-lg font-medium text-foreground flex items-center">
           <Paperclip className="w-5 h-5 mr-2 text-muted-foreground" />
@@ -113,7 +113,7 @@ export function AttachmentsSection({ reportId }: AttachmentsSectionProps) {
       </CardHeader>
       <CardContent className="pt-6 space-y-4">
         {error && (
-          <div className="text-red-400 text-sm p-3 bg-red-400/10 border border-red-400/20 rounded-md">
+          <div className="text-status-critical text-sm p-3 bg-status-critical/10 border border-status-critical/25 rounded-sm">
             {error}
           </div>
         )}
@@ -123,9 +123,9 @@ export function AttachmentsSection({ reportId }: AttachmentsSectionProps) {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {attachments.map((file) => (
-              <div key={file.id} className="flex items-center justify-between p-3 bg-background border border-border rounded-md">
+              <div key={file.id} className="flex items-center justify-between p-3 bg-background border border-border rounded-sm">
                 <div className="flex items-center space-x-3 overflow-hidden">
-                  <div className="p-2 bg-primary/10 text-primary rounded-md shrink-0">
+                  <div className="p-2 bg-primary/10 text-primary rounded-sm shrink-0">
                     <File className="w-4 h-4" />
                   </div>
                   <div className="overflow-hidden">
@@ -137,12 +137,13 @@ export function AttachmentsSection({ reportId }: AttachmentsSectionProps) {
                   <Button
                     variant="ghost"
                     size="icon"
+                    aria-label={`Download ${file.filename}`}
                     className="text-muted-foreground hover:text-foreground"
                     onClick={() => window.open(`${API_BASE}/reports/${reportId}/attachments/${file.id}`, '_blank')}
                   >
                     <Download className="w-4 h-4" />
                   </Button>
-                  <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-red-400" onClick={() => removeAttachment(file.id)}>
+                  <Button variant="ghost" size="icon" aria-label={`Remove ${file.filename}`} className="text-muted-foreground hover:text-status-critical" onClick={() => removeAttachment(file.id)}>
                     <X className="w-4 h-4" />
                   </Button>
                 </div>
@@ -151,7 +152,7 @@ export function AttachmentsSection({ reportId }: AttachmentsSectionProps) {
           </div>
         )}
 
-        <div className="border-2 border-dashed border-border rounded-xl p-8 text-center flex flex-col items-center justify-center bg-background/30 transition-colors hover:bg-card/50 hover:border-border relative">
+        <div className="border-2 border-dashed border-border rounded-sm p-8 text-center flex flex-col items-center justify-center bg-card transition-colors hover:bg-card hover:border-border relative">
           <input
             type="file"
             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"

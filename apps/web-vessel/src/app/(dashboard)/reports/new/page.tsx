@@ -1,20 +1,20 @@
 'use client';
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { buttonVariants, Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@ovl/ui/components/card';
+import { buttonVariants, Button } from '@ovl/ui/components/button';
 import { ArrowRight, Fuel, ClipboardList, TrendingUp, Loader2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn } from '@ovl/ui/lib/utils';
 import { trpc } from '@/lib/trpc';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { useToastManager } from '@/components/ui/toast';
+import { useToastManager } from '@ovl/ui/components/toast';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
-} from '@/components/ui/dialog';
+} from '@ovl/ui/components/dialog';
 
 // Cargo Nomination is deliberately absent — it's office-authored only
 // (via the Commercial screen), never something the vessel creates.
@@ -24,9 +24,9 @@ import {
 // below) — mirrors ovl/web/vessel/src/screens/EventPickerDialog.tsx's own
 // comment on why only Log Abstract goes through this dialog.
 const availableReports = [
-  { id: 'bunker-report.json', title: 'Bunker Report', description: 'Log fuel intake and quality metrics.', icon: Fuel, color: 'text-orange-400', bg: 'bg-orange-500/10 border-orange-500/20', needsEvent: false },
-  { id: 'edn-report.json', title: 'EDN Report', description: 'Daily noon reporting and engine diagnostics.', icon: ClipboardList, color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20', needsEvent: false },
-  { id: 'log-abstract.json', title: 'Log Abstract', description: 'End of voyage logging and speed performance.', icon: TrendingUp, color: 'text-purple-400', bg: 'bg-purple-500/10 border-purple-500/20', needsEvent: true },
+  { id: 'bunker-report.json', title: 'Bunker Report', description: 'Log fuel intake and quality metrics.', icon: Fuel, color: 'text-status-attention', bg: 'bg-status-attention/10 border-status-attention/25', needsEvent: false },
+  { id: 'edn-report.json', title: 'EDN Report', description: 'Daily noon reporting and engine diagnostics.', icon: ClipboardList, color: 'text-status-ok', bg: 'bg-status-ok/10 border-status-ok/25', needsEvent: false },
+  { id: 'log-abstract.json', title: 'Log Abstract', description: 'End of voyage logging and speed performance.', icon: TrendingUp, color: 'text-status-info', bg: 'bg-status-info/10 border-status-info/25', needsEvent: true },
 ];
 
 export default function NewReportPage() {
@@ -80,19 +80,18 @@ export default function NewReportPage() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="max-w-4xl mx-auto flex flex-col gap-5">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">Create New Report</h1>
+        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground">Create new report</h1>
         <p className="text-muted-foreground mt-1">Select the type of report you need to file.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {availableReports.map((report) => (
-          <Card key={report.id} className="bg-card/50 border-border hover:border-border transition-all group overflow-hidden relative flex flex-col h-full">
-            <div className={`absolute top-0 right-0 w-32 h-32 blur-3xl opacity-20 group-hover:opacity-40 transition-opacity pointer-events-none ${report.bg.split(' ')[0]}`} />
+          <Card key={report.id} className="bg-card border-border rounded-sm shadow-none hover:bg-surface-hover transition-colors flex flex-col h-full">
             
             <CardHeader className="flex flex-row items-start gap-4 flex-1">
-              <div className={`p-3 rounded-xl border ${report.bg} shrink-0`}>
+              <div className={`p-3 rounded-sm border ${report.bg} shrink-0`}>
                 <report.icon className={`w-6 h-6 ${report.color}`} />
               </div>
               <div className="space-y-1">
@@ -102,11 +101,11 @@ export default function NewReportPage() {
                 </CardDescription>
               </div>
             </CardHeader>
-            <CardContent className="flex justify-end pt-4 border-t border-border/50 mt-2 relative z-10">
+            <CardContent className="pt-4 mt-auto">
               <Button
                 onClick={() => handleStartDraft(report)}
                 disabled={startingSchema === report.id}
-                className={cn(buttonVariants({ variant: 'secondary' }), "w-full sm:w-auto bg-muted hover:bg-accent text-foreground h-11 text-base px-5")}
+                className={cn(buttonVariants({ variant: 'secondary' }), "w-full justify-center")}
               >
                 {startingSchema === report.id ? 'Starting...' : 'Start Draft'}
                 {startingSchema === report.id ? <Loader2 className="w-4 h-4 ml-2 shrink-0 animate-spin" /> : <ArrowRight className="w-4 h-4 ml-2 shrink-0" />}
@@ -117,7 +116,7 @@ export default function NewReportPage() {
       </div>
 
       <Dialog open={eventPickerFor !== null} onOpenChange={(open) => !open && setEventPickerFor(null)}>
-        <DialogContent className="sm:max-w-[420px] max-h-[70vh] overflow-y-auto bg-background border-border text-foreground">
+        <DialogContent className="sm:max-w-[420px] max-h-[80vh] overflow-y-auto bg-popover border-border text-popover-foreground rounded-sm">
           <DialogHeader>
             <DialogTitle className="text-foreground">Choose an event</DialogTitle>
             <DialogDescription className="text-muted-foreground">
@@ -125,12 +124,12 @@ export default function NewReportPage() {
               report instead if it was wrong.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex flex-col divide-y divide-border/50">
+          <div className="flex flex-col divide-y divide-border -mx-6 border-y border-border">
             {eventTypes.map((code: string) => (
               <button
                 key={code}
                 onClick={() => handlePickEvent(code)}
-                className="text-left py-2.5 px-1 text-sm text-foreground hover:bg-muted rounded-md transition-colors"
+                className="text-left px-3 min-h-12 flex items-center text-sm text-foreground hover:bg-surface-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
               >
                 {code}
               </button>

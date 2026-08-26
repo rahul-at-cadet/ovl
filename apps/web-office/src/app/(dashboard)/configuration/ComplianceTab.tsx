@@ -2,12 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@ovl/ui/components/tabs";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@ovl/ui/components/card";
+import { Button } from "@ovl/ui/components/button";
+import { Input } from "@ovl/ui/components/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@ovl/ui/components/select";
+import { Badge } from "@ovl/ui/components/badge";
 import { Lock } from "lucide-react";
 import { ScopeSelector } from "./ScopeSelector";
 import {
@@ -25,7 +25,7 @@ const PRECEDENCE_TEXT =
 
 function PrecedenceBanner() {
   return (
-    <div className="rounded-md border border-emerald-300 bg-emerald-50 dark:border-emerald-900/50 dark:bg-emerald-950/30 px-4 py-2 text-xs text-emerald-700 dark:text-emerald-300">
+    <div className="rounded-md border border-status-ok/30 bg-status-ok/10 px-4 py-2 text-xs text-status-ok">
       {PRECEDENCE_TEXT}
     </div>
   );
@@ -94,7 +94,7 @@ function RegulatoryProfilesPanel() {
                 onClick={() => toggle(p)}
                 className={`text-left rounded-md border px-4 py-3 text-sm transition-colors ${
                   selected.has(p)
-                    ? "border-emerald-600 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                    ? "border-status-ok/40 bg-status-ok/10 text-status-ok"
                     : "border-border bg-background text-foreground hover:border-border"
                 }`}
               >
@@ -105,7 +105,6 @@ function RegulatoryProfilesPanel() {
           <Button
             disabled={scope.type !== "fleet" && !scope.key}
             onClick={() => save.mutate({ scope, profiles: [...selected] })}
-            className="bg-blue-600 hover:bg-blue-700 text-white"
           >
             {save.isPending ? "Saving..." : current ? "Update" : "Save"}
           </Button>
@@ -188,11 +187,10 @@ function CadenceRulesPanel() {
               than {minNum} hours between the start of consecutive reporting windows.
             </p>
           )}
-          {!valid && <p className="text-sm text-amber-400">Both values must be positive numbers.</p>}
+          {!valid && <p className="text-sm text-status-warn">Both values must be positive numbers.</p>}
           <Button
             disabled={!valid || (scope.type !== "fleet" && !scope.key)}
             onClick={() => save.mutate({ scope, minReportIntervalHours: minNum, maxGapHours: maxNum })}
-            className="bg-blue-600 hover:bg-blue-700 text-white"
           >
             {save.isPending ? "Saving..." : current ? "Update" : "Save"}
           </Button>
@@ -254,7 +252,7 @@ function RuleSeveritiesPanel() {
         </CardHeader>
         <CardContent className="space-y-4">
           <ScopeSelector scope={scope} onChange={setScope} vessels={vessels as any} />
-          <div className="divide-y divide-slate-800 border border-border rounded-md">
+          <div className="divide-y divide-border border border-border rounded-md">
             {(catalog?.overridable ?? Object.keys(RULE_LABELS)).map((ruleId) => (
               <div key={ruleId} className="flex items-center justify-between px-4 py-2">
                 <span className="text-sm text-foreground">{ruleLabel(ruleId)}</span>
@@ -284,7 +282,6 @@ function RuleSeveritiesPanel() {
           <Button
             disabled={scope.type !== "fleet" && !scope.key}
             onClick={() => save.mutate({ scope, severities })}
-            className="bg-blue-600 hover:bg-blue-700 text-white"
           >
             {save.isPending ? "Saving..." : current ? "Update" : "Save"}
           </Button>

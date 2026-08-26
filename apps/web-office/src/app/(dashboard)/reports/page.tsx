@@ -2,13 +2,13 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, Filter, FileText, ChevronRight, CheckCircle2, Download, Loader2 } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@ovl/ui/components/card';
+import { Button } from '@ovl/ui/components/button';
+import { Input } from '@ovl/ui/components/input';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@ovl/ui/components/table';
+import { StatusBadge } from '@ovl/ui/components/status-badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ovl/ui/components/select';
+import { Search, FileText, ChevronRight, CheckCircle2, Download, Loader2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 
 // See apps/web-office/src/app/(dashboard)/page.tsx's own comment on
@@ -23,16 +23,6 @@ function downloadCsv(csv: string, filename: string) {
   a.click();
   URL.revokeObjectURL(url);
 }
-
-const STATUS_LABEL: Record<string, string> = {
-  draft: 'Draft',
-  submitted: 'Submitted',
-};
-
-const STATUS_CLASS: Record<string, string> = {
-  draft: 'bg-zinc-500/10 text-muted-foreground border-zinc-500/20',
-  submitted: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-};
 
 export default function GlobalReportsPage() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -97,9 +87,6 @@ export default function GlobalReportsPage() {
                   <SelectItem value="submitted">Submitted</SelectItem>
                 </SelectContent>
               </Select>
-              <Button variant="outline" size="icon" className="h-9 w-9 border-border bg-background/50 text-muted-foreground hover:text-foreground">
-                <Filter className="w-4 h-4" />
-              </Button>
               <Button
                 variant="outline"
                 onClick={handleExport}
@@ -152,14 +139,12 @@ export default function GlobalReportsPage() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline" className={STATUS_CLASS[report.status] ?? 'bg-orange-500/10 text-orange-400 border-orange-500/20'}>
-                      {STATUS_LABEL[report.status] ?? (report.status.charAt(0).toUpperCase() + report.status.slice(1))}
-                    </Badge>
+                    <StatusBadge status={report.status} />
                   </TableCell>
                   <TableCell className="hidden md:table-cell text-muted-foreground">{report.date}</TableCell>
                   <TableCell className="hidden md:table-cell">
                     {report.reviewed ? (
-                      <span className="flex items-center gap-1.5 text-xs text-emerald-400">
+                      <span className="flex items-center gap-1.5 text-xs text-status-ok">
                         <CheckCircle2 className="w-3.5 h-3.5" /> Reviewed
                       </span>
                     ) : (

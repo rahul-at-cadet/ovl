@@ -1,8 +1,8 @@
 'use client';
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@ovl/ui/components/card';
+import { Button } from '@ovl/ui/components/button';
+import { StatusBadge } from '@ovl/ui/components/status-badge';
 import { ArrowLeft, CheckCircle2, Clock, FileText, User, Ship, MessageSquare, Send, Flag, X, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -11,20 +11,6 @@ import { useState, useRef, useEffect } from 'react';
 import { trpc } from '@/lib/trpc';
 import { useCurrentUser } from '@/lib/useCurrentUser';
 import { sectionsInOrder, sectionLabel, type SchemaFieldLike } from '@/lib/sections';
-
-const STATUS_LABEL: Record<string, string> = {
-  draft: 'Draft',
-  submitted: 'Submitted',
-  remarked: 'Remarked',
-  invalidated: 'Invalidated',
-};
-
-const STATUS_CLASS: Record<string, string> = {
-  draft: 'bg-zinc-500/10 text-muted-foreground border-zinc-500/20',
-  submitted: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-  remarked: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
-  invalidated: 'bg-red-500/10 text-red-400 border-red-500/20',
-};
 
 export default function ReportDetailPage() {
   const params = useParams();
@@ -106,7 +92,7 @@ export default function ReportDetailPage() {
   }
 
   if (error || !report) {
-    return <div className="p-8 text-center text-red-400">Error loading report: {error?.message || 'Not found'}</div>;
+    return <div className="p-8 text-center text-status-critical">Error loading report: {error?.message || 'Not found'}</div>;
   }
 
   return (
@@ -126,9 +112,7 @@ export default function ReportDetailPage() {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold tracking-tight text-foreground">{report.type}</h1>
-              <Badge variant="outline" className={`${STATUS_CLASS[report.status] ?? 'bg-orange-500/10 text-orange-400 border-orange-500/20'} uppercase tracking-widest text-xs`}>
-                {STATUS_LABEL[report.status] ?? report.status.replace('_', ' ')}
-              </Badge>
+              <StatusBadge status={report.status} />
             </div>
             <p className="text-muted-foreground mt-1 font-mono text-sm">ID: {report.id}</p>
           </div>
@@ -136,7 +120,7 @@ export default function ReportDetailPage() {
 
         <div className="flex gap-3 w-full md:w-auto">
           {report.reviewed ? (
-            <span className="flex items-center gap-2 text-sm text-emerald-400 px-3 py-2">
+            <span className="flex items-center gap-2 text-sm text-status-ok px-3 py-2">
               <CheckCircle2 className="w-4 h-4" />
               Reviewed by {report.reviewedBy}
             </span>
@@ -144,7 +128,7 @@ export default function ReportDetailPage() {
             <Button
               onClick={() => markReviewed.mutate({ reportId: id })}
               disabled={markReviewed.isPending}
-              className="flex-1 md:flex-none bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/20"
+              className="flex-1 md:flex-none"
             >
               <CheckCircle2 className="w-4 h-4 mr-2" />
               {markReviewed.isPending ? 'Marking...' : 'Mark Reviewed'}
@@ -154,13 +138,13 @@ export default function ReportDetailPage() {
       </div>
 
       {report.status === 'invalidated' && report.brokenRules && report.brokenRules.length > 0 && (
-        <div className="flex items-start gap-3 p-4 rounded-xl border border-red-500/30 bg-red-500/10">
-          <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+        <div className="flex items-start gap-3 p-4 rounded-xl border border-status-critical/30 bg-status-critical/10">
+          <AlertTriangle className="w-5 h-5 text-status-critical shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-semibold text-red-400">
+            <p className="text-sm font-semibold text-status-critical">
               Invalidated by cascade revalidation — a correction to an earlier report broke continuity here.
             </p>
-            <p className="text-sm text-red-400/80 mt-1">Broken rules: {report.brokenRules.join(', ')}</p>
+            <p className="text-sm text-status-critical/80 mt-1">Broken rules: {report.brokenRules.join(', ')}</p>
           </div>
         </div>
       )}
@@ -211,7 +195,7 @@ export default function ReportDetailPage() {
                   onClick={sendRemarkSet}
                   disabled={createRemarkSetMutation.isPending || Object.values(pendingRemarks).every((b) => !b.trim())}
                   size="sm"
-                  className="bg-orange-600 hover:bg-orange-500 shrink-0"
+                  className="bg-status-attention hover:bg-status-attention shrink-0"
                 >
                   <Flag className="w-3.5 h-3.5 mr-1.5" />
                   {createRemarkSetMutation.isPending ? 'Sending...' : `Send Remark Set (${Object.keys(pendingRemarks).length})`}
@@ -230,7 +214,7 @@ export default function ReportDetailPage() {
                       {isReviewer && (
                         <button
                           onClick={() => toggleFlag(key)}
-                          className={`shrink-0 p-1 rounded transition-colors ${key in pendingRemarks ? 'text-orange-400 bg-orange-500/10' : 'text-muted-foreground hover:text-orange-400 hover:bg-orange-500/10'}`}
+                          className={`shrink-0 p-1 rounded transition-colors ${key in pendingRemarks ? 'text-status-attention bg-status-attention/10' : 'text-muted-foreground hover:text-status-attention hover:bg-status-attention/10'}`}
                           title="Flag this field with a remark"
                         >
                           <Flag className="w-3.5 h-3.5" />
@@ -247,7 +231,7 @@ export default function ReportDetailPage() {
                           onChange={(e) => setPendingRemarks((prev) => ({ ...prev, [key]: e.target.value }))}
                           placeholder="What's wrong with this field?"
                           rows={2}
-                          className="flex-1 bg-background border border-orange-500/30 rounded-md px-2 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-orange-500"
+                          className="flex-1 bg-background border border-status-attention/30 rounded-md px-2 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-status-attention"
                         />
                         <button
                           onClick={() => toggleFlag(key)}
@@ -386,7 +370,7 @@ export default function ReportDetailPage() {
               remarks.map((r: any) => (
                 <div key={r.id} className="flex items-start justify-between gap-3 p-3 rounded-lg bg-background/50 border border-border/60">
                   <div className="flex gap-3">
-                    <Flag className={`w-4 h-4 mt-0.5 shrink-0 ${r.resolved ? 'text-muted-foreground' : 'text-orange-400'}`} />
+                    <Flag className={`w-4 h-4 mt-0.5 shrink-0 ${r.resolved ? 'text-muted-foreground' : 'text-status-attention'}`} />
                     <div>
                       <p className="text-sm font-medium text-foreground">{r.fieldName.replace(/_/g, ' ')}</p>
                       <p className="text-sm text-muted-foreground mt-1">{r.body}</p>

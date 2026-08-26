@@ -1,10 +1,10 @@
 'use client';
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@ovl/ui/components/card';
+import { Button } from '@ovl/ui/components/button';
+import { Input } from '@ovl/ui/components/input';
+import { Label } from '@ovl/ui/components/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@ovl/ui/components/tabs';
 import { Settings, Globe, Shield, Key, Bell, KeyRound, Copy, CheckCircle2, Trash2, Ship, Pencil, X, Loader2, Server, Database, Clock } from 'lucide-react';
 import { useState } from 'react';
 import { trpc } from '@/lib/trpc';
@@ -179,8 +179,8 @@ export default function SettingsPage() {
                         <p className="text-sm font-semibold text-foreground">Enforce Multi-Factor Authentication</p>
                         <p className="text-xs text-muted-foreground">Require MFA for all administrative personnel.</p>
                       </div>
-                      <div className="h-5 w-9 rounded-full bg-emerald-500/20 flex items-center p-0.5 cursor-pointer border border-emerald-500/30 relative">
-                         <div className="h-4 w-4 rounded-full bg-emerald-400 absolute right-0.5 shadow-sm" />
+                      <div className="h-5 w-9 rounded-full bg-status-ok/20 flex items-center p-0.5 cursor-pointer border border-status-ok/30 relative">
+                         <div className="h-4 w-4 rounded-full bg-status-ok absolute right-0.5 shadow-sm" />
                       </div>
                     </div>
                   </div>
@@ -209,12 +209,12 @@ export default function SettingsPage() {
                 </CardHeader>
                 <CardContent className="pt-6 space-y-6">
                   {newRawToken && (
-                    <div className="bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-md space-y-2 mb-6">
-                      <p className="text-sm text-emerald-400 font-medium">New API Key Generated</p>
-                      <p className="text-xs text-emerald-500/80">Please copy this token now. You won't be able to see it again.</p>
+                    <div className="bg-status-ok/10 border border-status-ok/25 p-4 rounded-md space-y-2 mb-6">
+                      <p className="text-sm text-status-ok font-medium">New API Key Generated</p>
+                      <p className="text-xs text-status-ok/80">Please copy this token now. You won't be able to see it again.</p>
                       <div className="flex gap-2 mt-2">
-                        <Input readOnly value={newRawToken} className="bg-background/80 border-emerald-500/30 text-emerald-400 font-mono tracking-widest text-sm" />
-                        <Button variant="outline" onClick={() => handleCopy(newRawToken, 'new')} className="border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 h-10 w-10 p-0 shrink-0">
+                        <Input readOnly value={newRawToken} className="bg-background/80 border-status-ok/30 text-status-ok font-mono tracking-widest text-sm" />
+                        <Button variant="outline" onClick={() => handleCopy(newRawToken, 'new')} className="border-status-ok/30 bg-status-ok/10 hover:bg-status-ok/20 text-status-ok h-10 w-10 p-0 shrink-0">
                           {copied === 'new' ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                         </Button>
                       </div>
@@ -233,7 +233,7 @@ export default function SettingsPage() {
                             size="sm"
                             disabled={revokeMutation.isPending}
                             onClick={() => revokeMutation.mutate({ id: key.id })}
-                            className="h-7 px-2 text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
+                            className="h-7 px-2 text-muted-foreground hover:text-status-critical hover:bg-status-critical/10"
                           >
                             <Trash2 className="w-3.5 h-3.5 mr-1" />
                             Revoke
@@ -306,7 +306,7 @@ export default function SettingsPage() {
                               >
                                 {renameGroupMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Save'}
                               </Button>
-                              <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground" onClick={() => setRenamingGroup(null)}>
+                              <Button size="icon" variant="ghost" aria-label="Cancel rename" className="h-8 w-8 text-muted-foreground" onClick={() => setRenamingGroup(null)}>
                                 <X className="w-3.5 h-3.5" />
                               </Button>
                             </div>
@@ -323,6 +323,7 @@ export default function SettingsPage() {
                                   variant="ghost"
                                   className="h-8 w-8 text-muted-foreground hover:text-foreground"
                                   onClick={() => { setRenamingGroup(g.name); setRenameValue(g.name); }}
+                                  aria-label={`Rename group ${g.name}`}
                                   title="Rename"
                                 >
                                   <Pencil className="w-3.5 h-3.5" />
@@ -330,9 +331,10 @@ export default function SettingsPage() {
                                 <Button
                                   size="icon"
                                   variant="ghost"
-                                  className="h-8 w-8 text-muted-foreground hover:text-red-400"
+                                  className="h-8 w-8 text-muted-foreground hover:text-status-critical"
                                   disabled={deleteGroupMutation.isPending}
                                   onClick={() => deleteGroupMutation.mutate({ group: g.name })}
+                                  aria-label={`Delete group ${g.name}`}
                                   title="Remove this tag from every vessel"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
@@ -377,7 +379,7 @@ export default function SettingsPage() {
                           <div className="text-sm text-foreground">Database</div>
                           <div className="text-xs text-muted-foreground">PostgreSQL connectivity</div>
                         </div>
-                        <div className={`text-sm font-mono ${systemStatus.databaseReachable ? 'text-emerald-400' : 'text-red-400'}`}>
+                        <div className={`text-sm font-mono ${systemStatus.databaseReachable ? 'text-status-ok' : 'text-status-critical'}`}>
                           {systemStatus.databaseReachable ? 'Reachable' : 'Unreachable'}
                         </div>
                       </div>

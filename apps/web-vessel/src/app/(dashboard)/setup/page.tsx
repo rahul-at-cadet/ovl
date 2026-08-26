@@ -1,14 +1,14 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@ovl/ui/components/card';
+import { Button } from '@ovl/ui/components/button';
+import { Input } from '@ovl/ui/components/input';
+import { Label } from '@ovl/ui/components/label';
 import { Ship, Globe, Save, Database, User, CheckCircle } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useRouter } from 'next/navigation';
-import { useToastManager } from '@/components/ui/toast';
+import { useToastManager } from '@ovl/ui/components/toast';
 
 type Step = 'intro' | 'identity' | 'admin' | 'done';
 
@@ -74,7 +74,7 @@ export default function SetupPage() {
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 max-w-2xl mx-auto">
-      <div className="border-b border-border/60 pb-6 text-center mt-8">
+      <div className="border-b border-border pb-6 text-center mt-8">
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">Vessel Node Initialization</h1>
         <p className="text-muted-foreground mt-1.5 text-sm font-medium">Configure this edge node with the vessel&apos;s identity and shore-side uplink.</p>
       </div>
@@ -95,7 +95,7 @@ export default function SetupPage() {
             <div key={s} className={`flex flex-col items-center gap-2 ${isActive ? 'text-primary' : isPast ? 'text-foreground' : 'text-muted-foreground'}`}>
               <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 text-sm font-bold ${
                 isActive ? 'border-primary bg-primary/10' : 
-                isPast ? 'border-zinc-300 bg-muted' : 
+                isPast ? 'border-border bg-muted' : 
                 'border-border bg-card'
               }`}>
                 {i + 1}
@@ -107,16 +107,16 @@ export default function SetupPage() {
       </div>
 
       {step === 'intro' && (
-        <Card className="bg-card/40 border-border/60 shadow-xl overflow-hidden rounded-xl backdrop-blur-md">
-          <CardHeader className="border-b border-border/60 pb-4 bg-card/20">
+        <Card className="bg-card border-border overflow-hidden rounded-sm">
+          <CardHeader className="border-b border-border pb-4">
             <CardTitle className="text-sm font-semibold tracking-tight text-foreground flex items-center"><Database className="w-4 h-4 mr-2" /> Data Persistence</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 pt-6 text-sm text-foreground">
             <p>Welcome to Cadetlabs. This node operates in an occasionally-connected environment.</p>
             <p>All data is persisted locally in the configured SQLite database before being synchronized to shore. Ensure your host machine provides persistent storage for the data directory.</p>
           </CardContent>
-          <CardFooter className="bg-background/40 border-t border-border/60 p-4 flex justify-end">
-            <Button onClick={() => setStep('identity')} className="bg-primary hover:bg-primary/90 text-white rounded-md h-9 text-sm font-semibold">
+          <CardFooter className=" border-t border-border p-4 flex justify-end">
+            <Button onClick={() => setStep('identity')} className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-sm h-9 text-sm font-semibold">
               Continue
             </Button>
           </CardFooter>
@@ -124,8 +124,8 @@ export default function SetupPage() {
       )}
 
       {step === 'identity' && (
-        <Card className="bg-card/40 border-border/60 shadow-xl overflow-hidden rounded-xl backdrop-blur-md">
-          <CardHeader className="border-b border-border/60 pb-4 bg-card/20">
+        <Card className="bg-card border-border overflow-hidden rounded-sm">
+          <CardHeader className="border-b border-border pb-4">
             <CardTitle className="text-sm font-semibold tracking-tight text-foreground">Identity Configuration</CardTitle>
             <CardDescription className="text-xs text-muted-foreground">Must exactly match the shore-side registry.</CardDescription>
           </CardHeader>
@@ -135,12 +135,12 @@ export default function SetupPage() {
                 <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">Vessel Name</Label>
                 <div className="relative">
                   <Ship className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input disabled={setupStatus?.isConfigured} value={vesselName} onChange={e => setVesselName(e.target.value)} placeholder="e.g. Seawise Giant" className="pl-9 bg-background/80 border-border/80 focus-visible:ring-ring text-foreground text-sm h-10 disabled:opacity-70" />
+                  <Input disabled={setupStatus?.isConfigured} value={vesselName} onChange={e => setVesselName(e.target.value)} placeholder="e.g. Seawise Giant" className="pl-9 bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10 disabled:opacity-70" />
                 </div>
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">IMO Number</Label>
-                <Input disabled={setupStatus?.isConfigured} value={imoNumber} onChange={e => setImoNumber(e.target.value)} placeholder="e.g. 7381154" className="bg-background/80 border-border/80 focus-visible:ring-ring text-foreground text-sm h-10 font-mono tracking-wider disabled:opacity-70" />
+                <Input disabled={setupStatus?.isConfigured} value={imoNumber} onChange={e => setImoNumber(e.target.value)} placeholder="e.g. 7381154" className="bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10 font-mono tracking-wider disabled:opacity-70" />
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -148,19 +148,19 @@ export default function SetupPage() {
                 <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">Shore Uplink URL</Label>
                 <div className="relative">
                   <Globe className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input disabled={setupStatus?.isConfigured} value={shoreUrl} onChange={e => setShoreUrl(e.target.value)} className="pl-9 bg-background/80 border-border/80 focus-visible:ring-ring text-foreground text-sm h-10 font-mono disabled:opacity-70" />
+                  <Input disabled={setupStatus?.isConfigured} value={shoreUrl} onChange={e => setShoreUrl(e.target.value)} className="pl-9 bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10 font-mono disabled:opacity-70" />
                 </div>
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">Office API Key</Label>
-                <Input disabled={setupStatus?.isConfigured} type="password" placeholder="ovl_prod_..." value={apiKey} onChange={e => setApiKey(e.target.value)} className="bg-background/80 border-border/80 focus-visible:ring-ring text-foreground text-sm h-10 font-mono disabled:opacity-70" />
+                <Input disabled={setupStatus?.isConfigured} type="password" placeholder="ovl_prod_..." value={apiKey} onChange={e => setApiKey(e.target.value)} className="bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10 font-mono disabled:opacity-70" />
               </div>
             </div>
           </CardContent>
-          <CardFooter className="bg-background/40 border-t border-border/60 p-4 flex justify-between items-center">
+          <CardFooter className=" border-t border-border p-4 flex justify-between items-center">
             <p className="text-xs text-muted-foreground flex items-center gap-1.5">
               Status: 
-              <span className={setupStatus?.isConfigured ? 'text-emerald-400 font-semibold' : 'text-amber-400 font-semibold'}>
+              <span className={setupStatus?.isConfigured ? 'text-status-ok font-semibold' : 'text-status-warn font-semibold'}>
                 {setupStatus?.isConfigured ? 'Configured' : 'Pending Setup'}
               </span>
             </p>
@@ -176,7 +176,7 @@ export default function SetupPage() {
                 setStep('admin');
               }}
               disabled={(!vesselName || !imoNumber || !apiKey) && !setupStatus?.isConfigured || enrollMutation.isPending}
-              className="bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 rounded-md h-9 text-sm font-semibold transition-all"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-primary/20 rounded-sm h-9 text-sm font-semibold transition-all"
             >
               <Save className="w-4 h-4 mr-2" />
               {enrollMutation.isPending ? 'Enrolling...' : setupStatus?.isConfigured ? (setupStatus.hasUsers ? 'Go to Dashboard' : 'Continue to Admin Setup') : 'Enroll & Continue'}
@@ -186,33 +186,33 @@ export default function SetupPage() {
       )}
 
       {step === 'admin' && (
-        <Card className="bg-card/40 border-border/60 shadow-xl overflow-hidden rounded-xl backdrop-blur-md">
-          <CardHeader className="border-b border-border/60 pb-4 bg-card/20">
+        <Card className="bg-card border-border overflow-hidden rounded-sm">
+          <CardHeader className="border-b border-border pb-4">
             <CardTitle className="text-sm font-semibold tracking-tight text-foreground flex items-center"><User className="w-4 h-4 mr-2" /> Master Admin</CardTitle>
             <CardDescription className="text-xs text-muted-foreground">Create the initial master user to manage this node.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 pt-6">
             <div className="space-y-2">
               <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">Username</Label>
-              <Input value={username} onChange={e => setUsername(e.target.value)} className="bg-background/80 border-border/80 focus-visible:ring-ring text-foreground text-sm h-10" />
+              <Input value={username} onChange={e => setUsername(e.target.value)} className="bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10" />
             </div>
             <div className="space-y-2">
               <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">Password</Label>
-              <Input type="password" value={password} onChange={e => setPassword(e.target.value)} className="bg-background/80 border-border/80 focus-visible:ring-ring text-foreground text-sm h-10" />
+              <Input type="password" value={password} onChange={e => setPassword(e.target.value)} className="bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10" />
             </div>
             <div className="space-y-2">
               <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">Confirm Password</Label>
-              <Input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="bg-background/80 border-border/80 focus-visible:ring-ring text-foreground text-sm h-10" />
+              <Input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10" />
               {confirmPassword.length > 0 && confirmPassword !== password ? (
-                <p className="text-xs text-red-400">Passwords don&apos;t match</p>
+                <p className="text-xs text-status-critical">Passwords don&apos;t match</p>
               ) : null}
             </div>
           </CardContent>
-          <CardFooter className="bg-background/40 border-t border-border/60 p-4 flex justify-end">
+          <CardFooter className=" border-t border-border p-4 flex justify-end">
             <Button
               onClick={handleCreateAdmin}
               disabled={!username || password.length < 8 || password !== confirmPassword || createMasterMutation.isPending}
-              className="bg-primary hover:bg-primary/90 text-white rounded-md h-9 text-sm font-semibold"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-sm h-9 text-sm font-semibold"
             >
               {createMasterMutation.isPending ? 'Creating...' : 'Create Admin'}
             </Button>
@@ -221,9 +221,9 @@ export default function SetupPage() {
       )}
 
       {step === 'done' && (
-        <Card className="bg-card/40 border-border/60 shadow-xl overflow-hidden rounded-xl backdrop-blur-md">
+        <Card className="bg-card border-border overflow-hidden rounded-sm">
           <CardContent className="flex flex-col items-center justify-center p-12 text-center space-y-4">
-            <CheckCircle className="w-16 h-16 text-emerald-400" />
+            <CheckCircle className="w-16 h-16 text-status-ok" />
             <h2 className="text-xl font-bold text-foreground">Setup Complete!</h2>
             <p className="text-sm text-muted-foreground">The edge node is successfully enrolled and your master admin has been created.</p>
             <Button onClick={() => router.push('/')} className="mt-4 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold">

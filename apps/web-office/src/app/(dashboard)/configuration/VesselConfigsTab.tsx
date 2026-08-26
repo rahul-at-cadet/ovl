@@ -1,8 +1,8 @@
 "use client";
 
 import { trpc } from "@/lib/trpc";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@ovl/ui/components/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@ovl/ui/components/table";
 import { Ship } from "lucide-react";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -14,9 +14,9 @@ const STATUS_LABEL: Record<string, string> = {
 
 const STATUS_CLASS: Record<string, string> = {
   unassigned: "text-muted-foreground bg-muted/60",
-  pendingSync: "text-amber-700 bg-amber-50 dark:text-amber-300 dark:bg-amber-950/40",
-  synced: "text-emerald-700 bg-emerald-50 dark:text-emerald-300 dark:bg-emerald-950/40",
-  outOfDate: "text-red-700 bg-red-50 dark:text-red-300 dark:bg-red-950/40",
+  pendingSync: "text-status-warn bg-status-warn/10",
+  synced: "text-status-ok bg-status-ok/10",
+  outOfDate: "text-status-critical bg-status-critical/10",
 };
 
 export function VesselConfigsTab() {

@@ -1,15 +1,144 @@
 'use client';
 
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { FileText, Plus, CloudOff, CheckCircle, Wifi, AlertTriangle, ArrowRight, Loader2, Ship } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { Button } from '@ovl/ui/components/button';
+import {
+  FileText,
+  Plus,
+  CloudOff,
+  RefreshCw,
+  Wifi,
+  WifiOff,
+  AlertTriangle,
+  ArrowRight,
+  Loader2,
+  Ship,
+  CircleAlert,
+} from 'lucide-react';
 import Link from 'next/link';
+import { StatusBadge } from '@ovl/ui/components/status-badge';
 import { trpc } from '@/lib/trpc';
-import { useRouter } from 'next/navigation';
+
+/**
+ * One panel style for the whole dashboard: solid surface, 1px border, a
+ * ruled header. Replaces the previous mix of translucent cards, gradients and
+ * blurred colour washes, which read as decoration on a screen that is meant
+ * to be scanned.
+ */
+function Panel({
+  title,
+  icon: Icon,
+  action,
+  children,
+  className = '',
+}: {
+  title: string;
+  icon?: React.ComponentType<{ className?: string }>;
+  action?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={`flex flex-col min-h-0 border border-border bg-card rounded-sm ${className}`}>
+      <header className="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 h-12 border-b border-border bg-card shrink-0">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+          {Icon && <Icon className="w-4 h-4 text-muted-foreground shrink-0" />}
+          {title}
+        </h2>
+        {action}
+      </header>
+      {children}
+    </section>
+  );
+}
+
+/** A single label/value line that states its own absence rather than vanishing. */
+function Field({ label, value, mono = false }: { label: string; value?: string | null; mono?: boolean }) {
+  return (
+    <div className="min-w-0">
+      <p className="instrument-label">{label}</p>
+      <p className={`text-sm mt-1 break-words ${mono ? 'readout' : ''} ${value ? 'text-foreground' : 'text-muted-foreground'}`}>
+        {value || 'Not reported'}
+      </p>
+    </div>
+  );
+}
+
+/** Dates arrive as strings from the API; a malformed one must not blank the panel. */
+function fmtDate(v: string) {
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? v : d.toLocaleDateString();
+}
+
+function fmtDateTime(v: string) {
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? v : d.toLocaleString();
+}
+
+function Metric({
+  label,
+  value,
+  icon: Icon,
+  tone = 'default',
+}: {
+  label: string;
+  value: string;
+  icon: React.ComponentType<{ className?: string }>;
+  tone?: 'default' | 'warn' | 'ok' | 'critical';
+}) {
+  const toneClass =
+    tone === 'warn'
+      ? 'text-status-warn'
+      : tone === 'ok'
+        ? 'text-status-ok'
+        : tone === 'critical'
+          ? 'text-status-critical'
+          : 'text-foreground';
+  return (
+    <div className="bg-surface-hover rounded-sm px-3 py-3 min-w-0 flex flex-col justify-between gap-1">
+      <div className="flex items-center gap-1.5">
+        <Icon className={`w-3.5 h-3.5 shrink-0 ${toneClass}`} />
+        <span className="instrument-label leading-tight">{label}</span>
+      </div>
+      <p className={`readout text-xl font-semibold ${toneClass}`}>{value}</p>
+    </div>
+  );
+}
+
+/** Alert boxes are tinted and ruled, never a solid field of colour. */
+function Alert({
+  tone,
+  title,
+  children,
+  action,
+}: {
+  tone: 'critical' | 'warn';
+  title: string;
+  children?: ReactNode;
+  action?: ReactNode;
+}) {
+  const cls =
+    tone === 'critical'
+      ? 'border-status-critical/40 bg-status-critical/10 text-status-critical'
+      : 'border-status-warn/40 bg-status-warn/10 text-status-warn';
+  const Icon = tone === 'critical' ? CircleAlert : AlertTriangle;
+  return (
+    <div
+      role="alert"
+      className={`flex flex-col sm:flex-row sm:items-center gap-3 border rounded-sm px-4 py-3 ${cls}`}
+    >
+      <Icon className="w-5 h-5 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold">{title}</p>
+        {children && <p className="text-sm mt-0.5 opacity-90 break-words">{children}</p>}
+      </div>
+      {action}
+    </div>
+  );
+}
 
 export default function DashboardPage() {
   const pingQuery = trpc.ping.useQuery();
-  const router = useRouter();
 
   const { data: reports = [], isLoading: reportsLoading } = trpc.reports.listReports.useQuery({ schemaName: '' });
   const { data: voyage } = trpc.system.getActiveVoyage.useQuery();
@@ -19,15 +148,9 @@ export default function DashboardPage() {
   const { data: suggestions } = trpc.reports.listEventSuggestions.useQuery({ schemaName: 'log-abstract' });
   const syncNowMutation = trpc.sync.now.useMutation();
 
-  // Full count feeds the KPI card; the list itself shows only the most
-  // recent few with "View all" for the rest — otherwise a vessel with
-  // many open drafts turns this into an unbounded list, invisible on
-  // desktop behind the panel's own internal scroll but, once that
-  // panel-level scroll goes away below lg (mobile stacks to one
-  // column), it just makes the whole page arbitrarily long instead.
-  const allInProgress = reports.filter(r => r.state === 'draft');
+  const allInProgress = reports.filter((r) => r.state === 'draft');
   const inProgress = allInProgress.slice(0, 5);
-  const recent = reports.filter(r => r.state !== 'draft').slice(0, 6);
+  const recent = reports.filter((r) => r.state !== 'draft').slice(0, 6);
 
   let isOverdue = false;
   let overdueByStr = '';
@@ -44,307 +167,317 @@ export default function DashboardPage() {
     }
   }
 
-  const kpis = [
-    { label: 'Unsynced Drafts', value: allInProgress.length.toString(), icon: FileText, color: 'text-amber-400' },
-    { label: 'Pending Sync', value: (syncStatus?.pendingCount ?? 0).toString(), icon: CloudOff, color: (syncStatus?.pendingCount ?? 0) > 0 ? 'text-amber-400' : 'text-muted-foreground' },
-    { label: 'System Health', value: pingQuery.isSuccess ? 'Good' : 'Error', icon: CheckCircle, color: pingQuery.isSuccess ? 'text-emerald-400' : 'text-muted-foreground' },
-    { label: 'Network', value: pingQuery.isSuccess ? 'Online' : 'Offline', icon: Wifi, color: pingQuery.isSuccess ? 'text-emerald-400' : 'text-muted-foreground' },
-  ];
+  const notEnrolled = setupStatus && !setupStatus.isConfigured;
+  const online = pingQuery.isSuccess;
+  const pending = syncStatus?.pendingCount ?? 0;
 
   return (
-    // Fixed to the viewport on desktop, not the page — a bridge display
-    // shouldn't need scrolling to see fleet status at a glance. Below
-    // lg, the 3-column instrument panel stacks to 1 column, so the same
-    // fixed total height would squeeze 3x the content into the space
-    // meant for one column and clip it — mobile gets the page's natural
-    // scroll instead, matching how every other page on a phone works.
-    <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500 lg:h-[calc(100vh-140px)] lg:overflow-hidden">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border pb-4 shrink-0">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Terminal Dashboard</h1>
-          <p className="text-muted-foreground mt-1 text-sm">Local edge reporting and synchronization.</p>
+    // Document order is the priority order, so the small-screen stack and the
+    // reading order for assistive tech are the same as the visual hierarchy.
+    <div className="flex flex-col gap-4 pb-4 xl:pb-0 xl:h-[calc(100vh_-_88px)] xl:overflow-hidden">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shrink-0">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground">Terminal Dashboard</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Local edge reporting and synchronisation.</p>
         </div>
-        <Link href="/reports/new">
-          <Button className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-sm h-10 text-sm font-medium shadow-sm px-5">
-            <Plus className="w-4 h-4 mr-2" />
-            New Report
-          </Button>
-        </Link>
+        <Button
+          render={<Link href="/reports/new" />}
+          nativeButton={false}
+          className="w-full sm:w-auto justify-center px-5"
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          New Report
+        </Button>
       </div>
 
-      {(setupStatus && !setupStatus.isConfigured) || isOverdue ? (
-        <div className="flex flex-col sm:flex-row gap-3 shrink-0">
-          {setupStatus && !setupStatus.isConfigured && (
-            <div className="flex-1 bg-amber-500/10 border border-amber-500/20 rounded-md p-3 flex items-start gap-3 text-amber-400">
-              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-              <div>
-                <h3 className="text-sm font-semibold">Not Enrolled</h3>
-                <p className="text-xs text-amber-400/80 mt-0.5">Enroll any time from Settings.</p>
-              </div>
-            </div>
-          )}
+      {/* 1 — urgent alerts */}
+      {(notEnrolled || isOverdue || syncStatus?.lastError) && (
+        <div className="flex flex-col gap-3 shrink-0">
           {isOverdue && (
-            <div className="flex-1 bg-red-500/10 border border-red-500/20 rounded-md p-3 flex items-start gap-3 text-red-400">
-              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-              <div>
-                <h3 className="text-sm font-semibold">Report Overdue</h3>
-                <p className="text-xs text-red-400/80 mt-0.5">Overdue by {overdueByStr}</p>
-              </div>
-            </div>
+            <Alert tone="critical" title="Report overdue">
+              Last report was {overdueByStr} beyond the reporting interval.
+            </Alert>
+          )}
+          {notEnrolled && (
+            <Alert
+              tone="warn"
+              title="Not enrolled with shore"
+              action={
+                <Button
+                  variant="outline"
+                  render={<Link href="/settings" />}
+                  nativeButton={false}
+                  className="w-full sm:w-auto justify-center shrink-0"
+                >
+                  Enroll
+                </Button>
+              }
+            >
+              Reports save locally but will not reach the office until this node is enrolled.
+            </Alert>
+          )}
+          {syncStatus?.lastError && (
+            <Alert tone="warn" title="Last sync failed">
+              {syncStatus.lastError}
+            </Alert>
           )}
         </div>
-      ) : null}
+      )}
 
-      {/* KPI strip — always visible, single row, never scrolls. */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 shrink-0">
-        {kpis.map((stat) => (
-          <Card key={stat.label} className="bg-card/50 border-border rounded-md">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-xs font-medium text-muted-foreground">
-                {stat.label}
-              </CardTitle>
-              <stat.icon className={`w-4 h-4 ${stat.color}`} />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-foreground">{stat.value}</div>
-            </CardContent>
-          </Card>
-        ))}
+      {/* 2 — next required report */}
+      {suggestions && suggestions.length > 0 && (
+        <section className="bg-card border border-border rounded-sm p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-4 shrink-0">
+          <div className="min-w-0 flex-1">
+            <p className="instrument-label">Next required report</p>
+            <p className="text-xl sm:text-2xl font-semibold text-foreground mt-1 break-words">{suggestions[0]}</p>
+          </div>
+          <Button
+            render={<Link href="/reports/new" />}
+            nativeButton={false}
+            className="w-full sm:w-auto justify-center px-5 shrink-0"
+          >
+            Start
+            <ArrowRight className="w-4 h-4 ml-2" />
+          </Button>
+        </section>
+      )}
+
+      {/* 3 — report and sync health at a glance */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 shrink-0">
+        <Metric
+          label="Drafts"
+          value={allInProgress.length.toString()}
+          icon={FileText}
+          tone={allInProgress.length > 0 ? 'warn' : 'default'}
+        />
+        <Metric
+          label="Queued"
+          value={pending.toString()}
+          icon={CloudOff}
+          tone={pending > 0 ? 'warn' : 'default'}
+        />
+        <Metric
+          label="Network"
+          value={online ? 'Online' : 'Offline'}
+          icon={online ? Wifi : WifiOff}
+          tone={online ? 'ok' : 'critical'}
+        />
+        <Metric
+          label="Enrolled"
+          value={syncStatus?.enrolled ? 'Yes' : 'No'}
+          icon={Ship}
+          tone={syncStatus?.enrolled ? 'ok' : 'warn'}
+        />
       </div>
 
-      {/* Instrument panel: three fixed-height columns filling the rest
-          of the viewport. Each has its own internal scroll — a long
-          drafts list never pushes Voyage/Sync status off-screen, and
-          the page itself never grows taller than the window. */}
-      <div className="grid grid-cols-1 gap-4 lg:flex-1 lg:min-h-0 lg:grid-cols-[1.3fr_1fr_1fr]">
-        {/* Column 1: In Progress */}
-        <Card className="bg-background/40 border-border/60 backdrop-blur-sm rounded-xl flex flex-col lg:min-h-0 lg:overflow-hidden">
-          <CardHeader className="pb-3 pt-4 border-b border-border/50 shrink-0 flex-row items-center justify-between space-y-0">
-            <CardTitle className="text-sm font-semibold tracking-wide text-foreground">In Progress</CardTitle>
-            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground" onClick={() => router.push('/reports')}>
-              View all <ArrowRight className="w-3 h-3 ml-1" />
+      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3 xl:flex-1 xl:min-h-0">
+        {/* 4 — drafts */}
+        <Panel
+          title="Drafts in progress"
+          icon={FileText}
+          className="xl:min-h-0"
+          action={
+            <Button
+              variant="ghost"
+              size="sm"
+              render={<Link href="/reports" />}
+              nativeButton={false}
+              className="text-muted-foreground hover:text-foreground shrink-0"
+            >
+              View all
+              <ArrowRight className="w-3.5 h-3.5 ml-1" />
             </Button>
-          </CardHeader>
-          <CardContent className="p-0 lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
-            {reportsLoading ? (
-              <div className="p-8 flex flex-col items-center justify-center space-y-3">
-                <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                <p className="text-xs font-medium text-muted-foreground">Loading drafts...</p>
-              </div>
-            ) : inProgress.length === 0 ? (
-              <div className="p-8 flex flex-col items-center justify-center text-center h-full">
-                <div className="w-12 h-12 rounded-full bg-card flex items-center justify-center border border-border mb-4 shadow-inner">
-                  <FileText className="w-6 h-6 text-muted-foreground" />
-                </div>
-                <h3 className="text-sm font-medium text-foreground mb-1">No active drafts</h3>
-                <p className="text-xs text-muted-foreground max-w-[220px]">Start a new report and your progress saves automatically.</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-border">
-                {inProgress.map(report => (
-                  <div
-                    key={report.reportId}
-                    className="flex items-center justify-between gap-3 p-3 hover:bg-card/80 transition-all cursor-pointer group"
-                    onClick={() => router.push(`/reports/${report.reportId}`)}
+          }
+        >
+          {reportsLoading ? (
+            <p className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Loading drafts…
+            </p>
+          ) : inProgress.length === 0 ? (
+            <p className="p-4 text-sm text-muted-foreground">
+              No active drafts. A new report saves automatically as you fill it in.
+            </p>
+          ) : (
+            <ul className="divide-y divide-border xl:min-h-0 xl:overflow-y-auto">
+              {inProgress.map((report) => (
+                <li key={report.reportId}>
+                  <Link
+                    href={`/reports/${report.reportId}`}
+                    className="flex items-center justify-between gap-3 px-4 py-3 min-h-12 hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                   >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="p-2 rounded-md border bg-card border-border text-muted-foreground shrink-0">
-                        <FileText className="w-3.5 h-3.5" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <h4 className="text-sm font-semibold text-foreground truncate">{report.schemaName || 'Unnamed Report'}</h4>
-                        <p className="text-xs font-medium text-muted-foreground truncate mt-0.5">Started {new Date(report.createdAt).toLocaleDateString()}</p>
-                      </div>
-                    </div>
-                    <span className="text-xs px-2 py-0.5 rounded uppercase font-bold tracking-widest bg-amber-500/10 text-amber-400 border border-amber-500/20 shrink-0">
-                      Draft
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-foreground truncate">
+                        {report.schemaName || 'Unnamed report'}
+                      </span>
+                      <span className="block text-xs text-muted-foreground truncate mt-0.5">
+                        Started {new Date(report.createdAt).toLocaleDateString()}
+                      </span>
                     </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Column 2: Suggested Next Report + Active Voyage */}
-        <div className="flex flex-col gap-4 lg:min-h-0">
-          {suggestions && suggestions.length > 0 && (
-            <Card className="bg-gradient-to-r from-primary/10 to-muted/50 border-primary/30 rounded-xl shrink-0">
-              <CardHeader className="pb-2 pt-3 px-4">
-                <CardTitle className="text-xs font-semibold text-primary uppercase tracking-widest">Suggested Next Report</CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-row justify-between items-center px-4 pb-3">
-                <div>
-                  <div className="text-lg font-bold text-foreground">{suggestions[0]}</div>
-                  {isOverdue && <p className="text-xs text-red-400 font-semibold mt-0.5">Overdue by {overdueByStr}</p>}
-                </div>
-                <Button size="sm" onClick={() => router.push('/reports/new')} className="bg-primary hover:bg-primary/90 text-white rounded-lg h-9 px-4 text-xs font-medium">
-                  Open
-                </Button>
-              </CardContent>
-            </Card>
+                    <StatusBadge status="draft" size="sm" className="shrink-0" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
           )}
+        </Panel>
 
-          <Card className="bg-background/40 border-border/60 backdrop-blur-sm rounded-xl relative flex flex-col lg:flex-1 lg:min-h-0 lg:overflow-hidden">
-            <div className="absolute top-0 right-0 w-24 h-24 bg-primary/10 rounded-full blur-[30px] pointer-events-none" />
-            <CardHeader className="pb-3 pt-4 border-b border-border/30 bg-background/20 shrink-0">
-              <CardTitle className="text-sm font-semibold tracking-wide text-foreground flex items-center gap-2">
-                <Ship className="w-3.5 h-3.5 text-primary" />
-                Active Voyage
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-4 pb-4 overflow-y-auto">
-              {voyage && voyage.voyageNumber ? (
-                <div className="space-y-4">
-                  <div>
-                    <p className="text-xs text-muted-foreground uppercase tracking-widest font-bold mb-1">Voyage Number</p>
-                    <p className="text-lg font-semibold tracking-tight text-foreground">{voyage.voyageNumber}</p>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 relative">
-                    <div className="absolute top-4 left-3 right-3 h-[1px] bg-muted border-t border-dashed border-border/50" />
-                    <div className="relative z-10 bg-background/80 p-1.5 rounded-md border border-border/60 shadow-sm">
-                      <p className="text-xs text-muted-foreground uppercase tracking-widest font-bold mb-0.5 text-center">From</p>
-                      <p className="text-xs font-medium text-foreground text-center truncate">{voyage.fromPort || '—'}</p>
-                      {voyage.departedAt && (
-                        <p className="text-[10px] text-muted-foreground text-center font-mono mt-0.5">Dep {new Date(voyage.departedAt).toLocaleDateString()}</p>
-                      )}
-                    </div>
-                    <div className="relative z-10 bg-background/80 p-1.5 rounded-md border border-border/60 shadow-sm">
-                      <p className="text-xs text-muted-foreground uppercase tracking-widest font-bold mb-0.5 text-center">To</p>
-                      <p className="text-xs font-medium text-foreground text-center truncate">{voyage.toPort || '—'}</p>
-                      {voyage.eta && (
-                        <p className="text-[10px] text-muted-foreground text-center font-mono mt-0.5">ETA {new Date(voyage.eta).toLocaleDateString()}</p>
-                      )}
-                    </div>
-                  </div>
-                  {/* Always rendered, defaulting to 0% (docked at departure)
-                      rather than hidden — an honest "not yet reported"
-                      state is still more useful on a bridge display than
-                      no progress indicator at all. */}
-                  <div>
-                    <div className="relative h-1.5 rounded-full bg-muted overflow-visible">
-                      <div className="absolute inset-y-0 left-0 bg-primary rounded-full" style={{ width: `${voyage.progressPercent ?? 0}%` }} />
-                      <div
-                        className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-primary border-2 border-background flex items-center justify-center shadow-sm"
-                        style={{ left: `${voyage.progressPercent ?? 0}%` }}
-                      >
-                        <Ship className="w-2.5 h-2.5 text-primary-foreground" />
-                      </div>
-                    </div>
-                    <div className="flex justify-between mt-2">
-                      <span className="text-[10px] text-muted-foreground">
-                        {voyage.distanceSailedNm != null ? `${voyage.distanceSailedNm.toFixed(0)} NM sailed` : '—'}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground">
-                        {voyage.distanceRemainingNm != null ? `${voyage.distanceRemainingNm.toFixed(0)} NM remaining` : '—'}
-                      </span>
-                    </div>
-                  </div>
-                  {voyage.position && (
-                    <div className="pt-2 border-t border-border/40">
-                      <p className="text-xs text-muted-foreground uppercase tracking-widest font-bold mb-0.5">Position</p>
-                      <p className="text-xs font-mono text-foreground">{voyage.position.text}</p>
-                    </div>
-                  )}
-                </div>
+        {/* 5 — sync */}
+        <div className="flex flex-col gap-4 xl:min-h-0">
+        <Panel title="Synchronisation" icon={RefreshCw} className="shrink-0">
+          <div className="p-4 flex flex-col gap-3">
+            <dl className="text-sm">
+              <div className="flex items-center justify-between gap-3 py-1.5">
+                <dt className="text-muted-foreground">Local API</dt>
+                <dd>
+                  <StatusBadge
+                    role={online ? 'ok' : 'critical'}
+                    label={online ? 'Connected' : 'Disconnected'}
+                    size="sm"
+                  />
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-3 py-1.5">
+                <dt className="text-muted-foreground">Queued for shore</dt>
+                <dd className="readout text-foreground font-medium">{pending}</dd>
+              </div>
+              <div className="flex items-start justify-between gap-3 py-1.5">
+                <dt className="text-muted-foreground shrink-0">Last success</dt>
+                <dd className="readout text-xs text-foreground text-right break-words">
+                  {syncStatus?.lastSuccess ? new Date(syncStatus.lastSuccess).toLocaleString() : 'Never'}
+                </dd>
+              </div>
+            </dl>
+            <Button
+              onClick={() => syncNowMutation.mutate()}
+              disabled={syncNowMutation.isPending || !syncStatus?.enrolled}
+              className="w-full justify-center"
+            >
+              {syncNowMutation.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
               ) : (
-                <div className="flex flex-col items-center justify-center py-4 text-center">
-                  <div className="w-8 h-8 rounded-full bg-card border border-border flex items-center justify-center mb-2">
-                    <Ship className="w-3.5 h-3.5 text-muted-foreground" />
-                  </div>
-                  <p className="text-xs text-muted-foreground">Voyage details will appear here once a report carries a voyage number.</p>
-                </div>
+                <RefreshCw className="w-4 h-4 mr-2" />
               )}
-            </CardContent>
-          </Card>
-        </div>
+              {syncNowMutation.isPending ? 'Syncing…' : 'Sync now'}
+            </Button>
+          </div>
+        </Panel>
 
-        {/* Column 3: Sync Status + Recent Reports */}
-        <div className="flex flex-col gap-4 lg:min-h-0">
-          <Card className="bg-background/40 border-border/60 backdrop-blur-sm rounded-xl shrink-0 relative overflow-hidden">
-            <div className="absolute bottom-0 right-0 w-24 h-24 bg-emerald-500/10 rounded-full blur-[30px] pointer-events-none" />
-            <CardHeader className="pb-3 pt-4 border-b border-border/30 bg-background/20">
-              <CardTitle className="text-sm font-semibold tracking-wide text-foreground flex items-center justify-between">
-                Sync Status
-                {syncStatus?.enrolled && pingQuery.isSuccess && (
-                  <span className="flex h-2 w-2 relative">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                  </span>
+        {/* 6 — voyage context */}
+        <Panel title="Active voyage" icon={Ship} className="xl:flex-1 xl:min-h-0 xl:overflow-y-auto">
+          {voyage ? (
+            <div className="p-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
+              {/* Every field on the voyage summary is optional except
+                  lastReportAt (see vessel/httpapi/voyage.go's voyageSummaryView):
+                  it is derived per request from whatever the vessel has actually
+                  reported, so any of these can legitimately be absent. Each one
+                  renders its own "not reported" state rather than the panel
+                  hiding wholesale, and an unknown field arriving later cannot
+                  break the layout. */}
+              <Field label="Voyage number" value={voyage.voyageNumber} mono />
+              {'imo' in voyage && (
+                <Field label="IMO" value={(voyage as { imo?: string }).imo} mono />
+              )}
+              <div className="min-w-0">
+                <p className="instrument-label">Passage</p>
+                <p className="text-sm text-foreground mt-1 break-words">
+                  {voyage.fromPort || 'Not reported'}{' '}
+                  <span className="text-muted-foreground" aria-label="to">&rarr;</span>{' '}
+                  {voyage.toPort || 'Not reported'}
+                </p>
+                {(voyage.departedAt || voyage.eta) && (
+                  <p className="readout text-xs text-muted-foreground mt-0.5 break-words">
+                    {voyage.departedAt ? `Dep ${fmtDate(voyage.departedAt)}` : ''}
+                    {voyage.departedAt && voyage.eta ? ' \u00b7 ' : ''}
+                    {voyage.eta ? `ETA ${fmtDate(voyage.eta)}` : ''}
+                  </p>
                 )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2.5 pt-4 pb-4">
-              <div className="flex justify-between items-center bg-card/50 p-1.5 px-2 rounded-md border border-border/50 text-xs font-medium">
-                <span className="text-muted-foreground">Local API</span>
-                <span className={pingQuery.isSuccess ? 'text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded border border-emerald-500/20' : 'text-red-400 bg-red-400/10 px-1.5 py-0.5 rounded border border-red-500/20'}>
-                  {pingQuery.isSuccess ? 'Connected' : 'Disconnected'}
-                </span>
               </div>
-              <div className="flex justify-between items-center bg-card/50 p-1.5 px-2 rounded-md border border-border/50 text-xs font-medium">
-                <span className="text-muted-foreground">Enrolled</span>
-                <span className={syncStatus?.enrolled ? 'text-primary' : 'text-muted-foreground'}>{syncStatus?.enrolled ? 'Yes' : 'No'}</span>
-              </div>
-              {syncStatus?.lastError && (
-                <div className="text-xs text-red-400 bg-red-500/10 p-1.5 rounded border border-red-500/20 break-words">
-                  {syncStatus.lastError}
-                </div>
-              )}
-              <Button
-                size="sm"
-                onClick={() => syncNowMutation.mutate()}
-                disabled={syncNowMutation.isPending || !syncStatus?.enrolled}
-                className="w-full mt-1 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-lg h-9 text-xs transition-all disabled:bg-muted disabled:text-muted-foreground"
-              >
-                <CloudOff className="w-3.5 h-3.5 mr-1.5" />
-                {syncNowMutation.isPending ? 'Syncing...' : 'Sync Now'}
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-background/40 border-border/60 backdrop-blur-sm rounded-xl flex flex-col lg:flex-1 lg:min-h-0 lg:overflow-hidden">
-            <CardHeader className="pb-3 pt-4 border-b border-border/50 shrink-0 flex-row items-center justify-between space-y-0">
-              <CardTitle className="text-sm font-semibold tracking-wide text-foreground">Recent Reports</CardTitle>
-              <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground" onClick={() => router.push('/reports')}>
-                View all <ArrowRight className="w-3 h-3 ml-1" />
-              </Button>
-            </CardHeader>
-            <CardContent className="p-0 lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
-              {reportsLoading ? (
-                <div className="p-6 flex flex-col items-center justify-center space-y-2">
-                  <Loader2 className="w-5 h-5 animate-spin text-primary" />
-                </div>
-              ) : recent.length === 0 ? (
-                <div className="p-6 flex items-center justify-center text-center h-full">
-                  <p className="text-xs font-medium text-muted-foreground">No reports submitted yet.</p>
-                </div>
-              ) : (
-                <div className="divide-y divide-border">
-                  {recent.map((report) => (
+              <div className="min-w-0">
+                <p className="instrument-label">Distance</p>
+                <p className="readout text-sm text-foreground mt-1">
+                  {voyage.distanceSailedNm != null ? `${voyage.distanceSailedNm.toFixed(0)} NM sailed` : 'Not reported'}
+                </p>
+                <p className="readout text-xs text-muted-foreground mt-0.5">
+                  {voyage.distanceRemainingNm != null ? `${voyage.distanceRemainingNm.toFixed(0)} NM remaining` : ''}
+                </p>
+                {voyage.progressPercent != null && (
+                  <div
+                    className="mt-2 h-2 bg-muted border border-border rounded-sm overflow-hidden"
+                    role="progressbar"
+                    aria-valuenow={Math.round(voyage.progressPercent)}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-label="Voyage progress"
+                  >
                     <div
-                      key={report.reportId}
-                      className="flex items-center gap-2.5 p-2.5 hover:bg-card/80 transition-all cursor-pointer group"
-                      onClick={() => router.push(`/reports/${report.reportId}`)}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <h4 className="text-xs font-semibold text-foreground truncate">{report.schemaName}</h4>
-                        <p className="text-xs text-muted-foreground truncate">{report.createdBy}</p>
-                      </div>
-                      <span className={`text-xs px-1.5 py-0.5 rounded font-bold uppercase tracking-wide border shrink-0 ${
-                        report.state === 'submitted' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                        report.state === 'remarked' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' :
-                        report.state === 'invalidated' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
-                        'bg-zinc-500/10 text-muted-foreground border-zinc-500/20'
-                      }`}>
-                        {report.state}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                      className="h-full bg-primary"
+                      style={{ width: `${Math.max(0, Math.min(100, voyage.progressPercent))}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+              <Field label="Position" value={voyage.position?.text} mono />
+              {/* Freshness: this whole panel is only as current as the report it
+                  was derived from. */}
+              <Field
+                label="Derived from report at"
+                value={voyage.lastReportAt ? fmtDateTime(voyage.lastReportAt) : undefined}
+                mono
+              />
+            </div>
+          ) : (
+            <p className="p-4 text-sm text-muted-foreground">
+              Voyage details appear here once a report carries voyage fields.
+            </p>
+          )}
+        </Panel>
         </div>
+
+        {/* Recent activity, lowest priority */}
+        <Panel
+          title="Recently submitted"
+          icon={FileText}
+          className="xl:min-h-0"
+          action={
+            <Button
+              variant="ghost"
+              size="sm"
+              render={<Link href="/reports" />}
+              nativeButton={false}
+              className="text-muted-foreground hover:text-foreground shrink-0"
+            >
+              View all
+              <ArrowRight className="w-3.5 h-3.5 ml-1" />
+            </Button>
+          }
+        >
+          {reportsLoading ? (
+            <p className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Loading…
+            </p>
+          ) : recent.length === 0 ? (
+            <p className="p-4 text-sm text-muted-foreground">No reports submitted yet.</p>
+          ) : (
+            <ul className="divide-y divide-border xl:min-h-0 xl:overflow-y-auto">
+              {recent.map((report) => (
+                <li key={report.reportId}>
+                  <Link
+                    href={`/reports/${report.reportId}`}
+                    className="flex items-center justify-between gap-3 px-4 py-3 min-h-12 hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-foreground truncate">{report.schemaName}</span>
+                      <span className="block text-xs text-muted-foreground truncate mt-0.5">{report.createdBy}</span>
+                    </span>
+                    <StatusBadge status={report.state} size="sm" className="shrink-0" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
       </div>
     </div>
   );

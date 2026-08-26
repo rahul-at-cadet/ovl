@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@ovl/ui/components/button";
 import { X, Check } from "lucide-react";
 import { POLICY_STATES, PREFILL_CLASSES } from "@/lib/config/fieldPolicyLogic";
 
@@ -131,7 +131,7 @@ export function BulkActionsToolbar({
       )}
 
       {notice && (
-        <div role="status" aria-live="polite" className="ml-auto flex items-center gap-1.5 text-xs text-blue-400">
+        <div role="status" aria-live="polite" className="ml-auto flex items-center gap-1.5 text-xs text-status-info">
           <Check className="w-3.5 h-3.5" />
           {notice.text}
         </div>

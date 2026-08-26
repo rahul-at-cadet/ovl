@@ -3,9 +3,9 @@
 import { useMemo, useState } from 'react';
 import { MapContainer, TileLayer, CircleMarker, Tooltip, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Card } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
+import { Card } from '@ovl/ui/components/card';
+import { Input } from '@ovl/ui/components/input';
+import { Button } from '@ovl/ui/components/button';
 import { Search } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 

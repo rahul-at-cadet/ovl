@@ -2,6 +2,11 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+/* Tailwind ignores node_modules, and npm workspaces symlink @ovl/ui in there,
+   so every class name used by a shared component would go unscanned and its
+   utilities would never be generated. Point the scanner at the real source. */
+@source "../../../../packages/ui/src";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -39,6 +44,11 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-status-ok: var(--status-ok);
+  --color-status-warn: var(--status-warn);
+  --color-status-attention: var(--status-attention);
+  --color-status-critical: var(--status-critical);
+  --color-status-info: var(--status-info);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -81,6 +91,26 @@
   --border: oklch(0.9164 0.0385 194.49);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.74 0.09 180);
+  /*
+   * Semantic status scale. Five roles, one token each — a role's token is
+   * tuned to be legible as *text* on --background, and fills/borders are
+   * derived from it with an opacity modifier (bg-status-ok/10,
+   * border-status-ok/25), the same way --destructive is already used. This
+   * exists so no component ever reaches for a raw Tailwind palette class
+   * again: those bypass the theme entirely and can't follow it.
+   *
+   * ok        healthy, synced, reviewed, active
+   * warn      draft, pending, caution
+   * attention remarked — needs an action, but nothing is wrong
+   * critical  error, overdue, invalidated, destructive
+   * info      submitted, neutral informational
+   */
+  --status-ok: oklch(0.52 0.105 155);
+  --status-warn: oklch(0.55 0.105 75);
+  --status-attention: oklch(0.56 0.14 45);
+  --status-critical: oklch(0.545 0.2 27.3);
+  --status-info: oklch(0.52 0.125 250);
+
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -124,6 +154,14 @@
   --border: oklch(0.3 0 0);
   --input: oklch(0.3 0 0);
   --ring: oklch(0.6 0.085 184);
+  /* Same five roles, re-tuned for the neutral dark-grey surfaces above —
+     lifted in lightness so each stays legible as text on --background. */
+  --status-ok: oklch(0.76 0.125 155);
+  --status-warn: oklch(0.79 0.115 78);
+  --status-attention: oklch(0.73 0.14 45);
+  --status-critical: oklch(0.7 0.16 25);
+  --status-info: oklch(0.73 0.115 250);
+
   --chart-1: oklch(0.7 0.105 184.08);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
@@ -154,5 +192,26 @@
      cursor app-wide for anything actually clickable. */
   button:not(:disabled) {
     cursor: pointer;
+  }
+}
+
+/*
+ * Every page in this app opens with a fade + slide entrance, and the shell
+ * animates its sidebar and popovers. None of that is load-bearing, and for a
+ * reader with vestibular sensitivity it's the difference between a usable app
+ * and an unusable one. Honour the OS-level request to stop moving things.
+ *
+ * Durations go to a value just above zero rather than to `none`: a real 0s
+ * can leave a CSS animation's fill state unapplied, which would strand
+ * fade-in content at opacity 0.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

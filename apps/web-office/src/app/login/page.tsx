@@ -4,10 +4,10 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { signIn } from 'supertokens-auth-react/recipe/emailpassword';
 import { Building2, KeyRound, ShieldCheck, ShieldAlert } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@ovl/ui/components/card';
+import { Input } from '@ovl/ui/components/input';
+import { Label } from '@ovl/ui/components/label';
+import { Button } from '@ovl/ui/components/button';
 import { CadetlabsLogo } from '@/components/layout/CadetlabsLogo';
 import { trpc } from '@/lib/trpc';
 import { API_ORIGIN } from '@/lib/api-origin';
@@ -108,7 +108,7 @@ export default function OfficeLoginPage() {
           <Card className="bg-card border-border shadow-xl rounded-md">
             <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-border/50">
               <div className="flex justify-center mb-2">
-                <div className="p-3 bg-amber-500/10 text-amber-500 rounded-full border border-amber-500/20">
+                <div className="p-3 bg-status-warn/10 text-status-warn rounded-full border border-status-warn/25">
                   <ShieldAlert className="w-6 h-6" />
                 </div>
               </div>
@@ -147,7 +147,7 @@ export default function OfficeLoginPage() {
                     />
                   </div>
                 </div>
-                {error && <div className="text-red-500 text-xs text-center">{error}</div>}
+                {error && <div className="text-status-critical text-xs text-center">{error}</div>}
                 <Button
                   type="submit"
                   className="w-full bg-primary hover:bg-primary/90 text-primary-foreground rounded-sm h-9 text-sm font-medium mt-4"
@@ -224,7 +224,7 @@ export default function OfficeLoginPage() {
                   />
                 </div>
               </div>
-              {error && <div className="text-red-500 text-xs text-center">{error}</div>}
+              {error && <div className="text-status-critical text-xs text-center">{error}</div>}
               <Button 
                 type="submit" 
                 className="w-full bg-primary hover:bg-primary/90 text-primary-foreground transition-all rounded-sm h-9 text-sm font-medium mt-4"
@@ -250,6 +250,8 @@ function FirstAdminSetup() {
   const [generatedPassword, setGeneratedPassword] = useState('');
 
   const createMutation = trpc.users.create.useMutation({
+    // The first-admin form shows this error under the fields itself.
+    meta: { silentError: true },
     onSuccess: (data) => setGeneratedPassword(data.temporaryPassword),
   });
 
@@ -285,7 +287,7 @@ function FirstAdminSetup() {
                   </div>
                 </div>
                 {createMutation.error && (
-                  <div className="text-red-500 text-xs text-center">{createMutation.error.message}</div>
+                  <div className="text-status-critical text-xs text-center">{createMutation.error.message}</div>
                 )}
                 <Button
                   onClick={() => createMutation.mutate({ username: email, roles: ['admin'] as any })}
@@ -297,7 +299,7 @@ function FirstAdminSetup() {
               </div>
             ) : (
               <div className="space-y-4 text-center">
-                <div className="bg-emerald-500/10 text-emerald-400 p-3 rounded-md border border-emerald-500/20 text-sm">
+                <div className="bg-status-ok/10 text-status-ok p-3 rounded-md border border-status-ok/25 text-sm">
                   Admin account created!
                 </div>
                 <div className="space-y-2">
@@ -306,7 +308,7 @@ function FirstAdminSetup() {
                     {generatedPassword}
                   </div>
                 </div>
-                <p className="text-xs text-amber-500/90">
+                <p className="text-xs text-status-warn/90">
                   Copy this now — it won&apos;t be shown again. You&apos;ll be asked to change it on first sign-in.
                 </p>
                 <Button
