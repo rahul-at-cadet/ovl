@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { useState, useRef, useEffect } from 'react';
 import { useScrollActiveTabIntoView } from '@/components/ScrollableTabs';
 import { ReportForm } from '@/components/ReportForm';
+import { AuditTimeline, type AuditEvent } from '@/components/AuditTimeline';
 import { useToastManager } from '@ovl/ui/components/toast';
 
 export default function ReportDetailPage() {
@@ -213,29 +214,8 @@ export default function ReportDetailPage() {
             <CardHeader className="border-b border-border pb-4">
               <CardTitle className="text-sm font-semibold tracking-tight text-foreground">Lifecycle Events</CardTitle>
             </CardHeader>
-            <CardContent className="pt-6">
-              <div className="space-y-4">
-                {eventsLoading ? (
-                  <div className="text-muted-foreground text-sm">Loading events...</div>
-                ) : events?.length ? (
-                  events.map((event: any) => (
-                    <div key={event.id} className="flex gap-4 items-start">
-                      <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${event.type === 'submitted' ? 'bg-status-ok' : 'bg-status-info'}`} />
-                      <div>
-                        <p className="text-sm text-foreground font-medium capitalize">{event.type.replace('_', ' ')}</p>
-                        <p className="readout text-xs text-muted-foreground mt-0.5 break-words">{new Date(event.at).toLocaleString()} · {event.actor}</p>
-                        {event.detail && Object.keys(event.detail).length > 0 && (
-                          <div className="mt-2 readout text-xs text-muted-foreground bg-muted p-2 rounded-sm break-words">
-                            {JSON.stringify(event.detail)}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="text-muted-foreground text-sm">No events found.</div>
-                )}
-              </div>
+            <CardContent className="pt-4">
+              <AuditTimeline events={events as AuditEvent[] | undefined} isLoading={eventsLoading} />
             </CardContent>
           </Card>
         </TabsContent>
