@@ -33,6 +33,21 @@ const POSITION_CONSUMED_FIELDS = new Set(
   Object.values(POSITION_GROUPS).flatMap((g) => [g.minutes, g.hemisphere]),
 );
 
+/**
+ * <input type="datetime-local"> serialises as "YYYY-MM-DDTHH:MM", but the
+ * schema's dateTime rule wants "YYYY-MM-DD HH:MM" (see
+ * apps/api-vessel/src/validation/field-rules.ts). Translating at the control's
+ * edge keeps the stored value in the schema's format without touching the
+ * validator.
+ */
+function dateTimeForServer(v: string): string {
+  return v.includes('T') ? v.replace('T', ' ') : v;
+}
+
+function dateTimeForInput(v: string): string {
+  return v.includes(' ') ? v.replace(' ', 'T') : v;
+}
+
 function isEventLockField(field: { name: string; enumRef?: string | null }): boolean {
   return field.name === 'Event' && field.enumRef === 'event-types';
 }
@@ -405,6 +420,8 @@ export function ReportForm({ reportId }: ReportFormProps) {
 
       if (field.type === 'wholeNumber' || field.type === 'decimal') {
         parsedFields[field.name] = Number(val);
+      } else if (field.type === 'dateTime') {
+        parsedFields[field.name] = dateTimeForServer(String(val));
       } else if (field.type === 'boolean') {
         parsedFields[field.name] = val === 'true' || val === true;
       } else {
@@ -498,6 +515,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
       if (val === undefined) return;
       if (val === '') { parsedFields[field.name] = ''; return; }
       if (field.type === 'wholeNumber' || field.type === 'decimal') parsedFields[field.name] = Number(val);
+      else if (field.type === 'dateTime') parsedFields[field.name] = dateTimeForServer(String(val));
       else if (field.type === 'boolean') parsedFields[field.name] = val === 'true' || val === true;
       else parsedFields[field.name] = val;
     });
@@ -782,15 +800,22 @@ export function ReportForm({ reportId }: ReportFormProps) {
                                 );
                               }
 
+                              // A schema `date` field validated against a
+                              // date-only format, but both types rendered as
+                              // datetime-local — so the control emitted
+                              // "2026-08-26T10:30" and every date field failed
+                              // its own Health Check with "does not match the
+                              // expected format", with no way to correct it
+                              // from the UI.
                               if (field.type === 'date' || field.type === 'dateTime') {
                                 return (
                                   <Input
                                     name={controllerField.name}
                                     onBlur={controllerField.onBlur}
                                     ref={controllerField.ref}
-                                    value={controllerField.value ?? ''}
+                                    value={field.type === 'dateTime' ? dateTimeForInput(String(controllerField.value ?? '')) : (controllerField.value ?? '')}
                                     onChange={(e) => controllerField.onChange(e.target.value)}
-                                    type="datetime-local"
+                                    type={field.type === 'date' ? 'date' : 'datetime-local'}
                                     className="bg-card"
                                   />
                                 );
