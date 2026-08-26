@@ -128,7 +128,7 @@ export default function OfficeLoginPage() {
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
                       placeholder="••••••••"
-                      className="pl-9 bg-background/50 border-border focus-visible:ring-ring text-foreground rounded-sm h-9 text-sm"
+                      className="pl-9 bg-background/50 border-border text-foreground rounded-sm h-9 text-sm"
                       required
                     />
                   </div>
@@ -142,7 +142,7 @@ export default function OfficeLoginPage() {
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       placeholder="••••••••"
-                      className="pl-9 bg-background/50 border-border focus-visible:ring-ring text-foreground rounded-sm h-9 text-sm"
+                      className="pl-9 bg-background/50 border-border text-foreground rounded-sm h-9 text-sm"
                       required
                     />
                   </div>
@@ -202,7 +202,7 @@ export default function OfficeLoginPage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="admin@office.com" 
-                    className="pl-9 bg-background/50 border-border focus-visible:ring-ring text-foreground rounded-sm h-9 text-sm"
+                    className="pl-9 bg-background/50 border-border text-foreground rounded-sm h-9 text-sm"
                     required
                   />
                 </div>
@@ -219,7 +219,7 @@ export default function OfficeLoginPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••" 
-                    className="pl-9 bg-background/50 border-border focus-visible:ring-ring text-foreground rounded-sm h-9 text-sm"
+                    className="pl-9 bg-background/50 border-border text-foreground rounded-sm h-9 text-sm"
                     required
                   />
                 </div>
@@ -280,7 +280,7 @@ function FirstAdminSetup() {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="admin@office.com"
-                      className="pl-9 bg-background/50 border-border focus-visible:ring-ring text-foreground rounded-sm h-9 text-sm"
+                      className="pl-9 bg-background/50 border-border text-foreground rounded-sm h-9 text-sm"
                     />
                   </div>
                 </div>

@@ -149,7 +149,7 @@ export default function UsersPage() {
               placeholder="Search by username or role..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 bg-background/80 border-border/80 focus-visible:ring-ring text-foreground rounded-md h-9 text-sm w-full transition-all"
+              className="pl-9 bg-background/80 border-border/80 text-foreground rounded-md h-9 text-sm w-full transition-all"
             />
           </div>
           <Button onClick={() => setIsCreateOpen(true)} className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-9 text-sm font-semibold shadow-sm shrink-0 transition-all">

@@ -218,7 +218,7 @@ export function AppShell({ children }: AppShellProps) {
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input 
                 placeholder="Search..." 
-                className="pl-9 bg-card border-border focus-visible:ring-ring h-8 w-full text-sm rounded-sm"
+                className="pl-9 bg-card border-border h-8 w-full text-sm rounded-sm"
               />
             </div>
           </div>

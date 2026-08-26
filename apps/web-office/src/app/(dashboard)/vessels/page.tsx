@@ -127,7 +127,7 @@ export default function VesselsPage() {
                 placeholder="Search by vessel name or IMO..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 bg-background/80 border-border/80 focus-visible:ring-ring text-foreground rounded-md h-9 text-sm w-full transition-all"
+                className="pl-9 bg-background/80 border-border/80 text-foreground rounded-md h-9 text-sm w-full transition-all"
               />
             </div>
           )}
