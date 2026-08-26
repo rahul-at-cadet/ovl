@@ -204,7 +204,7 @@ function SchemasTab() {
             {isLoading ? (
               <p className="text-muted-foreground">Loading schemas...</p>
             ) : schemas?.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground border border-dashed border-border rounded-lg">
+              <div className="text-center py-12 text-muted-foreground border border-dashed border-border rounded-md">
                 <FileJson className="w-8 h-8 mx-auto mb-3 opacity-50" />
                 <p>No schemas published yet</p>
               </div>
@@ -470,7 +470,7 @@ function BundlesTab() {
           {isLoading ? (
             <div className="p-6 text-muted-foreground">Loading bundles...</div>
           ) : bundles?.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground border-dashed border-border rounded-lg">
+            <div className="text-center py-12 text-muted-foreground border-dashed border-border rounded-md">
               <Layers className="w-8 h-8 mx-auto mb-3 opacity-50" />
               <p>No config bundles published yet</p>
             </div>
@@ -598,7 +598,7 @@ function AssignmentsTab() {
           {isLoading ? (
             <div className="p-6 text-muted-foreground">Loading assignments...</div>
           ) : assignments?.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground border-dashed border-border rounded-lg">
+            <div className="text-center py-12 text-muted-foreground border-dashed border-border rounded-md">
               <LinkIcon className="w-8 h-8 mx-auto mb-3 opacity-50" />
               <p>No bundles assigned to any scopes</p>
             </div>

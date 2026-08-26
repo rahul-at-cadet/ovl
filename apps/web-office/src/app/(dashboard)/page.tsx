@@ -67,13 +67,13 @@ export default function OfficeDashboardPage() {
             variant="outline"
             onClick={handleExport}
             disabled={isExporting}
-            className="border-border bg-card text-foreground hover:text-foreground rounded-sm h-8 text-xs"
+            className="border-border bg-card text-foreground hover:text-foreground rounded-md h-8 text-xs"
           >
             {isExporting ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : null}
             {isExporting ? 'Exporting...' : 'Export Report'}
           </Button>
           <Link href="/reports">
-            <Button className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-sm h-8 text-xs font-medium shadow-sm">
+            <Button className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-8 text-xs font-medium shadow-sm">
               View All Reports
             </Button>
           </Link>
@@ -83,7 +83,7 @@ export default function OfficeDashboardPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 shrink-0">
         {kpis.map((kpi) => (
           <div key={kpi.label}>
-            <Card className="bg-card/50 border-border backdrop-blur-sm">
+            <Card className="bg-card border-border">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
                   {kpi.label}
@@ -99,7 +99,7 @@ export default function OfficeDashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:flex-1 lg:min-h-0 lg:grid-cols-3">
-        <Card className="bg-card/50 border-border flex flex-col lg:col-span-2 lg:min-h-0 lg:overflow-hidden">
+        <Card className="bg-card border-border flex flex-col lg:col-span-2 lg:min-h-0 lg:overflow-hidden">
           <CardHeader className="shrink-0">
             <CardTitle className="text-lg">Live Sync Stream</CardTitle>
             <CardDescription>Incoming events from the edge network</CardDescription>
@@ -110,8 +110,8 @@ export default function OfficeDashboardPage() {
                 <p className="text-sm text-muted-foreground text-center py-4">Loading stream...</p>
               ) : dashboard?.liveStream && dashboard.liveStream.length > 0 ? (
                 dashboard.liveStream.map((activity: any, i: number) => (
-                  <div key={i} className="flex items-center gap-4 p-3 rounded-md bg-background/30 border border-border/50 hover:bg-muted/30 transition-colors">
-                    <div className="p-2 rounded-sm border bg-card border-border text-muted-foreground">
+                  <div key={i} className="flex items-center gap-4 p-3 rounded-md bg-card border border-border hover:bg-muted transition-colors">
+                    <div className="p-2 rounded-md border bg-card border-border text-muted-foreground">
                       <Database className="w-4 h-4" />
                     </div>
                     <div className="flex-1">
@@ -128,7 +128,7 @@ export default function OfficeDashboardPage() {
           </CardContent>
         </Card>
 
-        <Card className="bg-card/50 border-border rounded-md">
+        <Card className="bg-card border-border rounded-md">
           <CardHeader className="pb-4">
             <CardTitle className="text-sm font-medium">System Integrity</CardTitle>
           </CardHeader>

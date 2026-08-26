@@ -104,7 +104,7 @@ export default function ReportDetailPage() {
         </Link>
       </div>
 
-      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 bg-card p-4 rounded-sm border border-border">
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 bg-card p-4 rounded-md border border-border">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-xl font-semibold tracking-tight text-foreground">{report.type}</h1>
@@ -147,7 +147,7 @@ export default function ReportDetailPage() {
       </div>
 
       {report.status === 'invalidated' && report.brokenRules && report.brokenRules.length > 0 && (
-        <div className="flex items-start gap-3 p-4 rounded-sm border border-status-critical/30 bg-status-critical/10">
+        <div className="flex items-start gap-3 p-4 rounded-md border border-status-critical/30 bg-status-critical/10">
           <AlertTriangle className="w-5 h-5 text-status-critical shrink-0 mt-0.5" />
           <div>
             <p className="text-sm font-semibold text-status-critical">
@@ -158,7 +158,7 @@ export default function ReportDetailPage() {
         </div>
       )}
 
-          <Card className="bg-card border-border rounded-sm">
+          <Card className="bg-card border-border rounded-md">
             <CardHeader className="border-b border-border pb-4 flex flex-row items-center justify-between">
               <div>
                 <CardTitle>Report Payload</CardTitle>
@@ -277,7 +277,7 @@ export default function ReportDetailPage() {
       </Card>
 
       <div className="grid gap-4 xl:grid-cols-2">
-      <Card className="bg-card border-border rounded-sm h-[420px] flex flex-col">
+      <Card className="bg-card border-border rounded-md h-[420px] flex flex-col">
         <CardHeader className="border-b border-border pb-4 shrink-0">
           <CardTitle className="text-lg flex items-center gap-2">
             <MessageSquare className="w-4 h-4 text-muted-foreground" />
@@ -292,7 +292,7 @@ export default function ReportDetailPage() {
             ) : chatMessages?.length ? (
               chatMessages.map((msg: any) => (
                 <div key={msg.id} className={`flex flex-col ${msg.direction === 'office' ? 'items-end' : 'items-start'}`}>
-                  <div className={`px-4 py-2 rounded-sm max-w-[80%] ${msg.direction === 'office' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'}`}>
+                  <div className={`px-4 py-2 rounded-md max-w-[80%] ${msg.direction === 'office' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'}`}>
                     <p className="text-sm">{msg.body}</p>
                   </div>
                   <span className="text-xs text-muted-foreground mt-1">{msg.sender} • {new Date(msg.sentAt).toLocaleTimeString()}</span>
@@ -310,7 +310,7 @@ export default function ReportDetailPage() {
             <input
               type="text"
               placeholder="Type a message..."
-              className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              className="flex-1 bg-background border border-border rounded-md px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
               onKeyDown={(e) => {
@@ -329,7 +329,7 @@ export default function ReportDetailPage() {
         </CardContent>
       </Card>
 
-      <Card className="bg-card border-border rounded-sm">
+      <Card className="bg-card border-border rounded-md">
         <CardHeader className="border-b border-border pb-4">
           <CardTitle className="text-lg flex items-center gap-2">
             <Flag className="w-4 h-4 text-muted-foreground" />
@@ -341,7 +341,7 @@ export default function ReportDetailPage() {
           <div className="space-y-3">
             {remarks?.length ? (
               remarks.map((r: any) => (
-                <div key={r.id} className="flex items-start justify-between gap-3 p-3 rounded-lg bg-background/50 border border-border/60">
+                <div key={r.id} className="flex items-start justify-between gap-3 p-3 rounded-md bg-background/50 border border-border/60">
                   <div className="flex gap-3">
                     <Flag className={`w-4 h-4 mt-0.5 shrink-0 ${r.resolved ? 'text-muted-foreground' : 'text-status-attention'}`} />
                     <div>

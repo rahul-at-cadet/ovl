@@ -140,7 +140,7 @@ export default function CommercialPage() {
           <p className="text-muted-foreground mt-1 text-sm">Office-authored cargo nominations and commercial periods.</p>
         </div>
         <Dialog open={isCreateOpen} onOpenChange={handleOpenCreate}>
-          <Button onClick={() => setIsCreateOpen(true)} className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-sm h-9 text-sm font-medium shadow-sm">
+          <Button onClick={() => setIsCreateOpen(true)} className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-9 text-sm font-medium shadow-sm">
             <Plus className="w-4 h-4 mr-2" />
             New {tab === 'periods' ? 'Commercial Period' : 'Cargo Nomination'}
           </Button>
@@ -195,14 +195,14 @@ export default function CommercialPage() {
                           value={fieldValues[f.name] ?? ''}
                           onChange={(e) => setFieldValues((prev) => ({ ...prev, [f.name]: e.target.value }))}
                           maxLength={f.maxLength ?? undefined}
-                          className={`bg-background/50 border-border focus-visible:ring-primary text-foreground ${findingByField.has(f.name) ? 'border-status-critical/50' : ''}`}
+                          className={`bg-card border-border focus-visible:ring-primary text-foreground ${findingByField.has(f.name) ? 'border-status-critical/50' : ''}`}
                         />
                       ) : (
                         <Input
                           type={nativeInputType(f.type)}
                           value={fieldValues[f.name] ?? ''}
                           onChange={(e) => setFieldValues((prev) => ({ ...prev, [f.name]: e.target.value }))}
-                          className={`bg-background/50 border-border focus-visible:ring-primary text-foreground ${findingByField.has(f.name) ? 'border-status-critical/50' : ''}`}
+                          className={`bg-card border-border focus-visible:ring-primary text-foreground ${findingByField.has(f.name) ? 'border-status-critical/50' : ''}`}
                         />
                       )}
                       {findingByField.has(f.name) && (
@@ -230,10 +230,10 @@ export default function CommercialPage() {
         </Dialog>
       </div>
 
-      <Card className="flex-1 flex flex-col bg-card/50 border-border shadow-xl min-h-0 overflow-hidden">
+      <Card className="flex-1 flex flex-col bg-card border-border shadow-sm min-h-0 overflow-hidden">
         <CardHeader className="pb-0 shrink-0">
           <Tabs value={tab} onValueChange={(v) => v && setTab(v as Tab)}>
-            <TabsList className="bg-background/50 border border-border">
+            <TabsList className="bg-card border border-border">
               <TabsTrigger value="periods" className="data-[state=active]:bg-muted data-[state=active]:text-foreground">
                 {TAB_LABEL.periods}
               </TabsTrigger>
@@ -246,7 +246,7 @@ export default function CommercialPage() {
         <CardContent className="flex-1 min-h-0 p-0 overflow-hidden mt-4">
           <div className="h-full overflow-auto">
             <Table>
-              <TableHeader className="bg-background/90 backdrop-blur-sm sticky top-0 z-10">
+              <TableHeader className="bg-card sticky top-0 z-10">
                 <TableRow className="border-border hover:bg-transparent">
                   <TableHead className="text-muted-foreground font-medium">Vessel / IMO</TableHead>
                   <TableHead className="text-muted-foreground font-medium">Type</TableHead>
@@ -261,7 +261,7 @@ export default function CommercialPage() {
                   </TableRow>
                 ) : reports.length > 0 ? (
                   reports.map((r: any) => (
-                    <TableRow key={r.id} className="border-border hover:bg-muted/30 transition-colors">
+                    <TableRow key={r.id} className="border-border hover:bg-muted transition-colors">
                       <TableCell>
                         <div className="flex flex-col">
                           <span className="font-semibold text-foreground">{r.vessel}</span>

@@ -145,8 +145,8 @@ export default function UsersPage() {
   return (
     // Fixed to the viewport, not the page — same fix as Global Reports
     // Ledger: only the directory table scrolls internally.
-    <div className="h-[calc(100vh-136px)] lg:h-[calc(100vh-168px)] flex flex-col space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 overflow-hidden">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border/60 pb-6 shrink-0">
+    <div className="h-[calc(100vh-136px)] lg:h-[calc(100vh-168px)] flex flex-col space-y-8 overflow-hidden">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border pb-6 shrink-0">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">User Access Management</h1>
           <p className="text-muted-foreground mt-1.5 text-sm font-medium">Control roles, permissions, and security policies across the fleet.</p>
@@ -168,15 +168,15 @@ export default function UsersPage() {
         </div>
       </div>
 
-      <Card className="flex-1 flex flex-col bg-card/40 border-border/60 shadow-xl min-h-0 overflow-hidden rounded-xl backdrop-blur-md">
-        <CardHeader className="border-b border-border/60 pb-4 bg-card/20 shrink-0">
+      <Card className="flex-1 flex flex-col bg-card border-border shadow-sm min-h-0 overflow-hidden rounded-md">
+        <CardHeader className="border-b border-border pb-4 bg-card shrink-0">
           <CardTitle className="text-sm font-semibold tracking-tight text-foreground">Active Directory</CardTitle>
           <CardDescription className="text-xs text-muted-foreground">All registered personnel and service accounts.</CardDescription>
         </CardHeader>
         <CardContent className="flex-1 min-h-0 p-0 overflow-hidden">
           <div className="h-full overflow-auto">
             <table className="w-full text-sm text-left text-muted-foreground">
-              <thead className="text-xs text-muted-foreground uppercase tracking-wider bg-background/90 backdrop-blur-sm border-b border-border/60 sticky top-0 z-10">
+              <thead className="text-xs text-muted-foreground uppercase tracking-wider bg-card border-b border-border sticky top-0 z-10">
                 <tr>
                   <th scope="col" className="px-4 py-2 font-semibold">User</th>
                   <th scope="col" className="hidden md:table-cell px-4 py-2 font-semibold">Security Role</th>
@@ -187,7 +187,7 @@ export default function UsersPage() {
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground bg-background/20">
+                    <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground bg-card">
                       Loading users...
                     </td>
                   </tr>
@@ -199,7 +199,7 @@ export default function UsersPage() {
                     const isAdmin = user.roles && user.roles.includes('admin');
                     
                     return (
-                    <tr key={user.id} className="border-b border-border/40 hover:bg-muted/20 transition-all group">
+                    <tr key={user.id} className="border-b border-border hover:bg-muted transition-all group">
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-3">
                           <Avatar className="h-9 w-9 bg-muted border border-border shadow-sm">
@@ -217,7 +217,7 @@ export default function UsersPage() {
                         </div>
                       </td>
                       <td className="px-4 py-2.5">
-                        <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold tracking-wide uppercase border ${user.active ? 'bg-status-ok/10 text-status-ok border-status-ok/25' : 'bg-muted/50 text-muted-foreground border-border/50'}`}>
+                        <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold tracking-wide uppercase border ${user.active ? 'bg-status-ok/10 text-status-ok border-status-ok/25' : 'bg-muted text-muted-foreground border-border'}`}>
                           {user.active && <UserCheck className="w-3 h-3" />}
                           {user.active ? 'Active' : 'Inactive'}
                         </div>
@@ -251,7 +251,7 @@ export default function UsersPage() {
                   )})
                 ) : (
                   <tr>
-                    <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground bg-background/20">
+                    <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground bg-card">
                       No users found matching &quot;{searchQuery}&quot;.
                     </td>
                   </tr>
@@ -282,7 +282,7 @@ export default function UsersPage() {
                       className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm text-left transition-colors ${
                         checked
                           ? 'border-primary bg-primary/10 text-foreground'
-                          : 'border-border bg-card text-muted-foreground hover:bg-muted/50'
+                          : 'border-border bg-card text-muted-foreground hover:bg-muted'
                       }`}
                     >
                       <span
@@ -373,7 +373,7 @@ export default function UsersPage() {
                         className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm text-left transition-colors ${
                           checked
                             ? 'border-primary bg-primary/10 text-foreground'
-                            : 'border-border bg-card text-muted-foreground hover:bg-muted/50'
+                            : 'border-border bg-card text-muted-foreground hover:bg-muted'
                         }`}
                       >
                         <span

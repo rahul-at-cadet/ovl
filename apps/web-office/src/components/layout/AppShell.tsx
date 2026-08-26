@@ -125,7 +125,7 @@ export function AppShell({ children }: AppShellProps) {
           keyboard means tabbing past every sidebar link on every navigation. */}
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50 focus:rounded-md focus:bg-card focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-ring"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50 focus:rounded-md focus:bg-card focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
       >
         Skip to main content
       </a>
@@ -133,7 +133,7 @@ export function AppShell({ children }: AppShellProps) {
       <aside
         className={`h-screen bg-card border-r border-border flex flex-col relative z-20 shrink-0 hidden md:flex transition-all duration-200 ${isSidebarOpen ? 'w-[260px]' : 'w-[70px]'}`}
       >
-        <div className="h-16 flex items-center gap-2 px-4 border-b border-border/50">
+        <div className="h-16 flex items-center gap-2 px-4 border-b border-border">
           <CadetlabsLogo className="h-6 w-6 shrink-0" />
           {isSidebarOpen && (
             <span className="font-medium text-sm tracking-tight whitespace-nowrap text-foreground">
@@ -149,7 +149,7 @@ export function AppShell({ children }: AppShellProps) {
               <Link 
                 key={item.href} 
                 href={item.href} 
-                className={`flex items-center px-3 py-2 rounded-sm transition-colors relative group ${isActive ? 'bg-muted/80 text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'}`}
+                className={`flex items-center px-3 py-2 rounded-md transition-colors relative group ${isActive ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
               >
                 <item.icon className={`w-4 h-4 shrink-0 z-10 ${isActive ? 'text-foreground' : 'text-muted-foreground group-hover:text-foreground'}`} />
                 {isSidebarOpen && (
@@ -161,7 +161,7 @@ export function AppShell({ children }: AppShellProps) {
         </div>
 
         <div className="p-4 border-t border-border">
-          <button onClick={handleSignOut} className="w-full flex items-center px-3 py-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
+          <button onClick={handleSignOut} className="w-full flex items-center px-3 py-2.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
             <LogOut className="w-5 h-5 shrink-0" />
             {isSidebarOpen && <span className="ml-3 font-medium text-sm">Sign Out</span>}
           </button>
@@ -171,7 +171,7 @@ export function AppShell({ children }: AppShellProps) {
       {/* Main Content */}
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Top Header */}
-        <header className="h-16 bg-card/50 backdrop-blur-md border-b border-border flex items-center justify-between px-4 lg:px-8 z-10 shrink-0">
+        <header className="h-16 bg-card border-b border-border flex items-center justify-between px-4 lg:px-8 z-10 shrink-0">
           <div className="flex items-center flex-1">
             <Button variant="ghost" size="icon" aria-label={isSidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'} aria-expanded={isSidebarOpen} onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="hidden md:flex text-muted-foreground hover:text-foreground mr-4">
               <Menu className="w-5 h-5" />
@@ -184,7 +184,7 @@ export function AppShell({ children }: AppShellProps) {
                   <Menu className="w-5 h-5" />
                 </SheetTrigger>
                 <SheetContent side="left" className="w-[260px] bg-card border-r border-border p-0 flex flex-col">
-                  <div className="h-16 flex items-center gap-2 px-4 border-b border-border/50 shrink-0">
+                  <div className="h-16 flex items-center gap-2 px-4 border-b border-border shrink-0">
                     <CadetlabsLogo className="h-6 w-6 shrink-0" />
                     <span className="font-medium text-sm tracking-tight whitespace-nowrap text-foreground">
                       Cadetlabs
@@ -197,7 +197,7 @@ export function AppShell({ children }: AppShellProps) {
                         <Link 
                           key={item.href} 
                           href={item.href} 
-                          className={`flex items-center px-3 py-2 rounded-sm transition-colors relative group ${isActive ? 'bg-muted/80 text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'}`}
+                          className={`flex items-center px-3 py-2 rounded-md transition-colors relative group ${isActive ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
                         >
                           <item.icon className={`w-4 h-4 shrink-0 z-10 ${isActive ? 'text-foreground' : 'text-muted-foreground group-hover:text-foreground'}`} />
                           <span className="ml-3 font-medium text-xs z-10 whitespace-nowrap tracking-wide">{item.label}</span>
@@ -206,7 +206,7 @@ export function AppShell({ children }: AppShellProps) {
                     })}
                   </div>
                   <div className="p-4 border-t border-border mt-auto shrink-0">
-                    <button onClick={handleSignOut} className="w-full flex items-center px-3 py-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
+                    <button onClick={handleSignOut} className="w-full flex items-center px-3 py-2.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                       <LogOut className="w-5 h-5 shrink-0" />
                       <span className="ml-3 font-medium text-sm">Sign Out</span>
                     </button>
@@ -282,7 +282,7 @@ export function AppShell({ children }: AppShellProps) {
                         <button
                           key={notification.id}
                           onClick={() => handleNotificationClick(notification)}
-                          className="w-full flex gap-3 items-start px-4 py-3 border-b border-border last:border-0 hover:bg-muted/40 transition-colors text-left"
+                          className="w-full flex gap-3 items-start px-4 py-3 border-b border-border last:border-0 hover:bg-muted transition-colors text-left"
                         >
                           <Icon className={`w-4 h-4 shrink-0 mt-0.5 ${color}`} />
                           <div className="flex-1 min-w-0">
@@ -325,7 +325,7 @@ export function AppShell({ children }: AppShellProps) {
                 </div>
                 <button
                   onClick={handleSignOut}
-                  className="w-full flex items-center px-3 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                  className="w-full flex items-center px-3 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                 >
                   <LogOut className="w-4 h-4 mr-2 shrink-0" />
                   Sign Out

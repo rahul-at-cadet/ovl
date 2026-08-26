@@ -33,7 +33,7 @@ export function VesselConfigsTab() {
           {isLoading ? (
             <div className="p-6 text-muted-foreground">Loading vessel configs...</div>
           ) : rows?.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground border-dashed border-border rounded-lg">
+            <div className="text-center py-12 text-muted-foreground border-dashed border-border rounded-md">
               <Ship className="w-8 h-8 mx-auto mb-3 opacity-50" />
               <p>No vessels found</p>
             </div>

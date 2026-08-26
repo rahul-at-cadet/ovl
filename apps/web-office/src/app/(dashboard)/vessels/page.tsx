@@ -113,8 +113,8 @@ export default function VesselsPage() {
   return (
     // Fixed to the viewport, not the page — same fix as Reports/Users:
     // only the vessel table scrolls internally.
-    <div className="h-[calc(100vh-136px)] lg:h-[calc(100vh-168px)] flex flex-col space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 overflow-hidden">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border/60 pb-6 shrink-0">
+    <div className="h-[calc(100vh-136px)] lg:h-[calc(100vh-168px)] flex flex-col space-y-8 overflow-hidden">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border pb-6 shrink-0">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Fleet Management</h1>
           <p className="text-muted-foreground mt-1.5 text-sm font-medium">Monitor vessel telemetry, edge node status, and sync operations.</p>
@@ -131,7 +131,7 @@ export default function VesselsPage() {
               />
             </div>
           )}
-          <div className="flex rounded-md border border-border/80 overflow-hidden shrink-0">
+          <div className="flex rounded-md border border-border overflow-hidden shrink-0">
             <Button
               variant={view === 'list' ? 'secondary' : 'ghost'}
               onClick={() => setView('list')}
@@ -143,7 +143,7 @@ export default function VesselsPage() {
             <Button
               variant={view === 'map' ? 'secondary' : 'ghost'}
               onClick={() => setView('map')}
-              className="h-9 rounded-none text-sm border-l border-border/80"
+              className="h-9 rounded-none text-sm border-l border-border"
             >
               <MapIcon className="w-4 h-4 mr-2" />
               Map
@@ -159,15 +159,15 @@ export default function VesselsPage() {
       {view === 'map' ? (
         <FleetMapView />
       ) : (
-      <Card className="flex-1 flex flex-col bg-card/40 border-border/60 shadow-xl min-h-0 overflow-hidden rounded-xl backdrop-blur-md">
-        <CardHeader className="border-b border-border/60 pb-4 bg-card/20 shrink-0">
+      <Card className="flex-1 flex flex-col bg-card border-border shadow-sm min-h-0 overflow-hidden rounded-md">
+        <CardHeader className="border-b border-border pb-4 bg-card shrink-0">
           <CardTitle className="text-sm font-semibold tracking-tight text-foreground">Registered Vessels</CardTitle>
           <CardDescription className="text-xs text-muted-foreground">Live overview of edge infrastructure across the fleet.</CardDescription>
         </CardHeader>
         <CardContent className="flex-1 min-h-0 p-0 overflow-hidden">
           <div className="h-full overflow-auto">
             <table className="w-full text-sm text-left text-muted-foreground">
-              <thead className="text-xs text-muted-foreground uppercase tracking-wider bg-background/90 backdrop-blur-sm border-b border-border/60 sticky top-0 z-10">
+              <thead className="text-xs text-muted-foreground uppercase tracking-wider bg-card border-b border-border sticky top-0 z-10">
                 <tr>
                   <th scope="col" className="px-4 py-2 font-semibold">Vessel Details</th>
                   <th scope="col" className="hidden md:table-cell px-4 py-2 font-semibold">IMO Number</th>
@@ -180,13 +180,13 @@ export default function VesselsPage() {
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground bg-background/20">
+                    <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground bg-card">
                       Loading vessels...
                     </td>
                   </tr>
                 ) : filteredVessels.length > 0 ? (
                   filteredVessels.map((vessel: any) => (
-                    <tr key={vessel.id} className="border-b border-border/40 hover:bg-muted/20 transition-all group">
+                    <tr key={vessel.id} className="border-b border-border hover:bg-muted transition-all group">
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-3">
                           <div className="p-2 rounded-md bg-muted border border-border shadow-sm shrink-0">
@@ -249,7 +249,7 @@ export default function VesselsPage() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground bg-background/20">
+                    <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground bg-card">
                       No vessels found matching &quot;{searchQuery}&quot;.
                     </td>
                   </tr>

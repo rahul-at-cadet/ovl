@@ -55,7 +55,7 @@ export default function GlobalReportsPage() {
     // Fixed to the viewport, not the page — a ledger with hundreds of
     // fleet reports shouldn't require scrolling past the header/filters
     // just to see the table; only the table body scrolls internally.
-    <div className="h-[calc(100vh-136px)] lg:h-[calc(100vh-168px)] flex flex-col space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-hidden">
+    <div className="h-[calc(100vh-136px)] lg:h-[calc(100vh-168px)] flex flex-col space-y-6 overflow-hidden">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Global Reports Ledger</h1>
@@ -63,8 +63,8 @@ export default function GlobalReportsPage() {
         </div>
       </div>
 
-      <Card className="flex-1 flex flex-col bg-card/50 border-border shadow-xl min-h-0 overflow-hidden">
-        <CardHeader className="pb-3 border-b border-border/50 shrink-0">
+      <Card className="flex-1 flex flex-col bg-card border-border shadow-sm min-h-0 overflow-hidden">
+        <CardHeader className="pb-3 border-b border-border shrink-0">
           <div className="flex flex-col lg:flex-row items-center justify-between gap-4">
             <CardTitle>Fleet Reports</CardTitle>
             <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
@@ -72,13 +72,13 @@ export default function GlobalReportsPage() {
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Search by IMO or Vessel..."
-                  className="pl-9 bg-background/50 border-border h-9"
+                  className="pl-9 bg-card border-border h-9"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </div>
               <Select value={statusFilter} onValueChange={(val) => setStatusFilter(val || 'all')}>
-                <SelectTrigger className="w-[140px] h-9 bg-background/50 border-border text-foreground">
+                <SelectTrigger className="w-[140px] h-9 bg-card border-border text-foreground">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent className="bg-card border-border text-foreground">
@@ -91,7 +91,7 @@ export default function GlobalReportsPage() {
                 variant="outline"
                 onClick={handleExport}
                 disabled={isExporting}
-                className="h-9 border-border bg-background/50 text-muted-foreground hover:text-foreground shrink-0"
+                className="h-9 border-border bg-card text-muted-foreground hover:text-foreground shrink-0"
               >
                 {isExporting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
                 Export CSV
@@ -102,7 +102,7 @@ export default function GlobalReportsPage() {
         <CardContent className="flex-1 min-h-0 p-0 overflow-hidden">
           <div className="h-full overflow-auto">
             <Table>
-              <TableHeader className="bg-background/90 backdrop-blur-sm sticky top-0 z-10">
+              <TableHeader className="bg-card sticky top-0 z-10">
               <TableRow className="border-border hover:bg-transparent">
                 <TableHead className="hidden md:table-cell text-muted-foreground font-medium">Report ID</TableHead>
                 <TableHead className="text-muted-foreground font-medium">Vessel / IMO</TableHead>
@@ -122,7 +122,7 @@ export default function GlobalReportsPage() {
                 </TableRow>
               ) : filteredReports.length > 0 ? (
                 filteredReports.map((report: any) => (
-                  <TableRow key={report.id} className="border-border hover:bg-muted/30 transition-colors group">
+                  <TableRow key={report.id} className="border-border hover:bg-muted transition-colors group">
                   <TableCell className="hidden md:table-cell font-medium text-foreground font-mono text-sm">
                     {report.id}
                   </TableCell>

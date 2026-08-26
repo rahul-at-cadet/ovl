@@ -105,8 +105,8 @@ export default function OfficeLoginPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="w-full max-w-[400px] z-10 p-4">
-          <Card className="bg-card border-border shadow-xl rounded-md">
-            <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-border/50">
+          <Card className="bg-card border-border shadow-sm rounded-md">
+            <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-border">
               <div className="flex justify-center mb-2">
                 <div className="p-3 bg-status-warn/10 text-status-warn rounded-full border border-status-warn/25">
                   <ShieldAlert className="w-6 h-6" />
@@ -128,7 +128,7 @@ export default function OfficeLoginPage() {
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
                       placeholder="••••••••"
-                      className="pl-9 bg-background/50 border-border text-foreground rounded-sm h-9 text-sm"
+                      className="pl-9 bg-card border-border text-foreground rounded-md h-9 text-sm"
                       required
                     />
                   </div>
@@ -142,7 +142,7 @@ export default function OfficeLoginPage() {
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       placeholder="••••••••"
-                      className="pl-9 bg-background/50 border-border text-foreground rounded-sm h-9 text-sm"
+                      className="pl-9 bg-card border-border text-foreground rounded-md h-9 text-sm"
                       required
                     />
                   </div>
@@ -150,7 +150,7 @@ export default function OfficeLoginPage() {
                 {error && <div className="text-status-critical text-xs text-center">{error}</div>}
                 <Button
                   type="submit"
-                  className="w-full bg-primary hover:bg-primary/90 text-primary-foreground rounded-sm h-9 text-sm font-medium mt-4"
+                  className="w-full bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-9 text-sm font-medium mt-4"
                   disabled={isLoading}
                 >
                   {isLoading ? 'Updating...' : 'Update & Continue'}
@@ -178,8 +178,8 @@ export default function OfficeLoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="w-full max-w-[400px] z-10 p-4">
-        <Card className="bg-card border-border shadow-xl rounded-md">
-          <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-border/50">
+        <Card className="bg-card border-border shadow-sm rounded-md">
+          <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-border">
             <div>
               <CadetlabsLogo className="h-10 w-10 mx-auto mb-2" />
               <CardTitle className="text-xl font-medium tracking-tight text-foreground">
@@ -202,7 +202,7 @@ export default function OfficeLoginPage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="admin@office.com" 
-                    className="pl-9 bg-background/50 border-border text-foreground rounded-sm h-9 text-sm"
+                    className="pl-9 bg-card border-border text-foreground rounded-md h-9 text-sm"
                     required
                   />
                 </div>
@@ -219,7 +219,7 @@ export default function OfficeLoginPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••" 
-                    className="pl-9 bg-background/50 border-border text-foreground rounded-sm h-9 text-sm"
+                    className="pl-9 bg-card border-border text-foreground rounded-md h-9 text-sm"
                     required
                   />
                 </div>
@@ -227,7 +227,7 @@ export default function OfficeLoginPage() {
               {error && <div className="text-status-critical text-xs text-center">{error}</div>}
               <Button 
                 type="submit" 
-                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground transition-all rounded-sm h-9 text-sm font-medium mt-4"
+                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground transition-all rounded-md h-9 text-sm font-medium mt-4"
                 disabled={isLoading}
               >
                 {isLoading ? (
@@ -258,8 +258,8 @@ function FirstAdminSetup() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="w-full max-w-[420px] z-10 p-4">
-        <Card className="bg-card border-border shadow-xl rounded-md">
-          <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-border/50">
+        <Card className="bg-card border-border shadow-sm rounded-md">
+          <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-border">
             <CadetlabsLogo className="h-10 w-10 mx-auto mb-2" />
             <CardTitle className="text-xl font-medium tracking-tight text-foreground">Cadetlabs</CardTitle>
             <CardDescription className="text-muted-foreground mt-1 text-sm">
@@ -282,7 +282,7 @@ function FirstAdminSetup() {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="admin@office.com"
-                      className="pl-9 bg-background/50 border-border text-foreground rounded-sm h-9 text-sm"
+                      className="pl-9 bg-card border-border text-foreground rounded-md h-9 text-sm"
                     />
                   </div>
                 </div>
@@ -292,7 +292,7 @@ function FirstAdminSetup() {
                 <Button
                   onClick={() => createMutation.mutate({ username: email, roles: ['admin'] as any })}
                   disabled={!email || createMutation.isPending}
-                  className="w-full bg-primary hover:bg-primary/90 text-primary-foreground rounded-sm h-9 text-sm font-medium"
+                  className="w-full bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-9 text-sm font-medium"
                 >
                   {createMutation.isPending ? 'Creating...' : 'Create account'}
                 </Button>
@@ -304,7 +304,7 @@ function FirstAdminSetup() {
                 </div>
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">Temporary Password (Reveal Once):</p>
-                  <div className="text-lg font-mono tracking-wider bg-background/50 p-4 rounded border border-border select-all">
+                  <div className="text-lg font-mono tracking-wider bg-card p-4 rounded border border-border select-all">
                     {generatedPassword}
                   </div>
                 </div>
@@ -313,7 +313,7 @@ function FirstAdminSetup() {
                 </p>
                 <Button
                   onClick={() => utils.setup.status.invalidate()}
-                  className="w-full bg-primary hover:bg-primary/90 text-primary-foreground rounded-sm h-9 text-sm font-medium"
+                  className="w-full bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-9 text-sm font-medium"
                 >
                   Go to Sign In
                 </Button>

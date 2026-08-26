@@ -48,7 +48,7 @@ export function FleetMapView() {
   }, [positions]);
 
   return (
-    <div className="relative flex-1 min-h-0 rounded-xl overflow-hidden border border-border/60 shadow-xl">
+    <div className="relative flex-1 min-h-0 rounded-md overflow-hidden border border-border shadow-sm">
       <MapContainer center={center} zoom={positions.length > 0 ? 4 : 2} scrollWheelZoom className="h-full w-full">
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -77,15 +77,15 @@ export function FleetMapView() {
         ))}
       </MapContainer>
 
-      <Card className="absolute top-3 left-3 z-[1000] w-72 max-h-[calc(100%-24px)] flex flex-col bg-card/95 border-border/60 shadow-lg backdrop-blur-md">
-        <div className="p-3 space-y-2.5 shrink-0 border-b border-border/60">
+      <Card className="absolute top-3 left-3 z-[1000] w-72 max-h-[calc(100%-24px)] flex flex-col bg-card border-border shadow-sm">
+        <div className="p-3 space-y-2.5 shrink-0 border-b border-border">
           <div className="relative">
             <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
               placeholder="Search vessel or IMO…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-8 h-8 bg-background/80 border-border/80 text-sm"
+              className="pl-8 h-8 bg-card border-border text-sm"
             />
           </div>
           <div className="flex gap-1.5 flex-wrap">
@@ -119,7 +119,7 @@ export function FleetMapView() {
             filtered.map((p) => (
               <div
                 key={p.id}
-                className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/50 transition-colors"
+                className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted transition-colors"
               >
                 <span
                   className="inline-block size-2.5 rounded-full shrink-0"
