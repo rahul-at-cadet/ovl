@@ -5,6 +5,8 @@ import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { eq } from 'drizzle-orm';
 import * as schema from '@ovl/database';
 import { protectedProcedure, router } from './trpc.base';
+import { withTenantDb } from './tenant-scope';
+import { TenantDbService } from '../tenancy/tenant-db.service';
 import { SupertokensService } from '../auth/supertokens.service';
 import { VesselsService } from '../vessels/vessels.service';
 import { VesselUsersService } from '../vessels/vessel-users.service';
@@ -23,6 +25,7 @@ import { formatRelativeTime, ONLINE_THRESHOLD_MS } from './display';
  */
 export interface VesselsRouterDeps {
   db: NodePgDatabase<typeof schema>;
+  tenantDb?: TenantDbService;
   supertokensService: SupertokensService;
   vesselsService: VesselsService;
   vesselUsersService: VesselUsersService;
@@ -107,30 +110,32 @@ const VesselIdInputCompiler = TypeCompiler.Compile(VesselIdInputSchema);
 
 export const createVesselsRouter = (deps: () => VesselsRouterDeps) =>
   router({
-    list: protectedProcedure.query(async () => {
-      const rows = await deps().db.select({
-        vessel: schema.vessels,
-        lastSeenAt: schema.vesselSyncStatus.lastSeenAt,
-      })
-        .from(schema.vessels)
-        .leftJoin(schema.vesselSyncStatus, eq(schema.vesselSyncStatus.vesselId, schema.vessels.id));
+    list: protectedProcedure.query(async () =>
+      withTenantDb(deps().tenantDb, async (db) => {
+        const rows = await db.select({
+          vessel: schema.vessels,
+          lastSeenAt: schema.vesselSyncStatus.lastSeenAt,
+        })
+          .from(schema.vessels)
+          .leftJoin(schema.vesselSyncStatus, eq(schema.vesselSyncStatus.vesselId, schema.vessels.id));
 
-      const now = Date.now();
+        const now = Date.now();
 
-      return rows.map(({ vessel: v, lastSeenAt }) => {
-        const lastSeenMs = lastSeenAt ? new Date(lastSeenAt).getTime() : null;
-        return {
-          id: v.id,
-          name: v.name,
-          imo: v.imo,
-          type: v.type,
-          status: 'At Sea',
-          edgeStatus: lastSeenMs === null ? 'Offline' : (now - lastSeenMs <= ONLINE_THRESHOLD_MS ? 'Online' : 'Offline'),
-          lastSync: lastSeenAt ? formatRelativeTime(lastSeenMs!) : 'Never',
-          groups: v.groups,
-        };
-      });
+        return rows.map(({ vessel: v, lastSeenAt }) => {
+          const lastSeenMs = lastSeenAt ? new Date(lastSeenAt).getTime() : null;
+          return {
+            id: v.id,
+            name: v.name,
+            imo: v.imo,
+            type: v.type,
+            status: 'At Sea',
+            edgeStatus: lastSeenMs === null ? 'Offline' : (now - lastSeenMs <= ONLINE_THRESHOLD_MS ? 'Online' : 'Offline'),
+            lastSync: lastSeenAt ? formatRelativeTime(lastSeenMs!) : 'Never',
+            groups: v.groups,
+          };
+        });
     }),
+    ),
     // Fleet Map (ports ovl/office/httpapi/vesselpositions.go). See
     // VesselsService.getPositions's own doc comment for the full
     // status-precedence and position-parsing rules.
@@ -145,39 +150,45 @@ export const createVesselsRouter = (deps: () => VesselsRouterDeps) =>
         if (!CreateVesselCompiler.Check(val)) throw new Error('Invalid input');
         return val as Static<typeof CreateVesselSchema>;
       })
-      .mutation(async ({ input }) => {
-        const newVessel = await deps().db.insert(schema.vessels).values({
-          name: input.name,
-          imo: input.imo,
-          type: input.type,
-          groups: input.groups || [],
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        }).returning();
-        return newVessel[0];
+      .mutation(async ({ input }) =>
+        withTenantDb(deps().tenantDb, async (db) => {
+          const newVessel = await db.insert(schema.vessels).values({
+            name: input.name,
+            imo: input.imo,
+            type: input.type,
+            groups: input.groups || [],
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          }).returning();
+          return newVessel[0];
       }),
+      ),
     update: protectedProcedure
       .input((val: unknown) => {
         if (!UpdateVesselCompiler.Check(val)) throw new Error('Invalid input');
         return val as Static<typeof UpdateVesselSchema>;
       })
-      .mutation(async ({ input }) => {
-        const { id, ...updates } = input;
-        const updatedVessel = await deps().db.update(schema.vessels).set({
-          ...updates,
-          updatedAt: new Date().toISOString(),
-        }).where(eq(schema.vessels.id, id)).returning();
-        return updatedVessel[0];
+      .mutation(async ({ input }) =>
+        withTenantDb(deps().tenantDb, async (db) => {
+          const { id, ...updates } = input;
+          const updatedVessel = await db.update(schema.vessels).set({
+            ...updates,
+            updatedAt: new Date().toISOString(),
+          }).where(eq(schema.vessels.id, id)).returning();
+          return updatedVessel[0];
       }),
+      ),
     delete: protectedProcedure
       .input((val: unknown) => {
         if (!DeleteVesselCompiler.Check(val)) throw new Error('Invalid input');
         return val as Static<typeof DeleteVesselSchema>;
       })
-      .mutation(async ({ input }) => {
-        await deps().db.delete(schema.vessels).where(eq(schema.vessels.id, input.id));
-        return { success: true };
+      .mutation(async ({ input }) =>
+        withTenantDb(deps().tenantDb, async (db) => {
+          await db.delete(schema.vessels).where(eq(schema.vessels.id, input.id));
+          return { success: true };
       }),
+      ),
     // Groups are free-form JSONB tags on vessels.groups (architecture
     // 12.4), not a first-class entity — no dedicated groups table, by
     // design (ports ovl/office/httpapi/vesselgroups.go exactly,
@@ -190,37 +201,41 @@ export const createVesselsRouter = (deps: () => VesselsRouterDeps) =>
         if (!RenameVesselGroupCompiler.Check(val)) throw new Error('Invalid input');
         return val as Static<typeof RenameVesselGroupSchema>;
       })
-      .mutation(async ({ input }) => {
-        if (!input.from || !input.to) throw new TRPCError({ code: 'BAD_REQUEST', message: 'from and to are both required' });
-        const all = await deps().db.select({ id: schema.vessels.id, groups: schema.vessels.groups }).from(schema.vessels);
-        let updated = 0;
-        for (const v of all) {
-          const groups = (v.groups as string[]) ?? [];
-          if (!groups.includes(input.from)) continue;
-          const next = groups.map((g) => (g === input.from ? input.to : g));
-          await deps().db.update(schema.vessels).set({ groups: next, updatedAt: new Date().toISOString() }).where(eq(schema.vessels.id, v.id));
-          updated++;
-        }
-        return { vesselsUpdated: updated };
+      .mutation(async ({ input }) =>
+        withTenantDb(deps().tenantDb, async (db) => {
+          if (!input.from || !input.to) throw new TRPCError({ code: 'BAD_REQUEST', message: 'from and to are both required' });
+          const all = await db.select({ id: schema.vessels.id, groups: schema.vessels.groups }).from(schema.vessels);
+          let updated = 0;
+          for (const v of all) {
+            const groups = (v.groups as string[]) ?? [];
+            if (!groups.includes(input.from)) continue;
+            const next = groups.map((g) => (g === input.from ? input.to : g));
+            await db.update(schema.vessels).set({ groups: next, updatedAt: new Date().toISOString() }).where(eq(schema.vessels.id, v.id));
+            updated++;
+          }
+          return { vesselsUpdated: updated };
       }),
+      ),
     deleteGroup: protectedProcedure
       .input((val: unknown) => {
         if (!DeleteVesselGroupCompiler.Check(val)) throw new Error('Invalid input');
         return val as Static<typeof DeleteVesselGroupSchema>;
       })
-      .mutation(async ({ input }) => {
-        if (!input.group) throw new TRPCError({ code: 'BAD_REQUEST', message: 'group is required' });
-        const all = await deps().db.select({ id: schema.vessels.id, groups: schema.vessels.groups }).from(schema.vessels);
-        let updated = 0;
-        for (const v of all) {
-          const groups = (v.groups as string[]) ?? [];
-          if (!groups.includes(input.group)) continue;
-          const next = groups.filter((g) => g !== input.group);
-          await deps().db.update(schema.vessels).set({ groups: next, updatedAt: new Date().toISOString() }).where(eq(schema.vessels.id, v.id));
-          updated++;
-        }
-        return { vesselsUpdated: updated };
+      .mutation(async ({ input }) =>
+        withTenantDb(deps().tenantDb, async (db) => {
+          if (!input.group) throw new TRPCError({ code: 'BAD_REQUEST', message: 'group is required' });
+          const all = await db.select({ id: schema.vessels.id, groups: schema.vessels.groups }).from(schema.vessels);
+          let updated = 0;
+          for (const v of all) {
+            const groups = (v.groups as string[]) ?? [];
+            if (!groups.includes(input.group)) continue;
+            const next = groups.filter((g) => g !== input.group);
+            await db.update(schema.vessels).set({ groups: next, updatedAt: new Date().toISOString() }).where(eq(schema.vessels.id, v.id));
+            updated++;
+          }
+          return { vesselsUpdated: updated };
       }),
+      ),
     // Remote vessel-user administration (architecture 9.3/12.4) — see
     // VesselUsersService's own doc comment for the full design. Every
     // mutation here queues a command the vessel applies on its own next

@@ -1,11 +1,10 @@
-import { Injectable, Inject, BadRequestException, Logger, OnModuleInit } from '@nestjs/common';
-import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { Injectable, BadRequestException, Logger, OnModuleInit } from '@nestjs/common';
 import { eq, desc } from 'drizzle-orm';
 import * as schema from '@ovl/database';
 import Ajv from 'ajv';
 import * as fs from 'fs';
 import * as path from 'path';
-import { DATABASE_CONNECTION } from '../../database/database.module';
+import { TenantDbService } from '../../tenancy/tenant-db.service';
 import { SchemaField, diffSchemaFields, SchemaDiff } from '../logic/fieldPolicy';
 
 const ajv = new Ajv();
@@ -30,8 +29,7 @@ export class SchemaVersionsService implements OnModuleInit {
   private readonly logger = new Logger(SchemaVersionsService.name);
 
   constructor(
-    @Inject(DATABASE_CONNECTION)
-    private readonly db: NodePgDatabase<typeof schema>,
+    private readonly tenantDb: TenantDbService,
   ) {}
 
   /**
@@ -83,29 +81,33 @@ export class SchemaVersionsService implements OnModuleInit {
   }
 
   async list() {
-    const results = await this.db
-      .select()
-      .from(schema.schemaVersions)
-      .orderBy(desc(schema.schemaVersions.publishedAt));
-    return results.map((r) => ({
-      id: r.id,
-      schemaName: r.schemaName,
-      version: r.version,
-      source: r.source,
-      publishedAt: r.publishedAt,
-      publishedBy: r.publishedBy,
-      content: r.content.toString('utf-8'),
-    }));
+    return this.tenantDb.withTenant(async (db) => {
+      const results = await db
+        .select()
+        .from(schema.schemaVersions)
+        .orderBy(desc(schema.schemaVersions.publishedAt));
+      return results.map((r) => ({
+        id: r.id,
+        schemaName: r.schemaName,
+        version: r.version,
+        source: r.source,
+        publishedAt: r.publishedAt,
+        publishedBy: r.publishedBy,
+        content: r.content.toString('utf-8'),
+      }));
+  }, { readOnly: true });
   }
 
   async getLatest(schemaName: string) {
-    const rows = await this.db
-      .select()
-      .from(schema.schemaVersions)
-      .where(eq(schema.schemaVersions.schemaName, schemaName))
-      .orderBy(desc(schema.schemaVersions.publishedAt))
-      .limit(1);
-    return rows[0];
+    return this.tenantDb.withTenant(async (db) => {
+      const rows = await db
+        .select()
+        .from(schema.schemaVersions)
+        .where(eq(schema.schemaVersions.schemaName, schemaName))
+        .orderBy(desc(schema.schemaVersions.publishedAt))
+        .limit(1);
+      return rows[0];
+  }, { readOnly: true });
   }
 
   /** Fields parsed out of the latest published version's content, or []. */
@@ -161,29 +163,31 @@ export class SchemaVersionsService implements OnModuleInit {
   }
 
   async publish(input: PublishSchemaInput) {
-    let parsed: any;
-    try {
-      parsed = JSON.parse(input.content);
-    } catch {
-      throw new BadRequestException('Invalid JSON format');
-    }
+    return this.tenantDb.withTenant(async (db) => {
+      let parsed: any;
+      try {
+        parsed = JSON.parse(input.content);
+      } catch {
+        throw new BadRequestException('Invalid JSON format');
+      }
 
-    if (!ajv.validateSchema(parsed)) {
-      throw new BadRequestException('Invalid JSON Schema according to meta-schema');
-    }
+      if (!ajv.validateSchema(parsed)) {
+        throw new BadRequestException('Invalid JSON Schema according to meta-schema');
+      }
 
-    const newSchema = await this.db
-      .insert(schema.schemaVersions)
-      .values({
-        schemaName: input.schemaName,
-        version: input.version,
-        source: input.source,
-        content: Buffer.from(input.content, 'utf-8'),
-        publishedAt: new Date().toISOString(),
-        publishedBy: 'System Admin',
-      })
-      .returning();
+      const newSchema = await db
+        .insert(schema.schemaVersions)
+        .values({
+          schemaName: input.schemaName,
+          version: input.version,
+          source: input.source,
+          content: Buffer.from(input.content, 'utf-8'),
+          publishedAt: new Date().toISOString(),
+          publishedBy: 'System Admin',
+        })
+        .returning();
 
-    return newSchema[0];
+      return newSchema[0];
+  });
   }
 }

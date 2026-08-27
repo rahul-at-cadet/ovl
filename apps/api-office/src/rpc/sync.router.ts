@@ -5,7 +5,7 @@ import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { eq, and, gt, desc } from 'drizzle-orm';
 import * as schema from '@ovl/database';
 import { edgeProcedure, router, requireCatalogue, requireTenant } from './trpc.base';
-import { authenticateEdge, assertEdgeKeyValid, type EdgeAuthDeps } from './edge-auth';
+import { withEdgeTenant } from './tenant-scope';
 import { runAsSystemForTenant } from '../tenancy/tenant-context';
 import { EdgeTenantResolverService } from '../tenancy/edge-tenant-resolver.service';
 import { TenantDbService } from '../tenancy/tenant-db.service';
@@ -87,11 +87,6 @@ const PullConfigInputSchema = Type.Object({
   lastInvalidationSeq: Type.Optional(Type.String()),
 });
 const PullConfigInputCompiler = TypeCompiler.Compile(PullConfigInputSchema);
-
-const edgeAuthDeps = (deps: () => SyncRouterDeps): EdgeAuthDeps => {
-  const d = deps();
-  return { db: d.db, edgeTenants: d.edgeTenants, tenantDb: d.tenantDb };
-};
 
 /**
  * Re-checks every report in (vesselId, schemaName)'s chain against the
@@ -204,48 +199,38 @@ export const createEdgeRouter = (deps: () => SyncRouterDeps) =>
         if (!EnrollEdgeCompiler.Check(val)) throw new Error('Invalid input');
         return val as Static<typeof EnrollEdgeSchema>;
       })
-      .mutation(async ({ input, ctx }) => {
-        // 1. Verify the API key.
-        //
-        // Two steps, because api_keys now lives inside a tenant schema: the
-        // platform index says which tenant to look in, and only then is the
-        // full token hash checked against that tenant's own keys. The lookup
-        // hash is a pointer, never a credential.
-        const resolver = requireCatalogue(deps().edgeTenants);
-        const tenant = await resolver.resolve(ctx.tokenLookupHash);
-        if (!tenant) {
-          throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid or revoked API key' });
-        }
-        await runAsSystemForTenant({ ...tenant, requestId: 'edge-enroll' }, () =>
-          assertEdgeKeyValid(requireCatalogue(deps().tenantDb), ctx.tokenHash),
-        );
-
-        // 2. The vessel row itself is still created on the legacy shared
-        // connection, because pullConfig and pushEvents have not moved yet
-        // and would not find it in a tenant schema. This is the coexistence
-        // seam, and it moves when the sync path does.
-
-        // Lookup Vessel by IMO
-        const existing = await deps().db.select().from(schema.vessels).where(eq(schema.vessels.imo, input.imoNumber));
+      .mutation(async ({ input, ctx }) =>
+        withEdgeTenant(deps(), ctx, async (db) => {
+          // 1. Verify the API key.
+          // Authentication and tenant resolution both happen in withEdgeTenant,
+          // which wraps this handler — the lookup hash selects the schema, the
+          // full token hash authenticates, and both share this transaction.
+          //
+          // The vessel is looked up inside its own tenant's schema. An IMO is
+          // only unique within one operator's fleet, so scoping the lookup here
+          // is also what stops two tenants who happen to manage the same hull
+          // from colliding on it.
+          const existing = await db.select().from(schema.vessels).where(eq(schema.vessels.imo, input.imoNumber));
         
-        let vesselId;
-        if (existing.length > 0) {
-          vesselId = existing[0].id;
-        } else {
-          // Create implicitly
-          const newVessel = await deps().db.insert(schema.vessels).values({
-            name: input.vesselName,
-            imo: input.imoNumber,
-            type: 'Cargo', // Default
-            groups: [],
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          }).returning();
-          vesselId = newVessel[0].id;
-        }
+          let vesselId;
+          if (existing.length > 0) {
+            vesselId = existing[0].id;
+          } else {
+            // Create implicitly
+            const newVessel = await db.insert(schema.vessels).values({
+              name: input.vesselName,
+              imo: input.imoNumber,
+              type: 'Cargo', // Default
+              groups: [],
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            }).returning();
+            vesselId = newVessel[0].id;
+          }
 
-        return { vesselId };
+          return { vesselId };
       }),
+      ),
     });
 
 export const createSyncRouter = (deps: () => SyncRouterDeps) =>
@@ -255,206 +240,208 @@ export const createSyncRouter = (deps: () => SyncRouterDeps) =>
         if (!PushEventsCompiler.Check(val)) throw new Error('Invalid input');
         return val as Static<typeof PushEventsSchema>;
       })
-      .mutation(async ({ input, ctx }) => {
-        await authenticateEdge(edgeAuthDeps(deps), ctx);
-        console.log(`Office received ${input.events.length} events from vessel ${input.vesselId}`);
+      .mutation(async ({ input, ctx }) =>
+        withEdgeTenant(deps(), ctx, async (db) => {
+          console.log(`Office received ${input.events.length} events from vessel ${input.vesselId}`);
 
-        await deps().db.insert(schema.vesselSyncStatus)
-          .values({ vesselId: input.vesselId, lastSeenAt: new Date().toISOString() })
-          .onConflictDoUpdate({
-            target: schema.vesselSyncStatus.vesselId,
-            set: { lastSeenAt: new Date().toISOString() },
-          });
+          await db.insert(schema.vesselSyncStatus)
+            .values({ vesselId: input.vesselId, lastSeenAt: new Date().toISOString() })
+            .onConflictDoUpdate({
+              target: schema.vesselSyncStatus.vesselId,
+              set: { lastSeenAt: new Date().toISOString() },
+            });
 
-        for (const event of input.events) {
-          if (event.eventType === 'report_submitted') {
-            try {
-              const payload = JSON.parse(event.payload);
-              await deps().db.insert(schema.reportVersions).values({
-                vesselId: input.vesselId,
-                reportId: payload.reportId,
-                versionNo: payload.versionNo,
-                schemaKind: payload.schemaName || 'unknown',
-                schemaVersion: '1.0',
-                eventType: payload.eventType || 'ReportSubmitted',
-                state: payload.state || 'submitted',
-                eventTime: payload.eventTime || new Date().toISOString(),
-                fields: payload.fields || {},
-                submittedAt: payload.submittedAt || new Date().toISOString(),
-                receivedAt: new Date().toISOString(),
-              });
-              
-              await deps().db.insert(schema.reportAuditEvents).values({
-                vesselId: input.vesselId,
-                reportId: payload.reportId,
-                versionNo: payload.versionNo,
-                eventType: 'submitted',
-                actor: payload.submittedBy || 'vessel_master',
-                occurredAt: payload.submittedAt || new Date().toISOString(),
-                detail: {},
-                receivedAt: new Date().toISOString(),
-                origin: 'vessel',
-              });
-
-              // Cascade revalidation (architecture 8.3) runs
-              // synchronously right after landing, so a dependent
-              // later report's invalidation is visible within this
-              // same push call. A failure here must not reject an
-              // item that already landed successfully. Passed as
-              // stored (schema_kind carries the vessel's own
-              // "bunker-report.json"-style id, .json suffix and all)
-              // — runCascade strips it only where it actually matters
-              // (resolving the continuity config), not for the chain
-              // query itself, which must match what's in the column.
+          for (const event of input.events) {
+            if (event.eventType === 'report_submitted') {
               try {
-                await runCascade(deps().db, input.vesselId, payload.schemaName || 'unknown');
+                const payload = JSON.parse(event.payload);
+                await db.insert(schema.reportVersions).values({
+                  vesselId: input.vesselId,
+                  reportId: payload.reportId,
+                  versionNo: payload.versionNo,
+                  schemaKind: payload.schemaName || 'unknown',
+                  schemaVersion: '1.0',
+                  eventType: payload.eventType || 'ReportSubmitted',
+                  state: payload.state || 'submitted',
+                  eventTime: payload.eventTime || new Date().toISOString(),
+                  fields: payload.fields || {},
+                  submittedAt: payload.submittedAt || new Date().toISOString(),
+                  receivedAt: new Date().toISOString(),
+                });
+              
+                await db.insert(schema.reportAuditEvents).values({
+                  vesselId: input.vesselId,
+                  reportId: payload.reportId,
+                  versionNo: payload.versionNo,
+                  eventType: 'submitted',
+                  actor: payload.submittedBy || 'vessel_master',
+                  occurredAt: payload.submittedAt || new Date().toISOString(),
+                  detail: {},
+                  receivedAt: new Date().toISOString(),
+                  origin: 'vessel',
+                });
+
+                // Cascade revalidation (architecture 8.3) runs
+                // synchronously right after landing, so a dependent
+                // later report's invalidation is visible within this
+                // same push call. A failure here must not reject an
+                // item that already landed successfully. Passed as
+                // stored (schema_kind carries the vessel's own
+                // "bunker-report.json"-style id, .json suffix and all)
+                // — runCascade strips it only where it actually matters
+                // (resolving the continuity config), not for the chain
+                // query itself, which must match what's in the column.
+                try {
+                  await runCascade(db, input.vesselId, payload.schemaName || 'unknown');
+                } catch (err: any) {
+                  console.error(`Cascade revalidation failed for vessel ${input.vesselId}:`, err);
+                }
               } catch (err: any) {
-                console.error(`Cascade revalidation failed for vessel ${input.vesselId}:`, err);
+                console.error('Failed to parse or save report event:', err);
               }
-            } catch (err: any) {
-              console.error('Failed to parse or save report event:', err);
+            } else if (event.eventType === 'chat_sent') {
+              try {
+                const payload = JSON.parse(event.payload);
+                // chat_messages.direction is constrained to 'vessel'/'office'
+                // (this table's schema mirrors the original Go domain's
+                // ChatDirection values) — the vessel's own local SQLite
+                // convention is 'ship_to_shore'/'shore_to_ship' (already
+                // baked into its schema and UI), so every message is
+                // translated at this sync boundary rather than picking one
+                // convention and forcing it on both sides.
+                await db.insert(schema.chatMessages).values({
+                  id: payload.id,
+                  vesselId: input.vesselId,
+                  reportId: payload.reportId,
+                  sender: payload.sender,
+                  body: payload.body,
+                  sentAt: payload.sentAt || new Date().toISOString(),
+                  direction: 'vessel',
+                }).onConflictDoNothing();
+              } catch (err: any) {
+                console.error('Failed to parse or save chat message:', err);
+              }
+            } else if (event.eventType === 'correction_started') {
+              // Architecture 8.1/8.2's "Start correction" — the vessel
+              // already has version N+1 as a new local draft; this only
+              // records the audit trail entry against the *old* version
+              // office already has (mirrors pkg/domain.Report.NewCorrection's
+              // own event placement). The new draft itself lands later,
+              // as its own ordinary report_submitted push once the
+              // vessel actually submits it.
+              try {
+                const payload = JSON.parse(event.payload);
+                await db.insert(schema.reportAuditEvents).values({
+                  vesselId: input.vesselId,
+                  reportId: payload.reportId,
+                  versionNo: payload.versionNo,
+                  eventType: 'correction_started',
+                  actor: payload.actor,
+                  occurredAt: payload.at || new Date().toISOString(),
+                  detail: { newVersionNo: payload.newVersionNo },
+                  receivedAt: new Date().toISOString(),
+                  origin: 'vessel',
+                });
+              } catch (err: any) {
+                console.error('Failed to parse or save correction_started event:', err);
+              }
+            } else {
+              console.warn(`Unrecognized outbox eventType "${event.eventType}" from vessel ${input.vesselId} — dropped.`);
             }
-          } else if (event.eventType === 'chat_sent') {
-            try {
-              const payload = JSON.parse(event.payload);
-              // chat_messages.direction is constrained to 'vessel'/'office'
-              // (this table's schema mirrors the original Go domain's
-              // ChatDirection values) — the vessel's own local SQLite
-              // convention is 'ship_to_shore'/'shore_to_ship' (already
-              // baked into its schema and UI), so every message is
-              // translated at this sync boundary rather than picking one
-              // convention and forcing it on both sides.
-              await deps().db.insert(schema.chatMessages).values({
-                id: payload.id,
-                vesselId: input.vesselId,
-                reportId: payload.reportId,
-                sender: payload.sender,
-                body: payload.body,
-                sentAt: payload.sentAt || new Date().toISOString(),
-                direction: 'vessel',
-              }).onConflictDoNothing();
-            } catch (err: any) {
-              console.error('Failed to parse or save chat message:', err);
-            }
-          } else if (event.eventType === 'correction_started') {
-            // Architecture 8.1/8.2's "Start correction" — the vessel
-            // already has version N+1 as a new local draft; this only
-            // records the audit trail entry against the *old* version
-            // office already has (mirrors pkg/domain.Report.NewCorrection's
-            // own event placement). The new draft itself lands later,
-            // as its own ordinary report_submitted push once the
-            // vessel actually submits it.
-            try {
-              const payload = JSON.parse(event.payload);
-              await deps().db.insert(schema.reportAuditEvents).values({
-                vesselId: input.vesselId,
-                reportId: payload.reportId,
-                versionNo: payload.versionNo,
-                eventType: 'correction_started',
-                actor: payload.actor,
-                occurredAt: payload.at || new Date().toISOString(),
-                detail: { newVersionNo: payload.newVersionNo },
-                receivedAt: new Date().toISOString(),
-                origin: 'vessel',
-              });
-            } catch (err: any) {
-              console.error('Failed to parse or save correction_started event:', err);
-            }
-          } else {
-            console.warn(`Unrecognized outbox eventType "${event.eventType}" from vessel ${input.vesselId} — dropped.`);
           }
-        }
         
-        return {
-          success: true,
-          processedCount: input.events.length,
-        };
+          return {
+            success: true,
+            processedCount: input.events.length,
+          };
       }),
+      ),
 
     pullConfig: edgeProcedure
       .input((val: unknown) => {
         if (!PullConfigInputCompiler.Check(val)) throw new Error('Invalid input');
         return val as Static<typeof PullConfigInputSchema>;
       })
-      .query(async ({ input, ctx }) => {
-        await authenticateEdge(edgeAuthDeps(deps), ctx);
-        const bundle = await deps().configBundleService.resolveForVessel(input.vesselId);
-        const syncedAt = new Date().toISOString();
+      .query(async ({ input, ctx }) =>
+        withEdgeTenant(deps(), ctx, async (db) => {
+          const bundle = await deps().configBundleService.resolveForVessel(input.vesselId);
+          const syncedAt = new Date().toISOString();
 
-        await deps().db.insert(schema.vesselSyncStatus)
-          .values({
-            vesselId: input.vesselId,
-            lastSeenAt: syncedAt,
-            appliedBundleId: bundle?.bundleId ?? '',
-            appliedBundleVersion: bundle?.versionNo ?? 0,
-          })
-          .onConflictDoUpdate({
-            target: schema.vesselSyncStatus.vesselId,
-            set: {
+          await db.insert(schema.vesselSyncStatus)
+            .values({
+              vesselId: input.vesselId,
               lastSeenAt: syncedAt,
               appliedBundleId: bundle?.bundleId ?? '',
               appliedBundleVersion: bundle?.versionNo ?? 0,
-            },
-          });
+            })
+            .onConflictDoUpdate({
+              target: schema.vesselSyncStatus.vesselId,
+              set: {
+                lastSeenAt: syncedAt,
+                appliedBundleId: bundle?.bundleId ?? '',
+                appliedBundleVersion: bundle?.versionNo ?? 0,
+              },
+            });
 
-        // Piggybacked on this same check-in rather than a dedicated RPC —
-        // see VesselUsersService.handleCheckIn's own comment.
-        const userCommands = await deps().vesselUsersService.handleCheckIn(
-          input.vesselId,
-          input.users,
-          input.appliedUserCommandIds,
-        );
+          // Piggybacked on this same check-in rather than a dedicated RPC —
+          // see VesselUsersService.handleCheckIn's own comment.
+          const userCommands = await deps().vesselUsersService.handleCheckIn(
+            input.vesselId,
+            input.users,
+            input.appliedUserCommandIds,
+          );
 
-        // Chat's pull-down half: office-authored messages this vessel
-        // hasn't seen yet, by seq cursor. The vessel's own messages
-        // already arrived via pushEvents' chat_sent handling — this
-        // only needs to carry the other direction back down. Storage
-        // uses 'office'/'vessel' (this table's CHECK constraint); the
-        // vessel's local convention is 'ship_to_shore'/'shore_to_ship',
-        // so direction is translated here at the sync boundary.
-        const lastChatSeq = input.lastChatSeq ? BigInt(input.lastChatSeq) : BigInt(0);
-        const newChatRows = await deps().db
-          .select()
-          .from(schema.chatMessages)
-          .where(
-            and(
-              eq(schema.chatMessages.vesselId, input.vesselId),
-              eq(schema.chatMessages.direction, 'office'),
-              gt(schema.chatMessages.seq, lastChatSeq),
-            ),
-          )
-          .orderBy(schema.chatMessages.seq);
-        const chatMessages = newChatRows.map((m) => ({ ...m, seq: m.seq.toString(), direction: 'shore_to_ship' }));
+          // Chat's pull-down half: office-authored messages this vessel
+          // hasn't seen yet, by seq cursor. The vessel's own messages
+          // already arrived via pushEvents' chat_sent handling — this
+          // only needs to carry the other direction back down. Storage
+          // uses 'office'/'vessel' (this table's CHECK constraint); the
+          // vessel's local convention is 'ship_to_shore'/'shore_to_ship',
+          // so direction is translated here at the sync boundary.
+          const lastChatSeq = input.lastChatSeq ? BigInt(input.lastChatSeq) : BigInt(0);
+          const newChatRows = await db
+            .select()
+            .from(schema.chatMessages)
+            .where(
+              and(
+                eq(schema.chatMessages.vesselId, input.vesselId),
+                eq(schema.chatMessages.direction, 'office'),
+                gt(schema.chatMessages.seq, lastChatSeq),
+              ),
+            )
+            .orderBy(schema.chatMessages.seq);
+          const chatMessages = newChatRows.map((m) => ({ ...m, seq: m.seq.toString(), direction: 'shore_to_ship' }));
 
-        // Remarks' pull-down half, same seq-cursor shape as chat —
-        // remarks are always office-authored, so there's no push
-        // direction to handle.
-        const lastRemarkSeq = input.lastRemarkSeq ? BigInt(input.lastRemarkSeq) : BigInt(0);
-        const newRemarkRows = await deps().db
-          .select()
-          .from(schema.remarks)
-          .where(and(eq(schema.remarks.vesselId, input.vesselId), gt(schema.remarks.seq, lastRemarkSeq)))
-          .orderBy(schema.remarks.seq);
-        const remarks = newRemarkRows.map((r) => ({ ...r, seq: r.seq.toString() }));
+          // Remarks' pull-down half, same seq-cursor shape as chat —
+          // remarks are always office-authored, so there's no push
+          // direction to handle.
+          const lastRemarkSeq = input.lastRemarkSeq ? BigInt(input.lastRemarkSeq) : BigInt(0);
+          const newRemarkRows = await db
+            .select()
+            .from(schema.remarks)
+            .where(and(eq(schema.remarks.vesselId, input.vesselId), gt(schema.remarks.seq, lastRemarkSeq)))
+            .orderBy(schema.remarks.seq);
+          const remarks = newRemarkRows.map((r) => ({ ...r, seq: r.seq.toString() }));
 
-        // Invalidation notices' pull-down half, same seq-cursor shape
-        // — computed office-side only (cascade revalidation), no
-        // upstream direction.
-        const lastInvalidationSeq = input.lastInvalidationSeq ? BigInt(input.lastInvalidationSeq) : BigInt(0);
-        const newInvalidationRows = await deps().db
-          .select()
-          .from(schema.invalidationNotices)
-          .where(and(eq(schema.invalidationNotices.vesselId, input.vesselId), gt(schema.invalidationNotices.seq, lastInvalidationSeq)))
-          .orderBy(schema.invalidationNotices.seq);
-        const invalidationNotices = newInvalidationRows.map((n) => ({ ...n, seq: n.seq.toString() }));
+          // Invalidation notices' pull-down half, same seq-cursor shape
+          // — computed office-side only (cascade revalidation), no
+          // upstream direction.
+          const lastInvalidationSeq = input.lastInvalidationSeq ? BigInt(input.lastInvalidationSeq) : BigInt(0);
+          const newInvalidationRows = await db
+            .select()
+            .from(schema.invalidationNotices)
+            .where(and(eq(schema.invalidationNotices.vesselId, input.vesselId), gt(schema.invalidationNotices.seq, lastInvalidationSeq)))
+            .orderBy(schema.invalidationNotices.seq);
+          const invalidationNotices = newInvalidationRows.map((n) => ({ ...n, seq: n.seq.toString() }));
 
-        return {
-          bundle,
-          syncedAt,
-          userCommands,
-          chatMessages,
-          remarks,
-          invalidationNotices,
-        };
+          return {
+            bundle,
+            syncedAt,
+            userCommands,
+            chatMessages,
+            remarks,
+            invalidationNotices,
+          };
       }),
+      ),
     });

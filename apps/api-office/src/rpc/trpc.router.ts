@@ -323,6 +323,7 @@ export class TrpcRouter {
   private officeDeps(): OfficeRouterDeps {
     return {
       db: this.db,
+      tenantDb: this.tenantDb,
       supertokensService: this.supertokensService,
       notificationsService: this.notificationsService,
       schemaVersionsService: this.schemaVersionsService,
@@ -642,6 +643,7 @@ export class TrpcRouter {
     // Extracted to vessels.router.ts.
     vessels: createVesselsRouter(() => ({
       db: this.db,
+      tenantDb: this.tenantDb,
       supertokensService: this.supertokensService,
       vesselsService: this.vesselsService,
       vesselUsersService: this.vesselUsersService,
@@ -756,6 +758,7 @@ export class TrpcRouter {
     // Extracted to reports.router.ts.
     reports: createReportsRouter(() => ({
       db: this.db,
+      tenantDb: this.tenantDb,
       supertokensService: this.supertokensService,
     })),
     // The first call site migrated off the shared schema, and the one that had

@@ -1,8 +1,7 @@
-import { Injectable, Inject } from '@nestjs/common';
-import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { Injectable } from '@nestjs/common';
 import { eq, and, isNull, desc } from 'drizzle-orm';
 import * as schema from '@ovl/database';
-import { DATABASE_CONNECTION } from '../database/database.module';
+import { TenantDbService } from '../tenancy/tenant-db.service';
 import * as crypto from 'crypto';
 import { TRPCError } from '@trpc/server';
 
@@ -47,24 +46,27 @@ function serializeCommand<T extends { seq: bigint }>(row: T): Omit<T, 'seq'> & {
 @Injectable()
 export class VesselUsersService {
   constructor(
-    @Inject(DATABASE_CONNECTION)
-    private readonly db: NodePgDatabase<typeof schema>,
+    private readonly tenantDb: TenantDbService,
   ) {}
 
   async listRoster(vesselId: string) {
-    return this.db
-      .select()
-      .from(schema.vesselUsers)
-      .where(eq(schema.vesselUsers.vesselId, vesselId));
+    return this.tenantDb.withTenant(async (db) => {
+      return db
+        .select()
+        .from(schema.vesselUsers)
+        .where(eq(schema.vesselUsers.vesselId, vesselId));
+  }, { readOnly: true });
   }
 
   async listCommands(vesselId: string) {
-    const rows = await this.db
-      .select()
-      .from(schema.userCommands)
-      .where(eq(schema.userCommands.vesselId, vesselId))
-      .orderBy(desc(schema.userCommands.seq));
-    return rows.map(serializeCommand);
+    return this.tenantDb.withTenant(async (db) => {
+      const rows = await db
+        .select()
+        .from(schema.userCommands)
+        .where(eq(schema.userCommands.vesselId, vesselId))
+        .orderBy(desc(schema.userCommands.seq));
+      return rows.map(serializeCommand);
+  }, { readOnly: true });
   }
 
   /**
@@ -89,18 +91,20 @@ export class VesselUsersService {
    * stale for an offline vessel.
    */
   async queueCreate(vesselId: string, username: string, role: string, issuedBy: string) {
-    this.assertNotMaster(role);
-    const existing = await this.db
-      .select()
-      .from(schema.vesselUsers)
-      .where(and(eq(schema.vesselUsers.vesselId, vesselId), eq(schema.vesselUsers.username, username)))
-      .limit(1);
-    if (existing.length > 0) {
-      throw new TRPCError({ code: 'CONFLICT', message: 'That username already exists on this vessel as of its last sync.' });
-    }
-    const temporaryPassword = generateTemporaryPassword();
-    const command = await this.queue(vesselId, 'create', { username, role, temporaryPassword, issuedBy });
-    return { command, temporaryPassword };
+    return this.tenantDb.withTenant(async (db) => {
+      this.assertNotMaster(role);
+      const existing = await db
+        .select()
+        .from(schema.vesselUsers)
+        .where(and(eq(schema.vesselUsers.vesselId, vesselId), eq(schema.vesselUsers.username, username)))
+        .limit(1);
+      if (existing.length > 0) {
+        throw new TRPCError({ code: 'CONFLICT', message: 'That username already exists on this vessel as of its last sync.' });
+      }
+      const temporaryPassword = generateTemporaryPassword();
+      const command = await this.queue(vesselId, 'create', { username, role, temporaryPassword, issuedBy });
+      return { command, temporaryPassword };
+  });
   }
 
   async queueResetPassword(vesselId: string, username: string, issuedBy: string) {
@@ -127,22 +131,24 @@ export class VesselUsersService {
     action: string,
     opts: { username: string; role?: string; temporaryPassword?: string; canSubmit?: boolean; active?: boolean; issuedBy: string },
   ) {
-    const rows = await this.db
-      .insert(schema.userCommands)
-      .values({
-        id: crypto.randomUUID(),
-        vesselId,
-        action,
-        username: opts.username,
-        role: opts.role ?? '',
-        temporaryPassword: opts.temporaryPassword ?? '',
-        canSubmit: opts.canSubmit ?? false,
-        active: opts.active ?? false,
-        issuedBy: opts.issuedBy,
-        issuedAt: new Date().toISOString(),
-      })
-      .returning();
-    return serializeCommand(rows[0]);
+    return this.tenantDb.withTenant(async (db) => {
+      const rows = await db
+        .insert(schema.userCommands)
+        .values({
+          id: crypto.randomUUID(),
+          vesselId,
+          action,
+          username: opts.username,
+          role: opts.role ?? '',
+          temporaryPassword: opts.temporaryPassword ?? '',
+          canSubmit: opts.canSubmit ?? false,
+          active: opts.active ?? false,
+          issuedBy: opts.issuedBy,
+          issuedAt: new Date().toISOString(),
+        })
+        .returning();
+      return serializeCommand(rows[0]);
+  });
   }
 
   /**
@@ -158,13 +164,24 @@ export class VesselUsersService {
    * again rather than silently lose it.
    */
   async handleCheckIn(vesselId: string, users: VesselUserCheckIn[] | undefined, appliedCommandIds: string[] | undefined) {
-    const now = new Date().toISOString();
+    return this.tenantDb.withTenant(async (db) => {
+      const now = new Date().toISOString();
 
-    if (users) {
-      await this.db.transaction(async (tx) => {
-        await tx.delete(schema.vesselUsers).where(eq(schema.vesselUsers.vesselId, vesselId));
+      if (users) {
+        // Deliberately NOT wrapped in db.transaction(). The surrounding
+        // withTenant already owns a transaction on this connection, and
+        // drizzle's transaction() would issue its own COMMIT at the end of the
+        // block — committing *ours*, and with it discarding every SET LOCAL the
+        // tenant binding depends on. search_path would silently revert to the
+        // session default, which for ovl_api is empty, and every unqualified
+        // query after this point would fail with "relation does not exist"
+        // against a table that plainly exists.
+        //
+        // The replace is still atomic: it is part of the outer transaction,
+        // which is the only transaction here.
+        await db.delete(schema.vesselUsers).where(eq(schema.vesselUsers.vesselId, vesselId));
         if (users.length > 0) {
-          await tx.insert(schema.vesselUsers).values(
+          await db.insert(schema.vesselUsers).values(
             users.map((u) => ({
               vesselId,
               username: u.username,
@@ -176,29 +193,29 @@ export class VesselUsersService {
             })),
           );
         }
-      });
-    }
-
-    if (appliedCommandIds && appliedCommandIds.length > 0) {
-      for (const id of appliedCommandIds) {
-        await this.db
-          .update(schema.userCommands)
-          .set({ appliedAt: now })
-          .where(and(eq(schema.userCommands.id, id), eq(schema.userCommands.vesselId, vesselId)));
       }
-    }
 
-    const pending = await this.db
-      .select()
-      .from(schema.userCommands)
-      .where(and(eq(schema.userCommands.vesselId, vesselId), isNull(schema.userCommands.appliedAt)));
-
-    if (pending.length > 0) {
-      for (const cmd of pending) {
-        await this.db.update(schema.userCommands).set({ fetchedAt: now }).where(eq(schema.userCommands.id, cmd.id));
+      if (appliedCommandIds && appliedCommandIds.length > 0) {
+        for (const id of appliedCommandIds) {
+          await db
+            .update(schema.userCommands)
+            .set({ appliedAt: now })
+            .where(and(eq(schema.userCommands.id, id), eq(schema.userCommands.vesselId, vesselId)));
+        }
       }
-    }
 
-    return pending.map(serializeCommand);
+      const pending = await db
+        .select()
+        .from(schema.userCommands)
+        .where(and(eq(schema.userCommands.vesselId, vesselId), isNull(schema.userCommands.appliedAt)));
+
+      if (pending.length > 0) {
+        for (const cmd of pending) {
+          await db.update(schema.userCommands).set({ fetchedAt: now }).where(eq(schema.userCommands.id, cmd.id));
+        }
+      }
+
+      return pending.map(serializeCommand);
+  });
   }
 }

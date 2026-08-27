@@ -1,8 +1,7 @@
-import { Injectable, Inject } from '@nestjs/common';
-import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { Injectable } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import * as schema from '@ovl/database';
-import { DATABASE_CONNECTION } from '../database/database.module';
+import { TenantDbService } from '../tenancy/tenant-db.service';
 import { ComplianceService } from '../config/compliance/compliance.service';
 import { effectiveCadence } from '../config/logic/compliance';
 
@@ -56,8 +55,7 @@ function readPosition(fields: Record<string, unknown>): { lat: number; lon: numb
 @Injectable()
 export class VesselsService {
   constructor(
-    @Inject(DATABASE_CONNECTION)
-    private readonly db: NodePgDatabase<typeof schema>,
+    private readonly tenantDb: TenantDbService,
     private readonly complianceService: ComplianceService,
   ) {}
 
@@ -70,78 +68,84 @@ export class VesselsService {
    * remarked (an unreviewed remarked report) wins over ok.
    */
   async getPositions(group?: string): Promise<VesselPositionView[]> {
-    const allVessels = await this.db.select().from(schema.vessels);
-    const vessels = group
-      ? allVessels.filter((v) => ((v.groups as string[]) ?? []).includes(group))
-      : allVessels;
-    if (vessels.length === 0) return [];
+    // One transaction for the whole read, including the cadence rules
+    // ComplianceService fetches part-way through: withTenant is reentrant, so
+    // that nested call joins this transaction rather than taking a second
+    // connection and risking a deadlock against the per-tenant cap.
+    return this.tenantDb.withTenant(async (db) => {
+      const allVessels = await db.select().from(schema.vessels);
+      const vessels = group
+        ? allVessels.filter((v) => ((v.groups as string[]) ?? []).includes(group))
+        : allVessels;
+      if (vessels.length === 0) return [];
 
-    const reportRows = await this.db
-      .select({
-        vesselId: schema.reportVersions.vesselId,
-        reportId: schema.reportVersions.reportId,
-        versionNo: schema.reportVersions.versionNo,
-        eventTime: schema.reportVersions.eventTime,
-        fields: schema.reportVersions.fields,
-      })
-      .from(schema.reportVersions)
-      .where(eq(schema.reportVersions.schemaKind, LOG_ABSTRACT_SCHEMA_KIND));
+      const reportRows = await db
+        .select({
+          vesselId: schema.reportVersions.vesselId,
+          reportId: schema.reportVersions.reportId,
+          versionNo: schema.reportVersions.versionNo,
+          eventTime: schema.reportVersions.eventTime,
+          fields: schema.reportVersions.fields,
+        })
+        .from(schema.reportVersions)
+        .where(eq(schema.reportVersions.schemaKind, LOG_ABSTRACT_SCHEMA_KIND));
 
-    const latestVersionByReport = new Map<string, (typeof reportRows)[number]>();
-    for (const r of reportRows) {
-      const key = `${r.vesselId}:${r.reportId}`;
-      const existing = latestVersionByReport.get(key);
-      if (!existing || r.versionNo > existing.versionNo) latestVersionByReport.set(key, r);
-    }
-    const latestByVessel = new Map<string, (typeof reportRows)[number]>();
-    for (const r of latestVersionByReport.values()) {
-      const existing = latestByVessel.get(r.vesselId);
-      if (!existing || new Date(r.eventTime) > new Date(existing.eventTime)) latestByVessel.set(r.vesselId, r);
-    }
+      const latestVersionByReport = new Map<string, (typeof reportRows)[number]>();
+      for (const r of reportRows) {
+        const key = `${r.vesselId}:${r.reportId}`;
+        const existing = latestVersionByReport.get(key);
+        if (!existing || r.versionNo > existing.versionNo) latestVersionByReport.set(key, r);
+      }
+      const latestByVessel = new Map<string, (typeof reportRows)[number]>();
+      for (const r of latestVersionByReport.values()) {
+        const existing = latestByVessel.get(r.vesselId);
+        if (!existing || new Date(r.eventTime) > new Date(existing.eventTime)) latestByVessel.set(r.vesselId, r);
+      }
 
-    const remarkedRows = await this.db
-      .select({ vesselId: schema.reportVersions.vesselId, reportId: schema.reportVersions.reportId })
-      .from(schema.reportVersions)
-      .where(eq(schema.reportVersions.state, 'remarked'));
-    const reviewRows = await this.db
-      .select({ vesselId: schema.reportReviews.vesselId, reportId: schema.reportReviews.reportId })
-      .from(schema.reportReviews);
-    const reviewedKeys = new Set(reviewRows.map((r) => `${r.vesselId}:${r.reportId}`));
-    const unreviewedRemarkedVessels = new Set(
-      remarkedRows
-        .filter((r) => !reviewedKeys.has(`${r.vesselId}:${r.reportId}`))
-        .map((r) => r.vesselId),
-    );
+      const remarkedRows = await db
+        .select({ vesselId: schema.reportVersions.vesselId, reportId: schema.reportVersions.reportId })
+        .from(schema.reportVersions)
+        .where(eq(schema.reportVersions.state, 'remarked'));
+      const reviewRows = await db
+        .select({ vesselId: schema.reportReviews.vesselId, reportId: schema.reportReviews.reportId })
+        .from(schema.reportReviews);
+      const reviewedKeys = new Set(reviewRows.map((r) => `${r.vesselId}:${r.reportId}`));
+      const unreviewedRemarkedVessels = new Set(
+        remarkedRows
+          .filter((r) => !reviewedKeys.has(`${r.vesselId}:${r.reportId}`))
+          .map((r) => r.vesselId),
+      );
 
-    const cadenceRules = await this.complianceService.listCadenceRules();
-    const now = new Date();
+      const cadenceRules = await this.complianceService.listCadenceRules();
+      const now = new Date();
 
-    const out: VesselPositionView[] = [];
-    for (const v of vessels) {
-      const latest = latestByVessel.get(v.id);
-      if (!latest) continue;
-      const pos = readPosition(latest.fields as Record<string, unknown>);
-      if (!pos) continue;
+      const out: VesselPositionView[] = [];
+      for (const v of vessels) {
+        const latest = latestByVessel.get(v.id);
+        if (!latest) continue;
+        const pos = readPosition(latest.fields as Record<string, unknown>);
+        if (!pos) continue;
 
-      const groups = (v.groups as string[]) ?? [];
-      const cadence = effectiveCadence(cadenceRules, v.id, groups);
-      const hoursSince = (now.getTime() - new Date(latest.eventTime).getTime()) / (1000 * 60 * 60);
+        const groups = (v.groups as string[]) ?? [];
+        const cadence = effectiveCadence(cadenceRules, v.id, groups);
+        const hoursSince = (now.getTime() - new Date(latest.eventTime).getTime()) / (1000 * 60 * 60);
 
-      let status: VesselPositionView['status'] = 'ok';
-      if (hoursSince > cadence.maxGapHours) status = 'overdue';
-      else if (unreviewedRemarkedVessels.has(v.id)) status = 'remarked';
+        let status: VesselPositionView['status'] = 'ok';
+        if (hoursSince > cadence.maxGapHours) status = 'overdue';
+        else if (unreviewedRemarkedVessels.has(v.id)) status = 'remarked';
 
-      out.push({
-        id: v.id,
-        name: v.name,
-        imo: v.imo,
-        groups,
-        lat: pos.lat,
-        lon: pos.lon,
-        status,
-        asOf: new Date(latest.eventTime).toISOString(),
-      });
-    }
-    return out;
+        out.push({
+          id: v.id,
+          name: v.name,
+          imo: v.imo,
+          groups,
+          lat: pos.lat,
+          lon: pos.lon,
+          status,
+          asOf: new Date(latest.eventTime).toISOString(),
+        });
+      }
+      return out;
+  }, { readOnly: true });
   }
 }

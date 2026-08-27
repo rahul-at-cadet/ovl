@@ -1,8 +1,7 @@
-import { Injectable, Inject, NotFoundException } from '@nestjs/common';
-import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { eq, and, desc } from 'drizzle-orm';
 import * as schema from '@ovl/database';
-import { DATABASE_CONNECTION } from '../../database/database.module';
+import { TenantDbService } from '../../tenancy/tenant-db.service';
 import { Scope, ScopeType, validateScope } from '../logic/scope';
 import { FieldPolicyAssignment } from '../logic/fieldPolicy';
 import { ProfileAssignment, CadenceRule, RuleSeverityAssignment } from '../logic/compliance';
@@ -26,8 +25,7 @@ export type VesselConfigStatus = 'unassigned' | 'pendingSync' | 'synced' | 'outO
 @Injectable()
 export class ConfigBundleService {
   constructor(
-    @Inject(DATABASE_CONNECTION)
-    private readonly db: NodePgDatabase<typeof schema>,
+    private readonly tenantDb: TenantDbService,
   ) {}
 
   /**
@@ -38,59 +36,61 @@ export class ConfigBundleService {
    * per-vessel filtering happens later, at resolve time).
    */
   async compose(): Promise<ComposedBundleContent> {
-    const allSchemaVersions = await this.db
-      .select()
-      .from(schema.schemaVersions)
-      .orderBy(desc(schema.schemaVersions.publishedAt));
-    const latestByName = new Map<string, (typeof allSchemaVersions)[number]>();
-    for (const sv of allSchemaVersions) {
-      if (!latestByName.has(sv.schemaName)) latestByName.set(sv.schemaName, sv);
-    }
-    const schemaVersionRefs = [...latestByName.values()].map((sv) => ({
-      schemaName: sv.schemaName,
-      version: sv.version,
-      id: sv.id,
-    }));
-
-    const fieldPolicyRows = await this.db.select().from(schema.fieldPolicyAssignments);
-    const fieldPolicies: FieldPolicyAssignment[] = fieldPolicyRows
-      .filter((r) => latestByName.get(r.schemaName)?.version === r.schemaVersion)
-      .map((r) => ({
-        scope: scopeFromRow(r),
-        schemaName: r.schemaName,
-        schemaVersion: r.schemaVersion,
-        policy: r.policy as Record<string, string>,
-        prefill: r.prefill as Record<string, string>,
-        events: r.events as Record<string, string[]>,
+    return this.tenantDb.withTenant(async (db) => {
+      const allSchemaVersions = await db
+        .select()
+        .from(schema.schemaVersions)
+        .orderBy(desc(schema.schemaVersions.publishedAt));
+      const latestByName = new Map<string, (typeof allSchemaVersions)[number]>();
+      for (const sv of allSchemaVersions) {
+        if (!latestByName.has(sv.schemaName)) latestByName.set(sv.schemaName, sv);
+      }
+      const schemaVersionRefs = [...latestByName.values()].map((sv) => ({
+        schemaName: sv.schemaName,
+        version: sv.version,
+        id: sv.id,
       }));
 
-    const profileRows = await this.db.select().from(schema.regulatoryProfileAssignments);
-    const regulatoryProfiles: ProfileAssignment[] = profileRows.map((r) => ({
-      scope: scopeFromRow(r),
-      profiles: r.profiles as string[],
-    }));
+      const fieldPolicyRows = await db.select().from(schema.fieldPolicyAssignments);
+      const fieldPolicies: FieldPolicyAssignment[] = fieldPolicyRows
+        .filter((r) => latestByName.get(r.schemaName)?.version === r.schemaVersion)
+        .map((r) => ({
+          scope: scopeFromRow(r),
+          schemaName: r.schemaName,
+          schemaVersion: r.schemaVersion,
+          policy: r.policy as Record<string, string>,
+          prefill: r.prefill as Record<string, string>,
+          events: r.events as Record<string, string[]>,
+        }));
 
-    const cadenceRows = await this.db.select().from(schema.cadenceRules);
-    const cadenceRules: CadenceRule[] = cadenceRows.map((r) => ({
-      scope: scopeFromRow(r),
-      minReportIntervalHours: r.minReportIntervalHours,
-      maxGapHours: r.maxGapHours,
-    }));
+      const profileRows = await db.select().from(schema.regulatoryProfileAssignments);
+      const regulatoryProfiles: ProfileAssignment[] = profileRows.map((r) => ({
+        scope: scopeFromRow(r),
+        profiles: r.profiles as string[],
+      }));
 
-    const severityRows = await this.db.select().from(schema.ruleSeverityAssignments);
-    const ruleSeverities: RuleSeverityAssignment[] = severityRows.map((r) => ({
-      scope: scopeFromRow(r),
-      severities: r.severities as Record<string, string>,
-    }));
+      const cadenceRows = await db.select().from(schema.cadenceRules);
+      const cadenceRules: CadenceRule[] = cadenceRows.map((r) => ({
+        scope: scopeFromRow(r),
+        minReportIntervalHours: r.minReportIntervalHours,
+        maxGapHours: r.maxGapHours,
+      }));
 
-    return {
-      schemaVersions: schemaVersionRefs,
-      fieldPolicies,
-      regulatoryProfiles,
-      cadenceRules,
-      ruleSeverities,
-      defaultRoleNames: [],
-    };
+      const severityRows = await db.select().from(schema.ruleSeverityAssignments);
+      const ruleSeverities: RuleSeverityAssignment[] = severityRows.map((r) => ({
+        scope: scopeFromRow(r),
+        severities: r.severities as Record<string, string>,
+      }));
+
+      return {
+        schemaVersions: schemaVersionRefs,
+        fieldPolicies,
+        regulatoryProfiles,
+        cadenceRules,
+        ruleSeverities,
+        defaultRoleNames: [],
+      };
+  }, { readOnly: true });
   }
 
   private counts(content: ComposedBundleContent) {
@@ -110,27 +110,31 @@ export class ConfigBundleService {
   }
 
   async publish(label: string) {
-    const content = await this.compose();
-    const inserted = await this.db
-      .insert(schema.configBundles)
-      .values({
-        label: label || '',
-        schemaVersions: content.schemaVersions,
-        fieldPolicies: content.fieldPolicies,
-        regulatoryProfiles: content.regulatoryProfiles,
-        cadenceRules: content.cadenceRules,
-        ruleSeverities: content.ruleSeverities,
-        defaultRoleNames: content.defaultRoleNames,
-        publishedAt: new Date().toISOString(),
-        publishedBy: 'System Admin',
-      })
-      .returning();
-    return this.toSummary(inserted[0]);
+    return this.tenantDb.withTenant(async (db) => {
+      const content = await this.compose();
+      const inserted = await db
+        .insert(schema.configBundles)
+        .values({
+          label: label || '',
+          schemaVersions: content.schemaVersions,
+          fieldPolicies: content.fieldPolicies,
+          regulatoryProfiles: content.regulatoryProfiles,
+          cadenceRules: content.cadenceRules,
+          ruleSeverities: content.ruleSeverities,
+          defaultRoleNames: content.defaultRoleNames,
+          publishedAt: new Date().toISOString(),
+          publishedBy: 'System Admin',
+        })
+        .returning();
+      return this.toSummary(inserted[0]);
+  });
   }
 
   async list() {
-    const rows = await this.db.select().from(schema.configBundles).orderBy(desc(schema.configBundles.publishedAt));
-    return rows.map((r) => this.toSummary(r));
+    return this.tenantDb.withTenant(async (db) => {
+      const rows = await db.select().from(schema.configBundles).orderBy(desc(schema.configBundles.publishedAt));
+      return rows.map((r) => this.toSummary(r));
+  }, { readOnly: true });
   }
 
   private toSummary(row: typeof schema.configBundles.$inferSelect) {
@@ -150,137 +154,145 @@ export class ConfigBundleService {
   }
 
   async assign(scope: Scope, bundleId: string) {
-    validateScope(scope);
-    const bundleRows = await this.db
-      .select()
-      .from(schema.configBundles)
-      .where(eq(schema.configBundles.id, bundleId))
-      .limit(1);
-    if (bundleRows.length === 0) throw new NotFoundException('bundle not found');
+    return this.tenantDb.withTenant(async (db) => {
+      validateScope(scope);
+      const bundleRows = await db
+        .select()
+        .from(schema.configBundles)
+        .where(eq(schema.configBundles.id, bundleId))
+        .limit(1);
+      if (bundleRows.length === 0) throw new NotFoundException('bundle not found');
 
-    const conditions = this.scopeConditions(schema.bundleAssignments, scope);
-    const existing = await this.db
-      .select()
-      .from(schema.bundleAssignments)
-      .where(and(...conditions))
-      .limit(1);
+      const conditions = this.scopeConditions(schema.bundleAssignments, scope);
+      const existing = await db
+        .select()
+        .from(schema.bundleAssignments)
+        .where(and(...conditions))
+        .limit(1);
 
-    if (existing.length > 0) {
-      await this.db
-        .update(schema.bundleAssignments)
-        .set({ bundleId, assignedAt: new Date().toISOString() })
-        .where(and(...conditions));
-    } else {
-      await this.db.insert(schema.bundleAssignments).values({
-        scopeType: scope.type,
-        vesselId: scope.type === 'vessel' ? scope.key ?? null : null,
-        groupTag: scope.type === 'group' ? scope.key ?? null : null,
+      if (existing.length > 0) {
+        await db
+          .update(schema.bundleAssignments)
+          .set({ bundleId, assignedAt: new Date().toISOString() })
+          .where(and(...conditions));
+      } else {
+        await db.insert(schema.bundleAssignments).values({
+          scopeType: scope.type,
+          vesselId: scope.type === 'vessel' ? scope.key ?? null : null,
+          groupTag: scope.type === 'group' ? scope.key ?? null : null,
+          bundleId,
+          assignedAt: new Date().toISOString(),
+        });
+      }
+
+      return {
+        scope,
         bundleId,
-        assignedAt: new Date().toISOString(),
-      });
-    }
-
-    return {
-      scope,
-      bundleId,
-      bundleLabel: bundleRows[0].label,
-      publishedAt: bundleRows[0].publishedAt,
-    };
+        bundleLabel: bundleRows[0].label,
+        publishedAt: bundleRows[0].publishedAt,
+      };
+  });
   }
 
   async listAssignments() {
-    const rows = await this.db
-      .select({
-        scopeType: schema.bundleAssignments.scopeType,
-        vesselId: schema.bundleAssignments.vesselId,
-        groupTag: schema.bundleAssignments.groupTag,
-        bundleId: schema.bundleAssignments.bundleId,
-        assignedAt: schema.bundleAssignments.assignedAt,
-        bundleLabel: schema.configBundles.label,
-        bundlePublishedAt: schema.configBundles.publishedAt,
-      })
-      .from(schema.bundleAssignments)
-      .leftJoin(schema.configBundles, eq(schema.bundleAssignments.bundleId, schema.configBundles.id));
+    return this.tenantDb.withTenant(async (db) => {
+      const rows = await db
+        .select({
+          scopeType: schema.bundleAssignments.scopeType,
+          vesselId: schema.bundleAssignments.vesselId,
+          groupTag: schema.bundleAssignments.groupTag,
+          bundleId: schema.bundleAssignments.bundleId,
+          assignedAt: schema.bundleAssignments.assignedAt,
+          bundleLabel: schema.configBundles.label,
+          bundlePublishedAt: schema.configBundles.publishedAt,
+        })
+        .from(schema.bundleAssignments)
+        .leftJoin(schema.configBundles, eq(schema.bundleAssignments.bundleId, schema.configBundles.id));
 
-    return rows.map((r) => ({
-      scope: scopeFromRow(r),
-      bundleId: r.bundleId,
-      bundleLabel: r.bundleLabel,
-      publishedAt: r.bundlePublishedAt,
-      assignedAt: r.assignedAt,
-    }));
+      return rows.map((r) => ({
+        scope: scopeFromRow(r),
+        bundleId: r.bundleId,
+        bundleLabel: r.bundleLabel,
+        publishedAt: r.bundlePublishedAt,
+        assignedAt: r.assignedAt,
+      }));
+  }, { readOnly: true });
   }
 
   /** Fleet-wide "vessel configs" dashboard: assigned bundle vs. what a vessel last reported running. */
   async vesselConfigs() {
-    const vesselRows = await this.db.select().from(schema.vessels);
-    const assignmentRows = await this.db.select().from(schema.bundleAssignments);
-    const assignments: BundleAssignmentRecord[] = assignmentRows.map((r) => ({
-      scope: scopeFromRow(r),
-      bundleId: r.bundleId,
-    }));
-    const bundleRows = await this.db.select().from(schema.configBundles);
-    const bundlesById = new Map(bundleRows.map((b) => [b.id, b]));
-    const syncRows = await this.db.select().from(schema.vesselSyncStatus);
-    const syncByVessel = new Map(syncRows.map((s) => [s.vesselId, s]));
+    return this.tenantDb.withTenant(async (db) => {
+      const vesselRows = await db.select().from(schema.vessels);
+      const assignmentRows = await db.select().from(schema.bundleAssignments);
+      const assignments: BundleAssignmentRecord[] = assignmentRows.map((r) => ({
+        scope: scopeFromRow(r),
+        bundleId: r.bundleId,
+      }));
+      const bundleRows = await db.select().from(schema.configBundles);
+      const bundlesById = new Map(bundleRows.map((b) => [b.id, b]));
+      const syncRows = await db.select().from(schema.vesselSyncStatus);
+      const syncByVessel = new Map(syncRows.map((s) => [s.vesselId, s]));
 
-    return vesselRows.map((v) => {
-      const groups = (v.groups as string[]) ?? [];
-      const winner = resolveBundleAssignment(assignments, v.id, groups);
-      const bundle = winner ? bundlesById.get(winner.bundleId) : undefined;
-      const sync = syncByVessel.get(v.id);
+      return vesselRows.map((v) => {
+        const groups = (v.groups as string[]) ?? [];
+        const winner = resolveBundleAssignment(assignments, v.id, groups);
+        const bundle = winner ? bundlesById.get(winner.bundleId) : undefined;
+        const sync = syncByVessel.get(v.id);
 
-      let status: VesselConfigStatus = 'unassigned';
-      if (winner && bundle) {
-        if (!sync || !sync.appliedBundleId) status = 'pendingSync';
-        else if (sync.appliedBundleId === bundle.id) status = 'synced';
-        else status = 'outOfDate';
-      }
+        let status: VesselConfigStatus = 'unassigned';
+        if (winner && bundle) {
+          if (!sync || !sync.appliedBundleId) status = 'pendingSync';
+          else if (sync.appliedBundleId === bundle.id) status = 'synced';
+          else status = 'outOfDate';
+        }
 
-      return {
-        vesselId: v.id,
-        vesselName: v.name,
-        imo: v.imo,
-        status,
-        assignedBundleLabel: bundle?.label || null,
-        activeSince: sync?.lastSeenAt ?? null,
-      };
-    });
+        return {
+          vesselId: v.id,
+          vesselName: v.name,
+          imo: v.imo,
+          status,
+          assignedBundleLabel: bundle?.label || null,
+          activeSince: sync?.lastSeenAt ?? null,
+        };
+      });
+  }, { readOnly: true });
   }
 
   /** Real config resolution for one vessel — backs sync.pullConfig. */
   async resolveForVessel(vesselId: string): Promise<WireBundle | null> {
-    const vesselRows = await this.db.select().from(schema.vessels).where(eq(schema.vessels.id, vesselId)).limit(1);
-    const vessel = vesselRows[0];
-    if (!vessel) return null;
-    const vesselGroups = (vessel.groups as string[]) ?? [];
+    return this.tenantDb.withTenant(async (db) => {
+      const vesselRows = await db.select().from(schema.vessels).where(eq(schema.vessels.id, vesselId)).limit(1);
+      const vessel = vesselRows[0];
+      if (!vessel) return null;
+      const vesselGroups = (vessel.groups as string[]) ?? [];
 
-    const assignmentRows = await this.db.select().from(schema.bundleAssignments);
-    const assignments: BundleAssignmentRecord[] = assignmentRows.map((r) => ({
-      scope: scopeFromRow(r),
-      bundleId: r.bundleId,
-    }));
-    const winner = resolveBundleAssignment(assignments, vesselId, vesselGroups);
-    if (!winner) return null;
+      const assignmentRows = await db.select().from(schema.bundleAssignments);
+      const assignments: BundleAssignmentRecord[] = assignmentRows.map((r) => ({
+        scope: scopeFromRow(r),
+        bundleId: r.bundleId,
+      }));
+      const winner = resolveBundleAssignment(assignments, vesselId, vesselGroups);
+      if (!winner) return null;
 
-    const bundleRows = await this.db
-      .select()
-      .from(schema.configBundles)
-      .where(eq(schema.configBundles.id, winner.bundleId))
-      .limit(1);
-    const bundle = bundleRows[0];
-    if (!bundle) return null;
+      const bundleRows = await db
+        .select()
+        .from(schema.configBundles)
+        .where(eq(schema.configBundles.id, winner.bundleId))
+        .limit(1);
+      const bundle = bundleRows[0];
+      if (!bundle) return null;
 
-    const content: ComposedBundleContent = {
-      schemaVersions: bundle.schemaVersions as ComposedBundleContent['schemaVersions'],
-      fieldPolicies: bundle.fieldPolicies as ComposedBundleContent['fieldPolicies'],
-      regulatoryProfiles: bundle.regulatoryProfiles as ComposedBundleContent['regulatoryProfiles'],
-      cadenceRules: bundle.cadenceRules as ComposedBundleContent['cadenceRules'],
-      ruleSeverities: bundle.ruleSeverities as ComposedBundleContent['ruleSeverities'],
-      defaultRoleNames: bundle.defaultRoleNames as string[],
-    };
+      const content: ComposedBundleContent = {
+        schemaVersions: bundle.schemaVersions as ComposedBundleContent['schemaVersions'],
+        fieldPolicies: bundle.fieldPolicies as ComposedBundleContent['fieldPolicies'],
+        regulatoryProfiles: bundle.regulatoryProfiles as ComposedBundleContent['regulatoryProfiles'],
+        cadenceRules: bundle.cadenceRules as ComposedBundleContent['cadenceRules'],
+        ruleSeverities: bundle.ruleSeverities as ComposedBundleContent['ruleSeverities'],
+        defaultRoleNames: bundle.defaultRoleNames as string[],
+      };
 
-    return resolveConfigForVessel(bundle.id, bundle.cursor ?? 0, bundle.publishedAt, content, vesselId, vesselGroups);
+      return resolveConfigForVessel(bundle.id, bundle.cursor ?? 0, bundle.publishedAt, content, vesselId, vesselGroups);
+  }, { readOnly: true });
   }
 
   private scopeConditions(table: { scopeType: any; vesselId: any; groupTag: any }, scope: Scope) {
