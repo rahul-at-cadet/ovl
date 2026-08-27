@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { ReportsService } from './reports.service';
 import { SchemaRegistryService } from './schema-registry.service';
+import { SchemaSyncService } from './schema-sync.service';
 import { AttachmentsController } from './attachments.controller';
 import { AttachmentsService } from './attachments.service';
 import { LockManagerService } from './lock-manager.service';
@@ -12,7 +13,7 @@ import { ValidationModule } from '../validation/validation.module';
   // module cycle, resolved with forwardRef on both sides.
   imports: [forwardRef(() => ValidationModule)],
   controllers: [AttachmentsController],
-  providers: [ReportsService, SchemaRegistryService, AttachmentsService, LockManagerService],
-  exports: [ReportsService, SchemaRegistryService],
+  providers: [ReportsService, SchemaRegistryService, SchemaSyncService, AttachmentsService, LockManagerService],
+  exports: [ReportsService, SchemaRegistryService, SchemaSyncService],
 })
 export class ReportsModule {}

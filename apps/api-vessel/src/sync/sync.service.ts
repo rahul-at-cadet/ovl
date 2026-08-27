@@ -1,6 +1,8 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { TrpcService } from '../rpc/trpc.service';
+import { SchemaSyncService } from '../reports/schema-sync.service';
+import { SchemaRegistryService } from '../reports/schema-registry.service';
 import { DATABASE_CONNECTION } from '../database/database.module';
 import { isNull, eq, and } from 'drizzle-orm';
 import * as schema from '@ovl/vessel-database';
@@ -15,6 +17,8 @@ export class SyncService {
 
   constructor(
     private readonly trpc: TrpcService,
+    private readonly schemaSync: SchemaSyncService,
+    private readonly schemaRegistry: SchemaRegistryService,
     private readonly authService: AuthService,
     @Inject(DATABASE_CONNECTION)
     private readonly db: any, // type as NodePgDatabase/BetterSQLite3Database if configured
@@ -37,6 +41,7 @@ export class SyncService {
 
       // 2. Downstream Sync (Shore -> Ship)
       await this.pullConfiguration();
+      await this.pullSchemas();
 
       this.logger.debug('Sync Cycle Complete');
       this.lastSuccess = new Date().toISOString();
@@ -272,6 +277,55 @@ export class SyncService {
       if (maxSeq === null || seq > maxSeq) maxSeq = seq;
     }
     return maxSeq === null ? null : maxSeq.toString();
+  }
+
+  /**
+   * Pulls the form schemas this vessel's tenant has adopted.
+   *
+   * Deliberately its own step rather than part of pullConfig. The config bundle
+   * carries *policy about* fields — which are mandatory, which are prefilled —
+   * and never the field definitions themselves, which is why an office could
+   * publish a new schema version and the vessel would go on rendering whatever
+   * was baked into its image.
+   *
+   * The request is a diff: the vessel sends what it holds and shore replies
+   * with only what differs. There is no cursor and no resume state, so a failed
+   * pull needs no repair — the next cycle asks again and gets the same answer.
+   * A failure here must not abort the sync cycle either; the rest of the
+   * check-in is more urgent than a schema update.
+   */
+  private async pullSchemas() {
+    try {
+      const vesselId = (await this.db.select().from(schema.configStore).where(eq(schema.configStore.key, 'vessel_id')))[0]?.value;
+      if (!vesselId) return;
+
+      const known = await this.schemaSync.known();
+      const response = await this.trpc.client.catalogue.edge.pullSchemas.query({ known });
+
+      if (response.changed.length === 0 && response.removed.length === 0) return;
+
+      const result = await this.schemaSync.apply(response);
+
+      if (result.rejected.length > 0) {
+        // Already logged in detail by the sync service. Nothing was applied,
+        // and the next cycle will re-request the same diff.
+        this.logger.error(
+          `Schema sync refused: ${result.rejected.length} item(s) failed validation. ` +
+            `Keeping the schemas this vessel already had.`,
+        );
+        return;
+      }
+
+      this.logger.log(
+        `Schemas updated from shore: ${result.applied.length} changed, ${result.removed.length} removed.`,
+      );
+
+      // Only after a successful commit — a registry rebuilt from a rolled-back
+      // apply would disagree with what is actually stored.
+      await this.schemaRegistry.reload();
+    } catch (err: any) {
+      this.logger.error(`Failed to pull form schemas: ${err.message}`);
+    }
   }
 
   private async pullConfiguration() {

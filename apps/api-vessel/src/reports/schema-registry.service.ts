@@ -4,6 +4,7 @@ import {
   Logger,
   BadRequestException,
 } from '@nestjs/common';
+import { SchemaSyncService } from './schema-sync.service';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Type, TSchema } from '@sinclair/typebox';
@@ -34,9 +35,65 @@ export class SchemaRegistryService implements OnModuleInit {
   private readonly originalSchemas = new Map<string, OvdSchema>();
   private readonly enums = new Map<string, string[]>();
 
-  onModuleInit() {
-    this.loadSchemas();
+  constructor(private readonly schemaSync: SchemaSyncService) {}
+
+  async onModuleInit() {
+    await this.reload();
     this.loadEnums();
+  }
+
+  /**
+   * Rebuilds the compiled schema set from whatever the vessel currently holds.
+   *
+   * Synced schemas win; the bundled JSON files are a bootstrap fallback for a
+   * vessel that has never reached shore. That ordering is the whole point of
+   * this change — before it, the files were the only source, so an office could
+   * publish a new version and the vessel would keep rendering whatever was
+   * baked into its image, indefinitely and silently.
+   *
+   * Called again after every successful sync, so a newly adopted or newly
+   * forked schema takes effect without restarting the vessel.
+   */
+  async reload(): Promise<void> {
+    let synced: Array<{ schemaName: string; version: string; document: unknown }> = [];
+    try {
+      synced = await this.schemaSync.list();
+    } catch (error) {
+      // A vessel whose local store is unreadable must still come up on its
+      // bundled schemas rather than refusing to start with no forms at all.
+      this.logger.error(
+        `Could not read synced schemas; falling back to bundled files: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+
+    this.compilers.clear();
+    this.originalSchemas.clear();
+
+    if (synced.length > 0) {
+      for (const row of synced) {
+        this.compile(row.document as OvdSchema, `synced ${row.schemaName}@${row.version}`);
+      }
+      this.logger.log(`Loaded ${this.compilers.size} schema(s) synced from shore.`);
+      return;
+    }
+
+    this.logger.warn('No schemas synced from shore yet; using the bundled copies.');
+    this.loadSchemas();
+  }
+
+  /** Compiles one document into the validator set, or logs and skips it. */
+  private compile(schemaDef: OvdSchema, label: string): void {
+    try {
+      const key = schemaDef.schemaName + '.json';
+      this.compilers.set(key, TypeCompiler.Compile(this.buildTypeBoxSchema(schemaDef)));
+      this.originalSchemas.set(key, schemaDef);
+    } catch (err: any) {
+      // One unusable schema must not take the others down with it — the rest
+      // of the fleet's forms still have to work.
+      this.logger.error(`Failed to compile ${label}: ${err.message}`);
+    }
   }
 
   private loadSchemas() {

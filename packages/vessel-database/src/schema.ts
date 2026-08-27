@@ -116,3 +116,29 @@ export const attachments = sqliteTable('attachments', {
   uploadedBy: text('uploaded_by').notNull(),
   syncedAt: text('synced_at'),
 });
+
+/**
+ * Form schemas synced down from the office.
+ *
+ * The office is authoritative: it resolves which version this vessel's tenant
+ * has adopted — the platform's, or that tenant's own fork — and sends the
+ * document. The vessel never chooses, and never learns which of the two it got.
+ *
+ * This exists because the config bundle carries *policy about* fields and never
+ * the fields themselves, so before this table an office could publish a new
+ * schema version and the vessel would keep rendering whatever was baked into
+ * its image, indefinitely and silently.
+ *
+ * `checksum` is what makes the sync cheap: the vessel sends what it holds and
+ * the office replies with only what differs. On a satellite link that is the
+ * difference between a check-in that fits its window and one that does not.
+ */
+export const formSchemas = sqliteTable('form_schemas', {
+  schemaName: text('schema_name').primaryKey(),
+  version: text('version').notNull(),
+  /** SHA-256 over canonical JSON, computed office-side. Compared, never recomputed here. */
+  checksum: text('checksum').notNull(),
+  /** The whole schema document as received. */
+  content: text('content').notNull(),
+  syncedAt: text('synced_at').notNull(),
+});
