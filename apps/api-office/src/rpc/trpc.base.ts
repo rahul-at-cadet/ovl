@@ -2,6 +2,7 @@ import { initTRPC, TRPCError } from '@trpc/server';
 import * as trpcExpress from '@trpc/server/adapters/express';
 import * as crypto from 'crypto';
 import Session from 'supertokens-node/recipe/session';
+import { tryCurrentTenant } from '../tenancy/tenant-context';
 
 /**
  * Shared tRPC primitives for the office API.
@@ -91,3 +92,31 @@ const isAuthed = t.middleware(async ({ ctx, next }) => {
 });
 
 export const protectedProcedure = t.procedure.use(isAuthed);
+
+/**
+ * Throws unless the tenancy/catalogue stack is wired up.
+ *
+ * Those providers only exist when MULTI_TENANCY_ENABLED is set, so procedures
+ * that need them say so plainly rather than dereferencing undefined.
+ */
+export function requireCatalogue<T>(service: T | undefined): T {
+  if (!service) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'The form-schema catalogue requires MULTI_TENANCY_ENABLED=true.',
+    });
+  }
+  return service;
+}
+
+/** The active tenant, or a clean 403 rather than a 500 from deeper down. */
+export function requireTenant() {
+  const tenant = tryCurrentTenant();
+  if (!tenant) {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'No tenant is associated with this account.',
+    });
+  }
+  return tenant;
+}
