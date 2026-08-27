@@ -712,13 +712,27 @@ export class TrpcRouter {
           return parsed;
         })
         .mutation(async ({ input, ctx }) => {
-          const existing = await this.db.select({ id: schema.users.id }).from(schema.users).limit(1);
-          if (existing.length > 0) {
-            const session = await Session.getSession(ctx.req, ctx.res, { sessionRequired: false }).catch(() => undefined);
-            const localUser = session ? await this.supertokensService.getLocalUser(session.getUserId()) : null;
-            if (!localUser || !(localUser.roles as string[]).includes('admin')) {
-              throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Admin login required to create additional users.' });
-            }
+          // No unauthenticated bootstrap any more.
+          //
+          // This used to let the very first account be created with no session,
+          // because a fresh single-tenant install had no admin yet. Under
+          // multi-tenancy that hole cannot stay open and is not needed: a
+          // tenant's first admin is created by a platform super admin when the
+          // tenant is registered (see TenantProvisioningService.createFirstAdmin),
+          // with a temporary password the admin must change at first sign-in.
+          // Every account after that is created by an authenticated tenant
+          // admin, which is what this procedure is now for.
+          const session = await Session.getSession(ctx.req, ctx.res, { sessionRequired: false }).catch(
+            () => undefined,
+          );
+          const localUser = session
+            ? await this.supertokensService.getLocalUser(session.getUserId())
+            : null;
+          if (!localUser || !(localUser.roles as string[]).includes('admin')) {
+            throw new TRPCError({
+              code: 'UNAUTHORIZED',
+              message: 'Admin login required to create users.',
+            });
           }
           return this.usersService.createUser(input);
         }),

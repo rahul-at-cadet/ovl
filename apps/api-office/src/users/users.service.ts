@@ -1,11 +1,10 @@
-import { Injectable, Inject, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
-import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import * as schema from '@ovl/database';
 import * as argon2 from 'argon2';
 import EmailPassword from 'supertokens-node/recipe/emailpassword';
 import supertokens from 'supertokens-node';
-import { DATABASE_CONNECTION } from '../database/database.module';
+import { TenantDbService } from '../tenancy/tenant-db.service';
 import type { LocalUser } from '../auth/supertokens.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserRolesDto } from './dto/update-user.dto';
@@ -30,28 +29,31 @@ function randomPassword(length = 12): string {
 @Injectable()
 export class UsersService {
   constructor(
-    @Inject(DATABASE_CONNECTION)
-    private readonly db: NodePgDatabase<typeof schema>,
+    private readonly tenantDb: TenantDbService,
   ) {}
 
   /** List all users (admin-only). Never returns password hashes. */
   async listUsers(): Promise<SafeUser[]> {
-    const results = await this.db
-      .select()
-      .from(schema.users)
-      .orderBy(schema.users.createdAt);
-    return results.map(toSafeUser);
+    return this.tenantDb.withTenant(async (db) => {
+      const results = await db
+        .select()
+        .from(schema.users)
+        .orderBy(schema.users.createdAt);
+      return results.map(toSafeUser);
+  }, { readOnly: true });
   }
 
   /** Get a single user by UUID. */
   async getUser(id: string): Promise<SafeUser> {
-    const results = await this.db
-      .select()
-      .from(schema.users)
-      .where(eq(schema.users.id, id))
-      .limit(1);
-    if (!results[0]) throw new NotFoundException(`User ${id} not found`);
-    return toSafeUser(results[0]);
+    return this.tenantDb.withTenant(async (db) => {
+      const results = await db
+        .select()
+        .from(schema.users)
+        .where(eq(schema.users.id, id))
+        .limit(1);
+      if (!results[0]) throw new NotFoundException(`User ${id} not found`);
+      return toSafeUser(results[0]);
+  }, { readOnly: true });
   }
 
   /**
@@ -75,83 +77,91 @@ export class UsersService {
   async createUser(
     dto: CreateUserDto,
   ): Promise<{ user: SafeUser; temporaryPassword: string }> {
-    // Check for duplicate username
-    const existing = await this.db
-      .select({ id: schema.users.id })
-      .from(schema.users)
-      .where(eq(schema.users.username, dto.username))
-      .limit(1);
-    if (existing.length > 0) {
-      throw new ConflictException(`Username "${dto.username}" already exists`);
-    }
+    return this.tenantDb.withTenant(async (db) => {
+      // Check for duplicate username
+      const existing = await db
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(eq(schema.users.username, dto.username))
+        .limit(1);
+      if (existing.length > 0) {
+        throw new ConflictException(`Username "${dto.username}" already exists`);
+      }
 
-    const temporaryPassword = randomPassword(12);
+      const temporaryPassword = randomPassword(12);
 
-    const signUpResult = await EmailPassword.signUp('public', dto.username, temporaryPassword);
-    if (signUpResult.status === 'EMAIL_ALREADY_EXISTS_ERROR') {
-      // A SuperTokens identity already exists for this email with no
-      // matching local row — most likely an account that predates the
-      // signUpPOST auto-provisioning hook. Can't silently adopt it here
-      // (we'd be resetting a real, unrelated login's password); the
-      // admin needs to know this email is already a login, just not one
-      // this app has a profile for.
-      throw new ConflictException(
-        `An account already exists for "${dto.username}" but has no profile here — this can't be created as a new user.`,
-      );
-    }
+      const signUpResult = await EmailPassword.signUp('public', dto.username, temporaryPassword);
+      if (signUpResult.status === 'EMAIL_ALREADY_EXISTS_ERROR') {
+        // A SuperTokens identity already exists for this email with no
+        // matching local row — most likely an account that predates the
+        // signUpPOST auto-provisioning hook. Can't silently adopt it here
+        // (we'd be resetting a real, unrelated login's password); the
+        // admin needs to know this email is already a login, just not one
+        // this app has a profile for.
+        throw new ConflictException(
+          `An account already exists for "${dto.username}" but has no profile here — this can't be created as a new user.`,
+        );
+      }
 
-    const passwordHash = await argon2.hash(temporaryPassword, {
-      type: argon2.argon2id,
-    });
+      const passwordHash = await argon2.hash(temporaryPassword, {
+        type: argon2.argon2id,
+      });
 
-    const now = new Date().toISOString();
-    const [created] = await this.db
-      .insert(schema.users)
-      .values({
-        username: dto.username,
-        passwordHash,
-        roles: dto.roles as unknown as string,
-        mustChangePassword: true,
-        createdAt: now,
-        updatedAt: now,
-        active: true,
-      })
-      .returning();
+      const now = new Date().toISOString();
+      const [created] = await db
+        .insert(schema.users)
+        .values({
+          username: dto.username,
+          passwordHash,
+          roles: dto.roles as unknown as string,
+          mustChangePassword: true,
+          createdAt: now,
+          updatedAt: now,
+          active: true,
+        })
+        .returning();
 
-    return { user: toSafeUser(created), temporaryPassword };
+      return { user: toSafeUser(created), temporaryPassword };
+  });
   }
 
   /** Update a user's roles (admin-only). */
   async updateUserRoles(id: string, dto: UpdateUserRolesDto): Promise<SafeUser> {
-    const [updated] = await this.db
-      .update(schema.users)
-      .set({ roles: dto.roles as unknown as string, updatedAt: new Date().toISOString() })
-      .where(eq(schema.users.id, id))
-      .returning();
-    if (!updated) throw new NotFoundException(`User ${id} not found`);
-    return toSafeUser(updated);
+    return this.tenantDb.withTenant(async (db) => {
+      const [updated] = await db
+        .update(schema.users)
+        .set({ roles: dto.roles as unknown as string, updatedAt: new Date().toISOString() })
+        .where(eq(schema.users.id, id))
+        .returning();
+      if (!updated) throw new NotFoundException(`User ${id} not found`);
+      return toSafeUser(updated);
+  });
   }
 
   /** Deactivate a user — prevents login without deleting the account. */
   async deactivateUser(id: string): Promise<SafeUser> {
-    const [updated] = await this.db
-      .update(schema.users)
-      .set({ active: false, updatedAt: new Date().toISOString() })
-      .where(eq(schema.users.id, id))
-      .returning();
-    if (!updated) throw new NotFoundException(`User ${id} not found`);
-    return toSafeUser(updated);
+    return this.tenantDb.withTenant(async (db) => {
+      const [updated] = await db
+        .update(schema.users)
+        .set({ active: false, updatedAt: new Date().toISOString() })
+        .where(eq(schema.users.id, id))
+        .returning();
+      if (!updated) throw new NotFoundException(`User ${id} not found`);
+      return toSafeUser(updated);
+  });
   }
 
   /** Reactivate a previously deactivated user. */
   async reactivateUser(id: string): Promise<SafeUser> {
-    const [updated] = await this.db
-      .update(schema.users)
-      .set({ active: true, updatedAt: new Date().toISOString() })
-      .where(eq(schema.users.id, id))
-      .returning();
-    if (!updated) throw new NotFoundException(`User ${id} not found`);
-    return toSafeUser(updated);
+    return this.tenantDb.withTenant(async (db) => {
+      const [updated] = await db
+        .update(schema.users)
+        .set({ active: true, updatedAt: new Date().toISOString() })
+        .where(eq(schema.users.id, id))
+        .returning();
+      if (!updated) throw new NotFoundException(`User ${id} not found`);
+      return toSafeUser(updated);
+  });
   }
 
   /**
@@ -166,36 +176,38 @@ export class UsersService {
   async resetUserPassword(
     id: string,
   ): Promise<{ user: SafeUser; temporaryPassword: string }> {
-    const existing = await this.db.select().from(schema.users).where(eq(schema.users.id, id)).limit(1);
-    if (!existing[0]) throw new NotFoundException(`User ${id} not found`);
+    return this.tenantDb.withTenant(async (db) => {
+      const existing = await db.select().from(schema.users).where(eq(schema.users.id, id)).limit(1);
+      if (!existing[0]) throw new NotFoundException(`User ${id} not found`);
 
-    const stUsers = await supertokens.listUsersByAccountInfo('public', { email: existing[0].username });
-    const recipeUserId = stUsers[0]?.loginMethods[0]?.recipeUserId;
-    if (!recipeUserId) {
-      throw new NotFoundException(`No SuperTokens login found for "${existing[0].username}" — this user can't sign in and has no password to reset.`);
-    }
+      const stUsers = await supertokens.listUsersByAccountInfo('public', { email: existing[0].username });
+      const recipeUserId = stUsers[0]?.loginMethods[0]?.recipeUserId;
+      if (!recipeUserId) {
+        throw new NotFoundException(`No SuperTokens login found for "${existing[0].username}" — this user can't sign in and has no password to reset.`);
+      }
 
-    const temporaryPassword = randomPassword(12);
-    const updateResult = await EmailPassword.updateEmailOrPassword({ recipeUserId, password: temporaryPassword });
-    if (updateResult.status !== 'OK') {
-      throw new BadRequestException(`Failed to reset password: ${updateResult.status}`);
-    }
+      const temporaryPassword = randomPassword(12);
+      const updateResult = await EmailPassword.updateEmailOrPassword({ recipeUserId, password: temporaryPassword });
+      if (updateResult.status !== 'OK') {
+        throw new BadRequestException(`Failed to reset password: ${updateResult.status}`);
+      }
 
-    const passwordHash = await argon2.hash(temporaryPassword, {
-      type: argon2.argon2id,
-    });
+      const passwordHash = await argon2.hash(temporaryPassword, {
+        type: argon2.argon2id,
+      });
 
-    const [updated] = await this.db
-      .update(schema.users)
-      .set({
-        passwordHash,
-        mustChangePassword: true,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(schema.users.id, id))
-      .returning();
+      const [updated] = await db
+        .update(schema.users)
+        .set({
+          passwordHash,
+          mustChangePassword: true,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(schema.users.id, id))
+        .returning();
 
-    return { user: toSafeUser(updated), temporaryPassword };
+      return { user: toSafeUser(updated), temporaryPassword };
+  });
   }
 
   /**
@@ -207,47 +219,49 @@ export class UsersService {
     currentPassword: string,
     newPassword: string,
   ): Promise<SafeUser> {
-    const results = await this.db
-      .select()
-      .from(schema.users)
-      .where(eq(schema.users.id, userId))
-      .limit(1);
-    const user = results[0];
-    if (!user) throw new NotFoundException('User not found');
+    return this.tenantDb.withTenant(async (db) => {
+      const results = await db
+        .select()
+        .from(schema.users)
+        .where(eq(schema.users.id, userId))
+        .limit(1);
+      const user = results[0];
+      if (!user) throw new NotFoundException('User not found');
 
-    const match = await argon2.verify(user.passwordHash, currentPassword);
-    if (!match) throw new BadRequestException('Current password is incorrect');
+      const match = await argon2.verify(user.passwordHash, currentPassword);
+      if (!match) throw new BadRequestException('Current password is incorrect');
 
-    if (newPassword.length < 8) {
-      throw new BadRequestException('New password must be at least 8 characters');
-    }
+      if (newPassword.length < 8) {
+        throw new BadRequestException('New password must be at least 8 characters');
+      }
 
-    // Updating only this table's own shadow copy would leave the real
-    // SuperTokens credential unchanged — login is verified against
-    // SuperTokens, not this column, so the person would be locked out
-    // with a "changed" password that never actually works. Same fix
-    // already applied to resetUserPassword; this path just never got it.
-    const stUsers = await supertokens.listUsersByAccountInfo('public', { email: user.username });
-    const recipeUserId = stUsers[0]?.loginMethods[0]?.recipeUserId;
-    if (!recipeUserId) {
-      throw new NotFoundException(`No SuperTokens login found for "${user.username}" — this user can't sign in and has no password to change.`);
-    }
-    const updateResult = await EmailPassword.updateEmailOrPassword({ recipeUserId, password: newPassword });
-    if (updateResult.status !== 'OK') {
-      throw new BadRequestException(`Failed to update password: ${updateResult.status}`);
-    }
+      // Updating only this table's own shadow copy would leave the real
+      // SuperTokens credential unchanged — login is verified against
+      // SuperTokens, not this column, so the person would be locked out
+      // with a "changed" password that never actually works. Same fix
+      // already applied to resetUserPassword; this path just never got it.
+      const stUsers = await supertokens.listUsersByAccountInfo('public', { email: user.username });
+      const recipeUserId = stUsers[0]?.loginMethods[0]?.recipeUserId;
+      if (!recipeUserId) {
+        throw new NotFoundException(`No SuperTokens login found for "${user.username}" — this user can't sign in and has no password to change.`);
+      }
+      const updateResult = await EmailPassword.updateEmailOrPassword({ recipeUserId, password: newPassword });
+      if (updateResult.status !== 'OK') {
+        throw new BadRequestException(`Failed to update password: ${updateResult.status}`);
+      }
 
-    const newHash = await argon2.hash(newPassword, { type: argon2.argon2id });
-    const [updated] = await this.db
-      .update(schema.users)
-      .set({
-        passwordHash: newHash,
-        mustChangePassword: false,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(schema.users.id, userId))
-      .returning();
+      const newHash = await argon2.hash(newPassword, { type: argon2.argon2id });
+      const [updated] = await db
+        .update(schema.users)
+        .set({
+          passwordHash: newHash,
+          mustChangePassword: false,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(schema.users.id, userId))
+        .returning();
 
-    return toSafeUser(updated);
+      return toSafeUser(updated);
+  });
   }
 }

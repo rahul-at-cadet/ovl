@@ -10,6 +10,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { Pool } from 'pg';
+import { UsersModule } from '../users/users.module';
 import { createPool, createPlatformDb } from '@ovl/database';
 import {
   ADMIN_PG_POOL,
@@ -64,6 +65,9 @@ export class TenancyModule implements NestModule, OnApplicationShutdown {
 
     return {
       module: TenancyModule,
+      // UsersModule provides UsersService, which provisioning uses to create a
+      // tenant's first admin.
+      imports: [UsersModule],
       providers: [
         { provide: TENANCY_OPTIONS, useValue: resolved },
         {

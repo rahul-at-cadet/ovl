@@ -10,6 +10,9 @@ import {
   slugify,
 } from './tenant-identifiers';
 import { TenantRegistryService, type TenantDescriptor } from './tenant-registry.service';
+import { runAsSystemForTenant } from './tenant-context';
+import { UsersService } from '../users/users.service';
+import supertokens from 'supertokens-node';
 import { TenantMigrationRunnerService } from './tenant-migration-runner.service';
 
 export interface ProvisionTenantInput {
@@ -17,6 +20,12 @@ export interface ProvisionTenantInput {
   slug?: string;
   /** Display name, e.g. "Northstar Shipping". */
   name: string;
+}
+
+export interface FirstAdminResult {
+  username: string;
+  temporaryPassword: string;
+  supertokensUserId: string;
 }
 
 export class ProvisioningDisabledError extends Error {
@@ -53,7 +62,59 @@ export class TenantProvisioningService {
     @Optional() @Inject(ADMIN_PG_POOL) private readonly adminPool: Pool | null,
     private readonly registry: TenantRegistryService,
     private readonly migrations: TenantMigrationRunnerService,
+    private readonly users: UsersService,
   ) {}
+
+  /**
+   * Creates a tenant's first administrator.
+   *
+   * This is how a tenant gets its first account, and the only way it can: user
+   * creation is otherwise done by an authenticated tenant admin, and at
+   * registration time no such person exists yet. A platform super admin makes
+   * the first one when the tenant is registered.
+   *
+   * The password is generated, returned once, and the account is flagged
+   * mustChangePassword — so the operator hands over a credential that stops
+   * working the moment it is used. Nothing durable is written anywhere that
+   * would let it be recovered later, which is the point.
+   *
+   * Runs inside the tenant's own context, so the profile lands in that tenant's
+   * schema. The platform mapping is written afterwards, because until it exists
+   * the account has no way to resolve a tenant at sign-in.
+   */
+  async createFirstAdmin(
+    tenant: TenantDescriptor,
+    username: string,
+  ): Promise<FirstAdminResult> {
+    const pool = this.requirePool();
+
+    const created = await runAsSystemForTenant({ ...tenant, requestId: 'provision-admin' }, () =>
+      this.users.createUser({ username, roles: ['admin'] as never }),
+    );
+
+    const stUser = await supertokens.listUsersByAccountInfo('public', { email: username });
+    const supertokensUserId = stUser[0]?.id;
+    if (!supertokensUserId) {
+      throw new Error(
+        `Created a local profile for ${username} but found no SuperTokens identity to map it to.`,
+      );
+    }
+
+    await pool.query(
+      `INSERT INTO platform.tenant_users (supertokens_user_id, tenant_id)
+       VALUES ($1, $2)
+       ON CONFLICT (supertokens_user_id) DO UPDATE SET tenant_id = EXCLUDED.tenant_id`,
+      [supertokensUserId, tenant.tenantId],
+    );
+    this.registry.invalidate();
+
+    this.logger.log(`Created first admin ${username} for tenant ${tenant.slug}`);
+    return {
+      username,
+      temporaryPassword: created.temporaryPassword,
+      supertokensUserId,
+    };
+  }
 
   get enabled(): boolean {
     return this.adminPool !== null;

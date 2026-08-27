@@ -61,6 +61,14 @@ INSERT INTO enrollments SELECT * FROM public.enrollments ON CONFLICT DO NOTHING;
 -- way that looks like corruption. Re-issue instead; it is one action per
 -- vessel and it leaves the index and the schema agreeing.
 
+-- Office users and their notification read-state.
+--
+-- These form their own foreign-key island, separate from the vessel cluster,
+-- and move with it now that a tenant's first admin is created deliberately by
+-- a super admin rather than by an unauthenticated bootstrap.
+INSERT INTO users SELECT * FROM public.users ON CONFLICT DO NOTHING;
+INSERT INTO notification_read_state SELECT * FROM public.notification_read_state ON CONFLICT DO NOTHING;
+
 -- Reports and their history.
 INSERT INTO report_versions SELECT * FROM public.report_versions ON CONFLICT DO NOTHING;
 INSERT INTO report_audit_events OVERRIDING SYSTEM VALUE SELECT * FROM public.report_audit_events ON CONFLICT DO NOTHING;

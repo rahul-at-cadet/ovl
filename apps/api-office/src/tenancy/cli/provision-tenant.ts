@@ -2,7 +2,7 @@
  * Tenant provisioning CLI.
  *
  *   npm run tenant:list          --workspace api-office
- *   npm run tenant:provision     --workspace api-office -- --name "Northstar Shipping"
+ *   npm run tenant:provision     --workspace api-office -- --name "Northstar Shipping" --admin-email ops@northstar.com
  *   npm run tenant:assign        --workspace api-office -- --user <supertokensUserId> --slug northstar_shipping
  *   npm run tenant:suspend       --workspace api-office -- --slug northstar_shipping
  *   npm run tenant:migrate       --workspace api-office
@@ -97,8 +97,24 @@ async function main(): Promise<void> {
       case 'provision': {
         const name = require_(args, 'name');
         const slug = typeof args.slug === 'string' ? args.slug : undefined;
+        const adminEmail = typeof args['admin-email'] === 'string' ? args['admin-email'] : undefined;
+
         const tenant = await provisioning.provision({ name, slug });
         out(`Provisioned ${tenant.slug} -> ${tenant.schemaName} (id ${tenant.tenantId})`);
+
+        if (adminEmail) {
+          const admin = await provisioning.createFirstAdmin(tenant, adminEmail);
+          out('');
+          out(`  First admin:        ${admin.username}`);
+          out(`  Temporary password: ${admin.temporaryPassword}`);
+          out('');
+          // Printed once and stored nowhere. The account is flagged
+          // mustChangePassword, so this credential stops working as soon as it
+          // is used, which is the only reason it is safe to put on a terminal.
+          out('  Shown once. They must change it at first sign-in.');
+        } else {
+          out('  No admin created. Pass --admin-email to create the first one.');
+        }
         break;
       }
 

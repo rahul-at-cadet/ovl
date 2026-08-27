@@ -1,4 +1,9 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, Optional } from '@nestjs/common';
+import { tryCurrentTenant } from '../tenancy/tenant-context';
+import { TenantDbService } from '../tenancy/tenant-db.service';
+
+/** Whether tenant schemas are in play; see the signup override below. */
+const multiTenancyEnabled = process.env.MULTI_TENANCY_ENABLED === 'true';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import supertokens from 'supertokens-node';
 import Session from 'supertokens-node/recipe/session';
@@ -31,6 +36,7 @@ export class SupertokensService {
   constructor(
     @Inject(ConfigInjectionToken) private config: AuthModuleConfig,
     @Inject('DATABASE_CONNECTION') db: NodePgDatabase<typeof schema>,
+    @Optional() @Inject(TenantDbService) private readonly tenantDb?: TenantDbService,
   ) {
     this.db = db;
 
@@ -52,7 +58,14 @@ export class SupertokensService {
               signUpPOST: async (input) => {
                 const response = await originalImplementation.signUpPOST!(input);
 
-                if (response.status === 'OK') {
+                // Under multi-tenancy a fresh signup belongs to no tenant, so
+                // there is no schema to write a profile into. Accounts are
+                // created deliberately instead: a super admin creates a
+                // tenant's first admin when the tenant is registered, and that
+                // admin creates the rest. Self-signup still establishes the
+                // SuperTokens identity; it simply no longer conjures a profile
+                // that would have to live somewhere arbitrary.
+                if (response.status === 'OK' && !multiTenancyEnabled) {
                   const email = response.user.emails[0];
 
                   const passwordHash = await argon2.hash(
@@ -98,11 +111,20 @@ export class SupertokensService {
     if (!stUser) return null;
 
     const email = stUser.emails[0];
-    const results = await this.db
-      .select()
-      .from(schema.users)
-      .where(eq(schema.users.username, email))
-      .limit(1);
+    // Tenant-scoped: a local profile lives in its tenant's schema, and this is
+    // called from inside a request that already has that tenant on its context.
+    // Returns null outside one rather than throwing, because AuthGuard treats
+    // "no local user" as an ordinary unauthenticated case.
+    // Both conditions are the same statement in practice — no tenant context
+    // means no tenant stack — but each is checked because either alone leaves
+    // a null dereference.
+    if (!this.tenantDb || !tryCurrentTenant()) return null;
+
+    const results = await this.tenantDb.withTenant(
+      (db) =>
+        db.select().from(schema.users).where(eq(schema.users.username, email)).limit(1),
+      { readOnly: true },
+    );
 
     return results[0] ?? null;
   }

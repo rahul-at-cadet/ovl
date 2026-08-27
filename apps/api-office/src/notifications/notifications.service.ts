@@ -1,8 +1,7 @@
-import { Injectable, Inject } from '@nestjs/common';
-import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { Injectable } from '@nestjs/common';
 import { eq, gte, and, inArray } from 'drizzle-orm';
 import * as schema from '@ovl/database';
-import { DATABASE_CONNECTION } from '../database/database.module';
+import { TenantDbService, type TenantDatabase } from '../tenancy/tenant-db.service';
 import { ComplianceService } from '../config/compliance/compliance.service';
 import { effectiveCadence } from '../config/logic/compliance';
 
@@ -42,8 +41,7 @@ export interface NotificationView {
 @Injectable()
 export class NotificationsService {
   constructor(
-    @Inject(DATABASE_CONNECTION)
-    private readonly db: NodePgDatabase<typeof schema>,
+    private readonly tenantDb: TenantDbService,
     private readonly complianceService: ComplianceService,
   ) {}
 
@@ -53,41 +51,45 @@ export class NotificationsService {
   // every notification just comes back unread rather than erroring the
   // whole feed over it.
   async list(userId: string | null): Promise<NotificationView[]> {
-    const now = new Date();
-    const since = new Date(now.getTime() - LOOKBACK_MS);
+    return this.tenantDb.withTenant(async (db) => {
+      const now = new Date();
+      const since = new Date(now.getTime() - LOOKBACK_MS);
 
-    const vessels = await this.db.select().from(schema.vessels);
-    const vesselById = new Map(vessels.map((v) => [v.id, v]));
-    const cadenceRules = await this.complianceService.listCadenceRules();
+      const vessels = await db.select().from(schema.vessels);
+      const vesselById = new Map(vessels.map((v) => [v.id, v]));
+      const cadenceRules = await this.complianceService.listCadenceRules();
 
-    const notifications: NotificationView[] = [];
-    notifications.push(...(await this.overdueNotifications(vessels, cadenceRules, now)));
-    notifications.push(...(await this.remarkNotifications(vesselById, since)));
-    notifications.push(...(await this.syncNotifications(vesselById, since)));
+      const notifications: NotificationView[] = [];
+      notifications.push(...(await this.overdueNotifications(db, vessels, cadenceRules, now)));
+      notifications.push(...(await this.remarkNotifications(db, vesselById, since)));
+      notifications.push(...(await this.syncNotifications(db, vesselById, since)));
 
-    notifications.sort((a, b) => (a.at < b.at ? 1 : -1));
-    const capped = notifications.slice(0, NOTIFICATION_CAP);
-    if (!userId) return capped;
+      notifications.sort((a, b) => (a.at < b.at ? 1 : -1));
+      const capped = notifications.slice(0, NOTIFICATION_CAP);
+      if (!userId) return capped;
 
-    const readRows = await this.db
-      .select({ notificationId: schema.notificationReadState.notificationId })
-      .from(schema.notificationReadState)
-      .where(eq(schema.notificationReadState.userId, userId));
-    const readIds = new Set(readRows.map((r) => r.notificationId));
-    for (const n of capped) {
-      n.read = readIds.has(n.id);
-    }
-    return capped;
+      const readRows = await db
+        .select({ notificationId: schema.notificationReadState.notificationId })
+        .from(schema.notificationReadState)
+        .where(eq(schema.notificationReadState.userId, userId));
+      const readIds = new Set(readRows.map((r) => r.notificationId));
+      for (const n of capped) {
+        n.read = readIds.has(n.id);
+      }
+      return capped;
+  }, { readOnly: true });
   }
 
   async markRead(userId: string, ids: string[]): Promise<number> {
-    if (ids.length === 0) return 0;
-    const now = new Date().toISOString();
-    await this.db
-      .insert(schema.notificationReadState)
-      .values(ids.map((id) => ({ userId, notificationId: id, readAt: now })))
-      .onConflictDoNothing();
-    return ids.length;
+    return this.tenantDb.withTenant(async (db) => {
+      if (ids.length === 0) return 0;
+      const now = new Date().toISOString();
+      await db
+        .insert(schema.notificationReadState)
+        .values(ids.map((id) => ({ userId, notificationId: id, readAt: now })))
+        .onConflictDoNothing();
+      return ids.length;
+  });
   }
 
   // A vessel with no submitted report ever has no cadence baseline to
@@ -95,11 +97,12 @@ export class NotificationsService {
   // alarm from nothing (same "null when there's nothing to derive from"
   // rule this port already applies to the vessel-side voyage summary).
   private async overdueNotifications(
+    db: TenantDatabase,
     vessels: (typeof schema.vessels.$inferSelect)[],
     cadenceRules: Awaited<ReturnType<ComplianceService['listCadenceRules']>>,
     now: Date,
   ): Promise<NotificationView[]> {
-    const submittedRows = await this.db
+    const submittedRows = await db
       .select({ vesselId: schema.reportVersions.vesselId, eventTime: schema.reportVersions.eventTime })
       .from(schema.reportVersions)
       .where(eq(schema.reportVersions.state, 'submitted'));
@@ -134,10 +137,11 @@ export class NotificationsService {
   }
 
   private async remarkNotifications(
+    db: TenantDatabase,
     vesselById: Map<string, typeof schema.vessels.$inferSelect>,
     since: Date,
   ): Promise<NotificationView[]> {
-    const chatRows = await this.db
+    const chatRows = await db
       .select({
         id: schema.chatMessages.id,
         vesselId: schema.chatMessages.vesselId,
@@ -151,7 +155,7 @@ export class NotificationsService {
     if (chatRows.length === 0) return [];
 
     const reportIds = [...new Set(chatRows.map((c) => c.reportId))];
-    const versionRows = await this.db
+    const versionRows = await db
       .select({
         vesselId: schema.reportVersions.vesselId,
         reportId: schema.reportVersions.reportId,
@@ -187,10 +191,11 @@ export class NotificationsService {
   }
 
   private async syncNotifications(
+    db: TenantDatabase,
     vesselById: Map<string, typeof schema.vessels.$inferSelect>,
     since: Date,
   ): Promise<NotificationView[]> {
-    const landingRows = await this.db
+    const landingRows = await db
       .select({ vesselId: schema.reportVersions.vesselId, receivedAt: schema.reportVersions.receivedAt })
       .from(schema.reportVersions)
       .where(gte(schema.reportVersions.receivedAt, since.toISOString()));
