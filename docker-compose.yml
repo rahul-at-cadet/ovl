@@ -30,7 +30,22 @@ services:
     ports:
       - "3001:3001"
     environment:
+      # The legacy shared-schema connection. Still a role with access to
+      # `public`, because DATABASE_CONNECTION and everything built on it has not
+      # migrated to per-tenant schemas yet.
       - DATABASE_URL=postgresql://ovl:ovl@host.docker.internal:5432/ovl_office
+      # The tenant pool, and deliberately a different, lower-privilege role.
+      # ovl_api is NOINHERIT and has no access to `public`: it can reach a
+      # tenant schema only by assuming that tenant's role for one transaction.
+      # Pointing this at the superuser above would appear to work while
+      # silently removing the isolation guarantee, since superusers bypass
+      # privilege checks entirely.
+      - TENANCY_DATABASE_URL=postgresql://ovl_api:${OVL_API_DB_PASSWORD}@host.docker.internal:5432/ovl_office
+      # Provisioning rights (CREATE SCHEMA / CREATE ROLE / GRANT). Present here
+      # for local development convenience; a production API should leave this
+      # unset so provisioning is disabled in the serving process.
+      - ADMIN_DATABASE_URL=postgresql://ovl_admin:${OVL_ADMIN_DB_PASSWORD}@host.docker.internal:5432/ovl_office
+      - MULTI_TENANCY_ENABLED=true
       - SUPERTOKENS_CONNECTION_URI=http://supertokens:3567
       - PORT=3001
     volumes:

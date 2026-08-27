@@ -24,7 +24,20 @@ const multiTenancyEnabled = process.env.MULTI_TENANCY_ENABLED === 'true';
 const tenancyImports = multiTenancyEnabled
   ? [
       TenancyModule.forRoot({
-        connectionString: requireEnv('DATABASE_URL'),
+        // Deliberately a DIFFERENT role from DATABASE_URL while the migration
+        // off the single shared schema is in progress.
+        //
+        // DATABASE_URL still serves the legacy DATABASE_CONNECTION, which reads
+        // `public` and therefore needs a role with access to it. The tenant pool
+        // must be `ovl_api`, which has no access to `public` and is NOINHERIT —
+        // that is the whole isolation model. Pointing both at one superuser
+        // would work and would silently make every `permission denied`
+        // guarantee inert, because superusers bypass privilege checks: the
+        // tests would pass, the app would behave, and layer 4 would be gone.
+        //
+        // Falls back to DATABASE_URL so a single-role setup still boots; the
+        // fallback is a convenience, not the intended production shape.
+        connectionString: process.env.TENANCY_DATABASE_URL ?? requireEnv('DATABASE_URL'),
         adminConnectionString: process.env.ADMIN_DATABASE_URL,
         poolMax: process.env.PG_POOL_MAX ? Number(process.env.PG_POOL_MAX) : undefined,
       }),
