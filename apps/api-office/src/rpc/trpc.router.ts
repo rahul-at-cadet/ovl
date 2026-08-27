@@ -1,5 +1,18 @@
 import { Injectable, Inject } from '@nestjs/common';
-import { initTRPC } from '@trpc/server';
+import {
+  createContext,
+  publicProcedure,
+  protectedProcedure,
+  edgeProcedure,
+  router,
+  createCallerFactory,
+  type Context,
+} from './trpc.base';
+
+// Re-exported so main.ts, the vessel's tRPC client and the tests keep importing
+// these from here while the router is being split into per-domain files.
+export { createContext, publicProcedure, protectedProcedure, edgeProcedure, router, createCallerFactory };
+export type { Context };
 import { Type, Static } from '@sinclair/typebox';
 import { TypeCompiler } from '@sinclair/typebox/compiler';
 import { DATABASE_CONNECTION } from '../database/database.module';
@@ -22,6 +35,7 @@ import { SupertokensService } from '../auth/supertokens.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { UsersService } from '../users/users.service';
 import { UserRole } from '../users/dto/create-user.dto';
+import { createNotificationsRouter } from './notifications.router';
 import Session from 'supertokens-node/recipe/session';
 import { TRPCError } from '@trpc/server';
 import { Optional } from '@nestjs/common';
@@ -49,19 +63,6 @@ function formatRelativeTime(thenMs: number): string {
 // what "online" means.
 const ONLINE_THRESHOLD_MS = 5 * 60 * 1000;
 
-export const createContext = ({
-  req,
-  res,
-}: trpcExpress.CreateExpressContextOptions) => {
-  return {
-    req,
-    res,
-  };
-};
-
-export type Context = Awaited<ReturnType<typeof createContext>>;
-
-const t = initTRPC.context<Context>().create();
 
 const PingSchema = Type.Object({ vesselId: Type.String() });
 const PingCompiler = TypeCompiler.Compile(PingSchema);
@@ -358,10 +359,6 @@ const EnrollEdgeSchema = Type.Object({
 });
 const EnrollEdgeCompiler = TypeCompiler.Compile(EnrollEdgeSchema);
 
-const MarkNotificationsReadSchema = Type.Object({
-  ids: Type.Array(Type.String()),
-});
-const MarkNotificationsReadCompiler = TypeCompiler.Compile(MarkNotificationsReadSchema);
 
 // --- master form-schema catalogue ---------------------------------------
 
@@ -404,71 +401,6 @@ const PullSchemasSchema = Type.Object({
 });
 const PullSchemasCompiler = TypeCompiler.Compile(PullSchemasSchema);
 
-export const publicProcedure = t.procedure;
-export const router = t.router;
-
-/**
- * Builds an in-process caller for a router.
- *
- * Exported for the sync contract tests, which drive the real edge and sync
- * procedures — authentication included — against a live database without
- * standing up an HTTP server. The alternative, asserting against mocks, would
- * only prove the mocks behave as the test expects, and the properties that
- * matter here (a key verified in the right schema, a cascade committing with
- * the version that triggered it) are exactly the ones a mock cannot show.
- */
-export const createCallerFactory = t.createCallerFactory;
-
-const isEdgeAuthed = t.middleware(async ({ ctx, next }) => {
-  const authHeader = ctx.req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ovl_prod_')) {
-    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Missing or malformed API key' });
-  }
-
-  const rawToken = authHeader.split('Bearer ovl_prod_')[1];
-  const tokenLookupHash = crypto.createHash('sha256').update(rawToken.substring(0, 8)).digest('hex');
-  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
-
-  // We can't access `this.db` directly here because it's inside the TrpcRouter class.
-  // We will pass the db to the middleware inside the router class!
-  return next({
-    ctx: {
-      ...ctx,
-      tokenHash,
-      tokenLookupHash,
-    },
-  });
-});
-
-export const edgeProcedure = t.procedure.use(isEdgeAuthed);
-
-/**
- * Verifies the SuperTokens session on the underlying Express req/res
- * (mirrors AuthGuard's REST-side check — the tRPC router is mounted via raw
- * app.use(), so Nest's @UseGuards() never runs for it; this is the only
- * place session verification happens for tRPC traffic).
- *
- * Deliberately uses Session.getSession() (the plain function), not the
- * verifySession() Express middleware: verifySession() is designed to be a
- * terminal middleware and writes a 401 response directly to `res` on
- * failure, which crashes the server here ("write after end") since tRPC's
- * Express adapter also tries to write a response to the same `res` once
- * this middleware throws. getSession() just throws without touching `res`.
- *
- * Loading the full local Postgres user (for role checks) happens
- * per-procedure via the injected SupertokensService, not here, since this
- * middleware is defined at module scope before DI has constructed it.
- */
-const isAuthed = t.middleware(async ({ ctx, next }) => {
-  try {
-    const session = await Session.getSession(ctx.req, ctx.res);
-    return next({ ctx: { ...ctx, session } });
-  } catch {
-    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Not logged in' });
-  }
-});
-
-export const protectedProcedure = t.procedure.use(isAuthed);
 
 @Injectable()
 export class TrpcRouter {
@@ -2119,36 +2051,13 @@ export class TrpcRouter {
         };
       })
     }),
-    notifications: router({
-      // A read-only projection over overdue vessels, recent vessel chat
-      // replies, and recent report-landing activity — see
-      // NotificationsService's own doc comment for why there's no
-      // notifications table backing this. Each user's read-state is
-      // private to them (notification_read_state is keyed by user id).
-      list: protectedProcedure.query(async ({ ctx }) => {
-        // A 401 here (rather than the same graceful-fallback pattern
-        // every other localUser lookup in this file uses) gets treated
-        // by the frontend's SuperTokens interceptor as "session needs
-        // refreshing" globally — not as this endpoint's own concern —
-        // which retries the request 10 times against an unrelated
-        // failure and then gives up loudly. No local user just means no
-        // read-state can be tracked for this session; degrade to
-        // showing every notification unread rather than erroring.
-        const localUser = await this.supertokensService.getLocalUser(ctx.session.getUserId());
-        return this.notificationsService.list(localUser?.id ?? null);
-      }),
-      markRead: protectedProcedure
-        .input((val: unknown) => {
-          if (!MarkNotificationsReadCompiler.Check(val)) throw new Error('Invalid input');
-          return val as Static<typeof MarkNotificationsReadSchema>;
-        })
-        .mutation(async ({ input, ctx }) => {
-          const localUser = await this.supertokensService.getLocalUser(ctx.session.getUserId());
-          if (!localUser) return { marked: 0 };
-          const marked = await this.notificationsService.markRead(localUser.id, input.ids);
-          return { marked };
-        }),
-    }),
+    // Extracted to notifications.router.ts. See that file for why the router
+    // is being split into per-domain modules.
+    notifications: createNotificationsRouter(() => ({
+      supertokensService: this.supertokensService,
+      notificationsService: this.notificationsService,
+    })),
+
     schemas: router({
       list: protectedProcedure.query(() => this.schemaVersionsService.list()),
       // Field definitions (name/label/section) for the latest published
