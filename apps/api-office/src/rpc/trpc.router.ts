@@ -28,7 +28,9 @@ import { Optional } from '@nestjs/common';
 import { MasterCatalogService } from '../form-catalogue/master-catalog.service';
 import { TenantCatalogService } from '../form-catalogue/tenant-catalog.service';
 import { PlatformDbService } from '../tenancy/platform-db.service';
-import { tryCurrentTenant } from '../tenancy/tenant-context';
+import { tryCurrentTenant, runAsSystemForTenant } from '../tenancy/tenant-context';
+import { EdgeTenantResolverService } from '../tenancy/edge-tenant-resolver.service';
+import { TenantDbService } from '../tenancy/tenant-db.service';
 
 function formatRelativeTime(thenMs: number): string {
   const diffSec = Math.max(0, Math.floor((Date.now() - thenMs) / 1000));
@@ -393,6 +395,15 @@ const CatalogueOptionalSchemaNameSchema = Type.Object({
 });
 const CatalogueOptionalSchemaNameCompiler = TypeCompiler.Compile(CatalogueOptionalSchemaNameSchema);
 
+// What the vessel already holds, so the office can answer with only what
+// differs. The link is satellite; re-sending five unchanged documents on every
+// check-in is the difference between a sync that fits the window and one that
+// does not.
+const PullSchemasSchema = Type.Object({
+  known: Type.Array(Type.Object({ schemaName: Type.String(), checksum: Type.String() })),
+});
+const PullSchemasCompiler = TypeCompiler.Compile(PullSchemasSchema);
+
 export const publicProcedure = t.procedure;
 export const router = t.router;
 
@@ -475,6 +486,8 @@ export class TrpcRouter {
     @Optional() @Inject(MasterCatalogService) private readonly masterCatalog?: MasterCatalogService,
     @Optional() @Inject(TenantCatalogService) private readonly tenantCatalog?: TenantCatalogService,
     @Optional() @Inject(PlatformDbService) private readonly platformDb?: PlatformDbService,
+    @Optional() @Inject(EdgeTenantResolverService) private readonly edgeTenants?: EdgeTenantResolverService,
+    @Optional() @Inject(TenantDbService) private readonly tenantDb?: TenantDbService,
   ) {}
 
   /** Throws unless the catalogue is wired up. */
@@ -507,6 +520,33 @@ export class TrpcRouter {
       });
     }
     return userId;
+  }
+
+  /**
+   * Proves an edge caller holds the whole API key, inside the tenant its
+   * lookup hash pointed at.
+   *
+   * Separate from tenant resolution on purpose. Resolution says where to look;
+   * this says whether the caller is who they claim. Collapsing the two would
+   * make the platform index — which stores a truncated hash and is not a
+   * secret — into the thing that grants access.
+   */
+  private async assertEdgeKeyValid(tokenHash: string): Promise<void> {
+    const valid = await this.requireCatalogue(this.tenantDb).withTenant(
+      async (db) => {
+        const rows = await db
+          .select()
+          .from(schema.apiKeys)
+          .where(eq(schema.apiKeys.tokenHash, tokenHash))
+          .limit(1);
+        return rows.length > 0 && !rows[0].revokedAt;
+      },
+      { readOnly: true },
+    );
+
+    if (!valid) {
+      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Unknown API key' });
+    }
   }
 
   /** The active tenant, or a clean 403 rather than a 500 from deeper down. */
@@ -699,6 +739,59 @@ export class TrpcRouter {
               userId,
               input.versionId,
             );
+          }),
+      }),
+
+      /**
+       * What a vessel pulls down.
+       *
+       * Authenticated by API key, not by session, so the tenant is resolved
+       * from the key rather than from an ambient context — and then the key's
+       * full hash is verified *inside* that tenant's schema. A lookup-hash
+       * match alone proves nothing; treating it as authentication would turn a
+       * prefix collision into a bypass.
+       */
+      edge: router({
+        pullSchemas: edgeProcedure
+          .input((val: unknown) => {
+            if (!PullSchemasCompiler.Check(val)) throw new Error('Invalid input');
+            return val as Static<typeof PullSchemasSchema>;
+          })
+          .query(async ({ input, ctx }) => {
+            const resolver = this.requireCatalogue(this.edgeTenants);
+            const tenant = await resolver.resolve(ctx.tokenLookupHash);
+            if (!tenant) {
+              throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Unknown API key' });
+            }
+
+            return runAsSystemForTenant({ ...tenant, requestId: 'edge-pull-schemas' }, async () => {
+              // The actual authentication step. The lookup hash only said
+              // which tenant to look in; this proves the caller holds the whole
+              // token, and it happens against that tenant's own api_keys.
+              await this.assertEdgeKeyValid(ctx.tokenHash);
+
+              const effective = await this.requireCatalogue(this.tenantCatalog).resolveAll();
+              const known = new Map(input.known.map((k) => [k.schemaName, k.checksum]));
+
+              return {
+                // Only what the vessel does not already have, byte for byte.
+                changed: effective
+                  .filter((s) => known.get(s.schemaName) !== s.contentChecksum)
+                  .map((s) => ({
+                    schemaName: s.schemaName,
+                    version: s.version,
+                    checksum: s.contentChecksum,
+                    content: JSON.stringify(s.content),
+                  })),
+                // Schemas the vessel holds that this tenant no longer uses.
+                // Without this, un-adopting would leave the form on every
+                // vessel forever.
+                removed: [...known.keys()].filter(
+                  (name) => !effective.some((s) => s.schemaName === name),
+                ),
+                syncedAt: new Date().toISOString(),
+              };
+            });
           }),
       }),
 
@@ -1799,9 +1892,18 @@ export class TrpcRouter {
           return { resolved: input.resolved };
         }),
     }),
+    // The first call site migrated off the shared schema, and the one that had
+    // to go first: edge authentication resolves a vessel's key to a tenant and
+    // then verifies it *inside* that tenant's schema, so the key has to live
+    // there. Left on the legacy `public` connection, the pointer would resolve
+    // and the verification would then look in the wrong place and fail.
     apiKeys: router({
       list: protectedProcedure.query(async () => {
-        return await this.db.select().from(schema.apiKeys).where(isNull(schema.apiKeys.revokedAt));
+        this.requireTenant();
+        return this.requireCatalogue(this.tenantDb).withTenant(
+          (db) => db.select().from(schema.apiKeys).where(isNull(schema.apiKeys.revokedAt)),
+          { readOnly: true },
+        );
       }),
       create: protectedProcedure
         .input((val: unknown) => {
@@ -1813,14 +1915,30 @@ export class TrpcRouter {
           const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
           const tokenLookupHash = crypto.createHash('sha256').update(rawToken.substring(0, 8)).digest('hex');
           
-          const newKey = await this.db.insert(schema.apiKeys).values({
-            label: input.label,
-            tokenHash,
-            tokenLookupHash,
-            groupId: input.groupId || null,
-            createdBy: 'System',
-            createdAt: new Date().toISOString(),
-          }).returning();
+          this.requireTenant();
+          const newKey = await this.requireCatalogue(this.tenantDb).withTenant((db) =>
+            db
+              .insert(schema.apiKeys)
+              .values({
+                label: input.label,
+                tokenHash,
+                tokenLookupHash,
+                groupId: input.groupId || null,
+                createdBy: 'System',
+                createdAt: new Date().toISOString(),
+              })
+              .returning(),
+          );
+
+          // Record which tenant this key belongs to, so edge traffic can find
+          // its way back. Vessels authenticate with a bearer token and have no
+          // session, and the api_keys row above lives inside a tenant schema —
+          // without this pointer there is no way to know which schema to look
+          // in. Written through a dormant role a tenant cannot assume.
+          const tenant = tryCurrentTenant();
+          if (tenant && this.edgeTenants) {
+            await this.edgeTenants.register(tokenLookupHash, tenant.tenantId, input.label);
+          }
 
           return {
             key: newKey[0],
@@ -1833,10 +1951,22 @@ export class TrpcRouter {
           return val as Static<typeof RevokeApiKeySchema>;
         })
         .mutation(async ({ input }) => {
-          await this.db
-            .update(schema.apiKeys)
-            .set({ revokedAt: new Date().toISOString() })
-            .where(eq(schema.apiKeys.id, input.id));
+          this.requireTenant();
+          const [revoked] = await this.requireCatalogue(this.tenantDb).withTenant((db) =>
+            db
+              .update(schema.apiKeys)
+              .set({ revokedAt: new Date().toISOString() })
+              .where(eq(schema.apiKeys.id, input.id))
+              .returning(),
+          );
+
+          // Stop the key resolving a tenant at all. The api_keys row above is
+          // still the authority on whether it works — this only closes the
+          // door one step earlier, and keeps revocation auditable rather than
+          // deleting the pointer outright.
+          if (revoked?.tokenLookupHash && this.edgeTenants) {
+            await this.edgeTenants.revoke(revoked.tokenLookupHash);
+          }
           return { success: true };
         }),
     }),

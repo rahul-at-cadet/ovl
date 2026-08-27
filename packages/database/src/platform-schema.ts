@@ -130,6 +130,38 @@ export const superAdmins = platform.table('super_admins', {
 
 export type SuperAdminRow = typeof superAdmins.$inferSelect;
 
+/**
+ * Which tenant a vessel's API key belongs to.
+ *
+ * Edge traffic authenticates with a bearer token rather than a session, so
+ * there is no tenant to resolve from — and `api_keys`, which would answer the
+ * question, lives inside a tenant schema. This index breaks that
+ * chicken-and-egg.
+ *
+ * It carries no secret. `tokenLookupHash` is derived from the first characters
+ * of the token and is an index, not a credential: authentication still requires
+ * the full token hash to match the `api_keys` row inside that tenant's schema.
+ */
+export const edgeCredentials = platform.table(
+	'edge_credentials',
+	{
+		tokenLookupHash: text('token_lookup_hash').primaryKey().notNull(),
+		tenantId: uuid('tenant_id')
+			.notNull()
+			.references(() => tenants.id, { onDelete: 'cascade' }),
+		label: text('label'),
+		createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+		revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'string' }),
+	},
+	(table) => {
+		return {
+			edgeCredentialsTenantIdIdx: index('edge_credentials_tenant_id_idx').on(table.tenantId),
+		};
+	},
+);
+
+export type EdgeCredentialRow = typeof edgeCredentials.$inferSelect;
+
 export type TenantRow = typeof tenants.$inferSelect;
 export type TenantUserRow = typeof tenantUsers.$inferSelect;
 export type TenantMigrationRow = typeof tenantMigrations.$inferSelect;

@@ -101,6 +101,30 @@ CREATE TABLE IF NOT EXISTS platform.super_admins (
     created_by          text
 );
 
+-- Which tenant a vessel's API key belongs to.
+--
+-- Edge (vessel) traffic authenticates with a bearer token, not a session, so
+-- there is no tenant to resolve from — and the api_keys table that would answer
+-- the question lives *inside* a tenant schema. This index breaks that
+-- chicken-and-egg: lookup hash to tenant, readable by ovl_api before any role
+-- is assumed.
+--
+-- It holds no secret. token_lookup_hash is derived from the first 8 characters
+-- of the token and is an index, never a credential: authentication still
+-- requires the full token hash to match the api_keys row inside that tenant's
+-- schema. Someone who read this whole table would learn how many vessels each
+-- tenant has and nothing else.
+CREATE TABLE IF NOT EXISTS platform.edge_credentials (
+    token_lookup_hash text PRIMARY KEY,
+    tenant_id         uuid NOT NULL REFERENCES platform.tenants (id) ON DELETE CASCADE,
+    label             text,
+    created_at        timestamp with time zone NOT NULL DEFAULT now(),
+    revoked_at        timestamp with time zone
+);
+
+CREATE INDEX IF NOT EXISTS edge_credentials_tenant_id_idx
+    ON platform.edge_credentials (tenant_id);
+
 CREATE TABLE IF NOT EXISTS platform.tenant_migrations (
     tenant_id  uuid NOT NULL REFERENCES platform.tenants (id) ON DELETE CASCADE,
     version    text NOT NULL,
@@ -157,7 +181,8 @@ $$;
 -- The registry is the only thing ovl_api can touch without assuming a tenant
 -- role: enough to answer "which schema does this user belong to?", nothing more.
 GRANT USAGE ON SCHEMA platform TO ovl_api;
-GRANT SELECT ON platform.tenants, platform.tenant_users, platform.super_admins TO ovl_api;
+GRANT SELECT ON platform.tenants, platform.tenant_users, platform.super_admins,
+                platform.edge_credentials TO ovl_api;
 
 -- Deliberately NOT granted: any privilege on `public`, or on any tenant schema.
 -- Those arrive only via GRANT tenant_<slug>_rw TO ovl_api during provisioning.
@@ -198,7 +223,8 @@ $$;
 
 -- Provisioning writes the registry; ovl_api only reads it.
 GRANT USAGE ON SCHEMA platform TO ovl_admin;
-GRANT SELECT, INSERT, UPDATE, DELETE ON platform.tenants, platform.tenant_users, platform.tenant_migrations, platform.super_admins TO ovl_admin;
+GRANT SELECT, INSERT, UPDATE, DELETE ON platform.tenants, platform.tenant_users, platform.tenant_migrations,
+       platform.super_admins, platform.edge_credentials TO ovl_admin;
 
 -- ---------------------------------------------------------------------------
 -- 5. Master form-schema catalogue
@@ -370,6 +396,29 @@ GRANT SELECT ON
 -- ADMIN OPTION is what lets provisioning hand this membership to a new tenant
 -- role. Without it the GRANT would warn-and-do-nothing, exactly as above.
 GRANT tenant_catalogue_reader TO ovl_admin WITH ADMIN OPTION;
+
+-- ---------------------------------------------------------------------------
+-- 8. The role that registers edge credentials
+--
+-- Minting a vessel API key has to write two places: the api_keys row in the
+-- tenant's own schema, and the platform index that says which tenant that key
+-- belongs to. The tenant role can do the first and must not be able to do the
+-- second — a tenant that could write platform.edge_credentials could point
+-- another tenant's key at itself.
+--
+-- Same dormant-membership pattern as platform_publisher: ovl_api is a member,
+-- NOINHERIT keeps it inert, and it applies only inside a transaction that has
+-- explicitly assumed it while minting or revoking a key.
+-- ---------------------------------------------------------------------------
+
+SELECT format('CREATE ROLE %I NOLOGIN', 'edge_registrar')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'edge_registrar')
+\gexec
+
+GRANT USAGE ON SCHEMA platform TO edge_registrar;
+GRANT SELECT, INSERT, UPDATE ON platform.edge_credentials TO edge_registrar;
+GRANT edge_registrar TO ovl_api;
+GRANT edge_registrar TO ovl_admin;
 
 -- ovl_api reads the catalogue directly, without assuming any role.
 --

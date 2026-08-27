@@ -8,6 +8,7 @@ import { TenantRegistryService, type TenantDescriptor } from '../tenancy/tenant-
 import { SuperAdminService } from '../tenancy/super-admin.service';
 import { PlatformDbService } from '../tenancy/platform-db.service';
 import { TenantMigrationRunnerService } from '../tenancy/tenant-migration-runner.service';
+import { EdgeTenantResolverService } from '../tenancy/edge-tenant-resolver.service';
 import { runAsSystemForTenant } from '../tenancy/tenant-context';
 import { formSchemas } from '@ovl/database';
 import { eq } from 'drizzle-orm';
@@ -300,6 +301,60 @@ describeIntegration('form catalogue isolation (live database)', () => {
       } finally {
         client.release();
       }
+    });
+  });
+
+  describe('edge credential resolution', () => {
+    /**
+     * A vessel presents a bearer token and has no session, so its tenant is
+     * resolved from the key. Getting this wrong in either direction is
+     * serious: resolving to the wrong tenant serves another operator's fleet,
+     * and treating the lookup hash as proof of identity would make a truncated
+     * hash into a credential.
+     */
+    const alphaHash = `it_lookup_alpha_${suffix()}`;
+    const betaHash = `it_lookup_beta_${suffix()}`;
+
+    it('resolves each key to the tenant that issued it, and no other', async () => {
+      const resolver = app.get(EdgeTenantResolverService);
+      await resolver.register(alphaHash, alpha.tenantId, 'it-alpha-key');
+      await resolver.register(betaHash, beta.tenantId, 'it-beta-key');
+
+      await expect(resolver.resolve(alphaHash)).resolves.toMatchObject({ slug: alphaSlug });
+      await expect(resolver.resolve(betaHash)).resolves.toMatchObject({ slug: betaSlug });
+    });
+
+    it('resolves an unknown key to null rather than to a default tenant', async () => {
+      const resolver = app.get(EdgeTenantResolverService);
+      await expect(resolver.resolve(`it_never_issued_${suffix()}`)).resolves.toBeNull();
+    });
+
+    it('stops resolving a revoked key', async () => {
+      const resolver = app.get(EdgeTenantResolverService);
+      const hash = `it_lookup_revoked_${suffix()}`;
+      await resolver.register(hash, alpha.tenantId, 'it-revoked');
+      await expect(resolver.resolve(hash)).resolves.not.toBeNull();
+
+      await resolver.revoke(hash);
+      // Revocation must be immediate, not eventual: the resolver invalidates
+      // its own cache rather than leaving a revoked vessel working for a TTL.
+      await expect(resolver.resolve(hash)).resolves.toBeNull();
+    });
+
+    it('refuses to resolve a key whose tenant has been suspended', async () => {
+      const resolver = app.get(EdgeTenantResolverService);
+      const hash = `it_lookup_suspended_${suffix()}`;
+      await resolver.register(hash, beta.tenantId, 'it-suspended');
+
+      await provisioning.setStatus(betaSlug, 'suspended');
+      registry.invalidate();
+      resolver.invalidate();
+      await expect(resolver.resolve(hash)).resolves.toBeNull();
+
+      await provisioning.setStatus(betaSlug, 'active');
+      registry.invalidate();
+      resolver.invalidate();
+      await expect(resolver.resolve(hash)).resolves.not.toBeNull();
     });
   });
 

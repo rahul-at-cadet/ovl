@@ -29,6 +29,7 @@ import { TenantProvisioningService } from './tenant-provisioning.service';
 import { PlatformDbService } from './platform-db.service';
 import { SuperAdminService } from './super-admin.service';
 import { TenantMigrationRunnerService } from './tenant-migration-runner.service';
+import { EdgeTenantResolverService } from './edge-tenant-resolver.service';
 
 /**
  * Schema-per-tenant data access for the office API.
@@ -109,6 +110,7 @@ export class TenancyModule implements NestModule, OnApplicationShutdown {
         PlatformDbService,
         SuperAdminService,
         TenantMigrationRunnerService,
+        EdgeTenantResolverService,
         TenantMiddleware,
         TenantGuard,
       ],
@@ -124,6 +126,7 @@ export class TenancyModule implements NestModule, OnApplicationShutdown {
         PlatformDbService,
         SuperAdminService,
         TenantMigrationRunnerService,
+        EdgeTenantResolverService,
         TenantMiddleware,
         TenantGuard,
       ],

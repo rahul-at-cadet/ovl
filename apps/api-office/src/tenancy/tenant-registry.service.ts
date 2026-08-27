@@ -34,6 +34,7 @@ export class TenantRegistryService {
   private readonly logger = new Logger(TenantRegistryService.name);
   private readonly byUserId = new Map<string, CacheEntry>();
   private readonly bySlugCache = new Map<string, CacheEntry>();
+  private readonly byIdCache = new Map<string, CacheEntry>();
 
   constructor(
     @Inject(PLATFORM_DB) private readonly platformDb: PlatformDatabase,
@@ -91,6 +92,31 @@ export class TenantRegistryService {
     return descriptor;
   }
 
+  /**
+   * Lookup by tenant id. For paths that already hold an id rather than an
+   * identity — edge credential resolution, background jobs, admin tooling.
+   */
+  async byId(tenantId: string): Promise<TenantDescriptor | null> {
+    const cached = this.readCache(this.byIdCache, tenantId);
+    if (cached) return cached;
+
+    const rows = await this.platformDb
+      .select({
+        id: tenants.id,
+        slug: tenants.slug,
+        schemaName: tenants.schemaName,
+        roleName: tenants.roleName,
+        status: tenants.status,
+      })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+
+    const descriptor = this.toDescriptor(rows[0]);
+    if (descriptor) this.writeCache(this.byIdCache, tenantId, descriptor);
+    return descriptor;
+  }
+
   /** Every tenant, whatever its status. For the migration runner and admin tooling. */
   async list(): Promise<Array<TenantDescriptor & { status: TenantStatus }>> {
     const rows = await this.platformDb.select().from(tenants).orderBy(tenants.slug);
@@ -110,6 +136,7 @@ export class TenantRegistryService {
   invalidate(): void {
     this.byUserId.clear();
     this.bySlugCache.clear();
+    this.byIdCache.clear();
   }
 
   /**
