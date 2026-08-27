@@ -7,6 +7,34 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { TrpcModule } from './rpc/trpc.module';
 import { ReportsModule } from './reports/reports.module';
+import { TenancyModule } from './tenancy/tenancy.module';
+
+/**
+ * Multi-tenancy is opt-in while the migration from the single shared schema is
+ * in progress. With MULTI_TENANCY_ENABLED unset the app behaves exactly as it
+ * did before — same global DATABASE_CONNECTION, same everything — so the
+ * tenancy code can land, be reviewed and be exercised against a scratch
+ * database without any risk to a running deployment.
+ *
+ * See apps/api-office/src/tenancy/README.md for the cutover sequence.
+ */
+const multiTenancyEnabled = process.env.MULTI_TENANCY_ENABLED === 'true';
+
+const tenancyImports = multiTenancyEnabled
+  ? [
+      TenancyModule.forRoot({
+        connectionString: requireEnv('DATABASE_URL'),
+        adminConnectionString: process.env.ADMIN_DATABASE_URL,
+        poolMax: process.env.PG_POOL_MAX ? Number(process.env.PG_POOL_MAX) : undefined,
+      }),
+    ]
+  : [];
+
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} environment variable is not defined`);
+  return value;
+}
 
 @Module({
   imports: [
@@ -31,6 +59,9 @@ import { ReportsModule } from './reports/reports.module';
         websiteBasePath: '/login',
       },
     }),
+    // After AuthModule: Nest applies middleware in module-registration order,
+    // and TenantMiddleware reads the session AuthModule establishes.
+    ...tenancyImports,
     UsersModule,
     TrpcModule,
   ],

@@ -17,7 +17,14 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "tenant": "ts-node -r tsconfig-paths/register src/tenancy/cli/provision-tenant.ts",
+    "tenant:list": "ts-node -r tsconfig-paths/register src/tenancy/cli/provision-tenant.ts list",
+    "tenant:provision": "ts-node -r tsconfig-paths/register src/tenancy/cli/provision-tenant.ts provision",
+    "tenant:assign": "ts-node -r tsconfig-paths/register src/tenancy/cli/provision-tenant.ts assign",
+    "tenant:suspend": "ts-node -r tsconfig-paths/register src/tenancy/cli/provision-tenant.ts suspend",
+    "tenant:activate": "ts-node -r tsconfig-paths/register src/tenancy/cli/provision-tenant.ts activate",
+    "tenant:destroy": "ts-node -r tsconfig-paths/register src/tenancy/cli/provision-tenant.ts destroy"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
