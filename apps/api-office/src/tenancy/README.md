@@ -180,7 +180,11 @@ reason the explicit form exists.
 ## Operating
 
 ```bash
-psql "$ADMIN_DATABASE_URL" -v api_password="$OVL_API_DB_PASSWORD" \
+./packages/database/bootstrap/generate-tenancy-credentials.sh
+set -a && source .env.tenancy && set +a
+psql "$SUPERUSER_DATABASE_URL" \
+  -v api_password="$OVL_API_DB_PASSWORD" \
+  -v admin_password="$OVL_ADMIN_DB_PASSWORD" \
   -f packages/database/bootstrap/platform-bootstrap.sql
 ```
 
@@ -206,29 +210,65 @@ Multi-tenancy is behind `MULTI_TENANCY_ENABLED=true`. Unset, the app runs
 exactly as it did before against the single shared schema, so this code can
 land and be reviewed without touching a running deployment.
 
-```bash
-MULTI_TENANCY_ENABLED=true
-DATABASE_URL=postgres://ovl_api:...@host/db          # NOINHERIT, owns nothing
-ADMIN_DATABASE_URL=postgres://postgres:...@host/db   # CLI/admin only
-PG_POOL_MAX=15
-```
+Configuration lives in `.env.tenancy`; see `.env.tenancy.example` and the
+**Roles and credentials** section below.
 
 ## Verification status
 
-Unit tests cover identifier validation against injection, context propagation
-under interleaved concurrent requests, the exact SQL preamble, connection
-release and destruction paths, per-tenant concurrency limiting and shedding,
-and cache key scoping. `npx jest src/tenancy` — 61 tests.
+Verified against live PostgreSQL 16 (`ovl-local-pg`), with two real tenants
+provisioned through the actual CLI:
 
-**Not yet verified against a live Postgres.** The bootstrap SQL, the
-provisioning transaction and the `NOINHERIT` privilege model have not been
-executed — Docker was not running in the session that wrote them. Before
-enabling this anywhere, run the bootstrap and confirm the bulkhead:
+| Check | Result |
+|---|---|
+| `ovl_api` role attributes | `rolinherit=f`, `rolsuper=f`, `rolcreaterole=f` |
+| `ovl_admin` role attributes | `rolcreaterole=t`, `rolsuper=f` |
+| Bootstrap idempotency | re-run clean; missing-password guard fires |
+| Provisioning as non-superuser `ovl_admin` | 2 tenants, 29 tables each |
+| Tenant FKs after `"public".` stripping | point at `tenant_<slug>.*`, not `public.*` |
+| `ovl_api` with no role assumed | `permission denied for schema` |
+| Assumed tenant A, reading tenant B | `permission denied for schema` |
+| Assumed tenant A, reading tenant A | succeeds, correct `current_user`/`current_schema` |
+| After `COMMIT` (the pool-reuse case) | back to bare `ovl_api`, empty `search_path`, access denied again |
+| Two tenants with real rows | each sees only its own; cross-schema read denied |
 
-```sql
-SET ROLE ovl_api;
-SELECT * FROM tenant_other.vessels;   -- MUST fail: permission denied for schema
+The last two rows are the ones that matter. A released connection carries
+nothing forward, and a tenant cannot reach another tenant's schema even by
+naming it explicitly.
+
+Unit tests: `npx jest src/tenancy` — 61 tests covering identifier validation
+against injection, context propagation under interleaved concurrent requests,
+the exact SQL preamble, connection release and destruction paths, per-tenant
+concurrency limiting and shedding, and cache key scoping.
+
+Two bugs that only surfaced by actually running this, both now fixed: psql does
+not interpolate `:'variables'` inside dollar-quoted strings (so the bootstrap's
+`CREATE ROLE ... PASSWORD` never received one — it uses `\gexec` now), and the
+CLI printed results through a Nest log level it had itself disabled.
+
+## Roles and credentials
+
+Three roles, three privilege levels, and the split is the point:
+
+| Role | Holds | Used by |
+|---|---|---|
+| `ovl_api` | `NOINHERIT`, owns nothing, `SELECT` on the registry | the serving API's pool |
+| `ovl_admin` | `CREATEROLE` + `CREATE` on database, not superuser | the tenant CLI |
+| superuser | everything | `platform-bootstrap.sql`, once |
+
+The serving API can never create a schema or a role. Provisioning can never
+read tenant data — it is not a member of any tenant role.
+
+Generate local credentials with:
+
+```bash
+./packages/database/bootstrap/generate-tenancy-credentials.sh
 ```
+
+That writes `.env.tenancy` (mode 600, gitignored by the existing `.env.*`
+rule). `.env.tenancy.example` is the committed record of which variables exist.
+The script refuses to overwrite an existing file, because those passwords are
+already installed in a database and replacing them silently would leave the
+file and the database disagreeing.
 
 ## Still to do
 

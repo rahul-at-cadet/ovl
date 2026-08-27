@@ -4,9 +4,14 @@
 -- office API is started in multi-tenant mode. It is idempotent — re-running it
 -- is safe and is the intended way to repair drifted grants.
 --
--- Usage:
---   psql "$ADMIN_DATABASE_URL" -v api_password="$OVL_API_DB_PASSWORD" \
+-- Usage (as a superuser — this is the one step that needs one):
+--   psql "$SUPERUSER_DATABASE_URL" \
+--        -v api_password="$OVL_API_DB_PASSWORD" \
+--        -v admin_password="$OVL_ADMIN_DB_PASSWORD" \
 --        -f packages/database/bootstrap/platform-bootstrap.sql
+--
+-- Credentials for local development live in .env.tenancy (gitignored); see
+-- .env.tenancy.example for the full list and how to regenerate them.
 --
 -- What this establishes is the bulkhead the whole design rests on: the role
 -- the API pool logs in as (`ovl_api`) is NOINHERIT and owns nothing. It is a
@@ -20,6 +25,20 @@
 -- because onboarding is an application operation, not a one-off DBA task.
 
 \set ON_ERROR_STOP on
+
+\if :{?api_password}
+\else
+\echo 'ERROR: api_password is required.'
+\echo '  psql "$SUPERUSER_DATABASE_URL" -v api_password=... -v admin_password=... -f platform-bootstrap.sql'
+\quit
+\endif
+
+\if :{?admin_password}
+\else
+\echo 'ERROR: admin_password is required.'
+\echo '  psql "$SUPERUSER_DATABASE_URL" -v api_password=... -v admin_password=... -f platform-bootstrap.sql'
+\quit
+\endif
 
 BEGIN;
 
@@ -96,15 +115,19 @@ $$;
 -- model silently disappears while every test still passes.
 -- ---------------------------------------------------------------------------
 
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ovl_api') THEN
-        EXECUTE format('CREATE ROLE ovl_api LOGIN NOINHERIT PASSWORD %L', :'api_password');
-    ELSE
-        EXECUTE format('ALTER ROLE ovl_api LOGIN NOINHERIT PASSWORD %L', :'api_password');
-    END IF;
-END
-$$;
+-- Written with \gexec rather than a DO block on purpose: psql does NOT
+-- interpolate :'variables' inside dollar-quoted strings, so `:'api_password'`
+-- within a DO $$ ... $$ body reaches the server as literal text and fails to
+-- parse. Building the statement in SQL and executing it with \gexec keeps the
+-- substitution in a context where psql actually performs it.
+SELECT format('CREATE ROLE %I NOLOGIN', 'ovl_api')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ovl_api')
+\gexec
+
+-- Applied unconditionally so re-running repairs a drifted role: restores
+-- NOINHERIT if someone removed it, and resets the password.
+SELECT format('ALTER ROLE %I LOGIN NOINHERIT PASSWORD %L', 'ovl_api', :'api_password')
+\gexec
 
 DO $$
 BEGIN
@@ -120,12 +143,52 @@ GRANT SELECT ON platform.tenants, platform.tenant_users TO ovl_api;
 -- Deliberately NOT granted: any privilege on `public`, or on any tenant schema.
 -- Those arrive only via GRANT tenant_<slug>_rw TO ovl_api during provisioning.
 
+-- ---------------------------------------------------------------------------
+-- 4. The role that provisions tenants
+--
+-- Separate from ovl_api, and separate from the superuser. Provisioning needs
+-- privileges the serving API must never hold — CREATE SCHEMA, CREATE ROLE,
+-- GRANT — so it gets its own login role, used only by the CLI and by any
+-- dedicated admin deployment.
+--
+-- NOT a superuser. CREATEROLE plus CREATE on the database is exactly what
+-- TenantProvisioningService needs and nothing more: it cannot read tenant data
+-- (it is not a member of any tenant role and does not inherit into one by
+-- accident), cannot alter ovl_api's NOINHERIT bulkhead, and cannot touch
+-- anything outside this database. Running provisioning as `postgres` would
+-- work and would also mean every onboarding ran with unlimited rights.
+--
+-- On PostgreSQL 16+, a CREATEROLE role automatically receives ADMIN OPTION on
+-- roles it creates, which is what lets it run `GRANT tenant_x_rw TO ovl_api`
+-- and `GRANT tenant_x_rw TO CURRENT_USER` during provisioning.
+-- ---------------------------------------------------------------------------
+
+SELECT format('CREATE ROLE %I NOLOGIN', 'ovl_admin')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ovl_admin')
+\gexec
+
+SELECT format('ALTER ROLE %I LOGIN CREATEROLE NOSUPERUSER NOCREATEDB PASSWORD %L',
+              'ovl_admin', :'admin_password')
+\gexec
+
+DO $$
+BEGIN
+    EXECUTE format('GRANT CONNECT, CREATE ON DATABASE %I TO ovl_admin', current_database());
+END
+$$;
+
+-- Provisioning writes the registry; ovl_api only reads it.
+GRANT USAGE ON SCHEMA platform TO ovl_admin;
+GRANT SELECT, INSERT, UPDATE, DELETE ON platform.tenants, platform.tenant_users, platform.tenant_migrations TO ovl_admin;
+
 COMMIT;
 
 -- ---------------------------------------------------------------------------
--- Verify (should return NOINHERIT = false for rolinherit):
+-- Verify (ovl_api must show rolinherit = f and rolsuper = f;
+-- ovl_admin must show rolcreaterole = t and rolsuper = f):
 --
---   SELECT rolname, rolinherit, rolcanlogin FROM pg_roles WHERE rolname = 'ovl_api';
+--   SELECT rolname, rolinherit, rolcanlogin, rolcreaterole, rolsuper
+--     FROM pg_roles WHERE rolname IN ('ovl_api', 'ovl_admin');
 --
 -- And confirm the bulkhead actually holds — this must FAIL:
 --

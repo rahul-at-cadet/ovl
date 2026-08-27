@@ -47,13 +47,25 @@ const require_ = (args: Args, key: string): string => {
   return value;
 };
 
+/**
+ * CLI output goes to stdout directly, not through Nest's Logger.
+ *
+ * The container is started with the 'log' level suppressed so that framework
+ * chatter and startup seeding do not drown the result — which also means
+ * logger.log() would swallow this command's own output. Anything the operator
+ * asked for is printed; anything the framework has to say is a log line.
+ */
+const out = (line: string): void => {
+  process.stdout.write(`${line}\n`);
+};
+
 async function main(): Promise<void> {
   const logger = new Logger('tenant-cli');
   const [command, ...rest] = process.argv.slice(2);
   const args = parseArgs(rest);
 
   if (!command) {
-    logger.error('Usage: tenant-cli <list|provision|assign|suspend|activate|destroy> [--flags]');
+    out('Usage: tenant-cli <list|provision|assign|suspend|activate|destroy> [--flags]');
     process.exitCode = 1;
     return;
   }
@@ -70,11 +82,11 @@ async function main(): Promise<void> {
       case 'list': {
         const all = await registry.list();
         if (all.length === 0) {
-          logger.log('No tenants registered.');
+          out('No tenants registered.');
           break;
         }
         for (const tenant of all) {
-          logger.log(`${tenant.slug.padEnd(24)} ${tenant.status.padEnd(14)} ${tenant.schemaName}`);
+          out(`${tenant.slug.padEnd(24)} ${tenant.status.padEnd(14)} ${tenant.schemaName}`);
         }
         break;
       }
@@ -83,7 +95,7 @@ async function main(): Promise<void> {
         const name = require_(args, 'name');
         const slug = typeof args.slug === 'string' ? args.slug : undefined;
         const tenant = await provisioning.provision({ name, slug });
-        logger.log(`Provisioned ${tenant.slug} -> ${tenant.schemaName} (id ${tenant.tenantId})`);
+        out(`Provisioned ${tenant.slug} -> ${tenant.schemaName} (id ${tenant.tenantId})`);
         break;
       }
 
@@ -93,7 +105,7 @@ async function main(): Promise<void> {
         const tenant = await registry.forSlug(slug);
         if (!tenant) throw new Error(`No active tenant with slug ${slug}`);
         await provisioning.assignUser(supertokensUserId, tenant.tenantId);
-        logger.log(`Assigned user ${supertokensUserId} to ${slug}`);
+        out(`Assigned user ${supertokensUserId} to ${slug}`);
         break;
       }
 
@@ -101,7 +113,7 @@ async function main(): Promise<void> {
       case 'activate': {
         const slug = require_(args, 'slug');
         await provisioning.setStatus(slug, command === 'suspend' ? 'suspended' : 'active');
-        logger.log(`Tenant ${slug} is now ${command === 'suspend' ? 'suspended' : 'active'}`);
+        out(`Tenant ${slug} is now ${command === 'suspend' ? 'suspended' : 'active'}`);
         break;
       }
 
@@ -109,7 +121,7 @@ async function main(): Promise<void> {
         const slug = require_(args, 'slug');
         const confirm = require_(args, 'confirm');
         await provisioning.destroy(slug, confirm as `drop tenant ${string}`);
-        logger.warn(`Destroyed ${slug}`);
+        out(`Destroyed ${slug}`);
         break;
       }
 
