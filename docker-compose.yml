@@ -57,18 +57,22 @@ services:
       - /app/apps/web-vessel/node_modules
       - /app/packages/database/node_modules
       - /app/packages/vessel-database/node_modules
-      # Build output stays inside the container.
+      # Next build output stays inside the container.
       #
-      # Without these, `.next` and `dist` are shared with the host through the
-      # `.:/app` bind mount — so running a production build on the host
-      # (`npx turbo run build`) overwrites the artifacts a `next dev` or
-      # `nest start --watch` container is actively serving from. Next then has
-      # a production manifest under a dev server and quietly 404s every route
-      # it has not recompiled since, which looks like a routing bug and is not.
+      # Without this, `.next` is shared with the host through the `.:/app` bind
+      # mount, so a host production build (`npx turbo run build`) overwrites the
+      # artifacts the running `next dev` container is serving from. Next then
+      # has a production manifest under a dev server and quietly 404s every
+      # route it has not recompiled since — which looks like a routing bug and
+      # is not.
+      #
+      # The Nest `dist` directories are deliberately NOT isolated the same way.
+      # They are exposed to the same race in principle, but `nest start --watch`
+      # recompiles continuously and heals it, whereas making `dist` a mount
+      # point stops host builds outright: `nest build` begins by removing the
+      # directory, and a live mount point cannot be removed.
       - /app/apps/web-office/.next
       - /app/apps/web-vessel/.next
-      - /app/apps/api-office/dist
-      - /app/apps/api-vessel/dist
     depends_on:
       supertokens:
         condition: service_healthy
@@ -94,18 +98,22 @@ services:
       - /app/apps/web-vessel/node_modules
       - /app/packages/database/node_modules
       - /app/packages/vessel-database/node_modules
-      # Build output stays inside the container.
+      # Next build output stays inside the container.
       #
-      # Without these, `.next` and `dist` are shared with the host through the
-      # `.:/app` bind mount — so running a production build on the host
-      # (`npx turbo run build`) overwrites the artifacts a `next dev` or
-      # `nest start --watch` container is actively serving from. Next then has
-      # a production manifest under a dev server and quietly 404s every route
-      # it has not recompiled since, which looks like a routing bug and is not.
+      # Without this, `.next` is shared with the host through the `.:/app` bind
+      # mount, so a host production build (`npx turbo run build`) overwrites the
+      # artifacts the running `next dev` container is serving from. Next then
+      # has a production manifest under a dev server and quietly 404s every
+      # route it has not recompiled since — which looks like a routing bug and
+      # is not.
+      #
+      # The Nest `dist` directories are deliberately NOT isolated the same way.
+      # They are exposed to the same race in principle, but `nest start --watch`
+      # recompiles continuously and heals it, whereas making `dist` a mount
+      # point stops host builds outright: `nest build` begins by removing the
+      # directory, and a live mount point cannot be removed.
       - /app/apps/web-office/.next
       - /app/apps/web-vessel/.next
-      - /app/apps/api-office/dist
-      - /app/apps/api-vessel/dist
 
   web-office:
     build:
@@ -126,18 +134,22 @@ services:
       - /app/apps/web-vessel/node_modules
       - /app/packages/database/node_modules
       - /app/packages/vessel-database/node_modules
-      # Build output stays inside the container.
+      # Next build output stays inside the container.
       #
-      # Without these, `.next` and `dist` are shared with the host through the
-      # `.:/app` bind mount — so running a production build on the host
-      # (`npx turbo run build`) overwrites the artifacts a `next dev` or
-      # `nest start --watch` container is actively serving from. Next then has
-      # a production manifest under a dev server and quietly 404s every route
-      # it has not recompiled since, which looks like a routing bug and is not.
+      # Without this, `.next` is shared with the host through the `.:/app` bind
+      # mount, so a host production build (`npx turbo run build`) overwrites the
+      # artifacts the running `next dev` container is serving from. Next then
+      # has a production manifest under a dev server and quietly 404s every
+      # route it has not recompiled since — which looks like a routing bug and
+      # is not.
+      #
+      # The Nest `dist` directories are deliberately NOT isolated the same way.
+      # They are exposed to the same race in principle, but `nest start --watch`
+      # recompiles continuously and heals it, whereas making `dist` a mount
+      # point stops host builds outright: `nest build` begins by removing the
+      # directory, and a live mount point cannot be removed.
       - /app/apps/web-office/.next
       - /app/apps/web-vessel/.next
-      - /app/apps/api-office/dist
-      - /app/apps/api-vessel/dist
 
   web-vessel:
     build:
@@ -158,15 +170,19 @@ services:
       - /app/apps/web-vessel/node_modules
       - /app/packages/database/node_modules
       - /app/packages/vessel-database/node_modules
-      # Build output stays inside the container.
+      # Next build output stays inside the container.
       #
-      # Without these, `.next` and `dist` are shared with the host through the
-      # `.:/app` bind mount — so running a production build on the host
-      # (`npx turbo run build`) overwrites the artifacts a `next dev` or
-      # `nest start --watch` container is actively serving from. Next then has
-      # a production manifest under a dev server and quietly 404s every route
-      # it has not recompiled since, which looks like a routing bug and is not.
+      # Without this, `.next` is shared with the host through the `.:/app` bind
+      # mount, so a host production build (`npx turbo run build`) overwrites the
+      # artifacts the running `next dev` container is serving from. Next then
+      # has a production manifest under a dev server and quietly 404s every
+      # route it has not recompiled since — which looks like a routing bug and
+      # is not.
+      #
+      # The Nest `dist` directories are deliberately NOT isolated the same way.
+      # They are exposed to the same race in principle, but `nest start --watch`
+      # recompiles continuously and heals it, whereas making `dist` a mount
+      # point stops host builds outright: `nest build` begins by removing the
+      # directory, and a live mount point cannot be removed.
       - /app/apps/web-office/.next
       - /app/apps/web-vessel/.next
-      - /app/apps/api-office/dist
-      - /app/apps/api-vessel/dist

@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { Pool, escapeIdentifier, type PoolClient } from 'pg';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from '@ovl/database';
@@ -30,6 +31,16 @@ export interface WithTenantOptions {
   /** Overrides the module-wide statement timeout for one call. 0 disables. */
   statementTimeoutMillis?: number;
 }
+
+/**
+ * The transaction currently bound to this async path, if any.
+ *
+ * Separate from the tenant context because they answer different questions:
+ * that one says *which* tenant, this one says *whether a connection is already
+ * held*. Kept module-private so nothing outside this service can get at a live
+ * transaction handle.
+ */
+const activeTransaction = new AsyncLocalStorage<{ tenantId: string; db: TenantDatabase }>();
 
 export class TenantBindingError extends Error {
   constructor(message: string) {
@@ -100,6 +111,33 @@ export class TenantDbService {
     fn: (db: TenantDatabase) => Promise<T>,
     options: WithTenantOptions = {},
   ): Promise<T> {
+    // Reentrant: a nested call joins the transaction already open on this path
+    // rather than taking a second connection.
+    //
+    // This is not an optimisation, it is deadlock avoidance. Services call one
+    // another — VesselsService asks ComplianceService for cadence rules
+    // mid-method — and if each opened its own transaction, a request would hold
+    // one connection while queueing for another. With a per-tenant concurrency
+    // cap in front of the pool, enough such requests deadlock: every slot held
+    // by someone waiting for a slot. Joining also makes the nested work atomic
+    // with its caller, which is what a reader would assume anyway.
+    const open = activeTransaction.getStore();
+    if (open) {
+      if (open.tenantId !== tenant.tenantId) {
+        // Two tenants on one async path means something has gone badly wrong
+        // upstream. Refuse rather than silently running B's query on A's
+        // connection.
+        throw new TenantBindingError(
+          `Refusing to nest a transaction for tenant ${tenant.slug} inside one already ` +
+            `open for a different tenant.`,
+        );
+      }
+      // `readOnly` and `statementTimeoutMillis` belong to the outer
+      // transaction and cannot be tightened here; a nested read inside an
+      // outer write simply runs in the outer transaction.
+      return fn(open.db);
+    }
+
     // Re-validated here, at the last possible moment before these strings
     // become SQL, rather than trusted from the registry. Cheap, and it means
     // no future caller can route around the check by building a descriptor
@@ -132,7 +170,7 @@ export class TenantDbService {
       bound = true;
 
       const db = drizzle(client, { schema });
-      const result = await fn(db);
+      const result = await activeTransaction.run({ tenantId: tenant.tenantId, db }, () => fn(db));
 
       await client.query('COMMIT');
       client.release();

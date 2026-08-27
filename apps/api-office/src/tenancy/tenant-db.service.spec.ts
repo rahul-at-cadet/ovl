@@ -180,6 +180,94 @@ describe('TenantDbService', () => {
     expect(statements(clients[0])[0]).toContain('SET LOCAL ROLE "tenant_acme_rw"');
   });
 
+  describe('reentrancy', () => {
+    /**
+     * Nested calls must join the open transaction rather than take a second
+     * connection. This is deadlock avoidance, not tidiness: services call one
+     * another mid-method, and holding one connection while queueing for
+     * another under a per-tenant concurrency cap is how every slot ends up
+     * held by someone waiting for a slot.
+     */
+    it('joins the open transaction instead of taking another connection', async () => {
+      const { pool, connect, clients } = fakePool();
+      const service = build(pool);
+      let innerDb: unknown;
+      let outerDb: unknown;
+
+      await service.runFor(acme, async (db) => {
+        outerDb = db;
+        await service.runFor(acme, async (nested) => {
+          innerDb = nested;
+        });
+      });
+
+      expect(connect).toHaveBeenCalledTimes(1);
+      expect(innerDb).toBe(outerDb);
+      // One transaction, so exactly one COMMIT.
+      expect(statements(clients[0]).filter((s) => s === 'COMMIT')).toHaveLength(1);
+    });
+
+    it('does not deadlock when nesting deeper than the per-tenant limit', async () => {
+      const options = resolveTenancyOptions({
+        connectionString: 'postgres://unused',
+        maxConcurrentPerTenant: 1,
+        tenantQueueTimeoutMillis: 200,
+      });
+      const { pool } = fakePool();
+      const service = new TenantDbService(pool, options, new TenantConcurrencyService(options));
+
+      // With a ceiling of one, a nested call that took its own slot could never
+      // get one — the outer call is holding it.
+      await expect(
+        service.runFor(acme, () =>
+          service.runFor(acme, () => service.runFor(acme, async () => 'deep')),
+        ),
+      ).resolves.toBe('deep');
+    });
+
+    it('rolls the nested work back with the outer transaction', async () => {
+      const { pool, clients } = fakePool();
+      const service = build(pool);
+
+      await expect(
+        service.runFor(acme, async () => {
+          await service.runFor(acme, async () => 'inner ok');
+          throw new Error('outer failed');
+        }),
+      ).rejects.toThrow('outer failed');
+
+      expect(statements(clients[0])).toContain('ROLLBACK');
+      expect(statements(clients[0])).not.toContain('COMMIT');
+    });
+
+    /**
+     * Two tenants on one async path means something upstream is badly wrong.
+     * Running the inner query on the outer tenant's connection would be a
+     * cross-tenant read, so it has to be refused.
+     */
+    it('refuses to nest a different tenant inside an open transaction', async () => {
+      const { pool } = fakePool();
+      const service = build(pool);
+      const other = { ...acme, tenantId: 'other-uuid', slug: 'other' };
+
+      await expect(
+        service.runFor(acme, () => service.runFor(other, async () => 'should not run')),
+      ).rejects.toBeInstanceOf(TenantBindingError);
+    });
+
+    it('does not leak the transaction to the next independent call', async () => {
+      const { pool, connect } = fakePool();
+      const service = build(pool);
+
+      await service.runFor(acme, async () => 'first');
+      await service.runFor(acme, async () => 'second');
+
+      // Two separate calls, two connections — reentrancy must not make the
+      // second one silently reuse a released connection.
+      expect(connect).toHaveBeenCalledTimes(2);
+    });
+  });
+
   it('marks a read-only transaction when asked', async () => {
     const { pool, clients } = fakePool();
     await build(pool).runFor(acme, async () => 'ok', { readOnly: true });
