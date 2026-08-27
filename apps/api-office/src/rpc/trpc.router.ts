@@ -24,6 +24,11 @@ import { UsersService } from '../users/users.service';
 import { UserRole } from '../users/dto/create-user.dto';
 import Session from 'supertokens-node/recipe/session';
 import { TRPCError } from '@trpc/server';
+import { Optional } from '@nestjs/common';
+import { MasterCatalogService } from '../form-catalogue/master-catalog.service';
+import { TenantCatalogService } from '../form-catalogue/tenant-catalog.service';
+import { PlatformDbService } from '../tenancy/platform-db.service';
+import { tryCurrentTenant } from '../tenancy/tenant-context';
 
 function formatRelativeTime(thenMs: number): string {
   const diffSec = Math.max(0, Math.floor((Date.now() - thenMs) / 1000));
@@ -356,6 +361,38 @@ const MarkNotificationsReadSchema = Type.Object({
 });
 const MarkNotificationsReadCompiler = TypeCompiler.Compile(MarkNotificationsReadSchema);
 
+// --- master form-schema catalogue ---------------------------------------
+
+const CatalogueContentSchema = Type.Object({
+  content: Type.String(),
+  title: Type.Optional(Type.String()),
+  description: Type.Optional(Type.String()),
+});
+const CatalogueContentCompiler = TypeCompiler.Compile(CatalogueContentSchema);
+
+const CatalogueSchemaNameSchema = Type.Object({ schemaName: Type.String() });
+const CatalogueSchemaNameCompiler = TypeCompiler.Compile(CatalogueSchemaNameSchema);
+
+const CatalogueVersionIdSchema = Type.Object({ versionId: Type.String() });
+const CatalogueVersionIdCompiler = TypeCompiler.Compile(CatalogueVersionIdSchema);
+
+const CatalogueForkSchema = Type.Object({
+  masterVersionId: Type.String(),
+  newVersion: Type.String(),
+});
+const CatalogueForkCompiler = TypeCompiler.Compile(CatalogueForkSchema);
+
+const CatalogueDraftSchema = Type.Object({
+  versionId: Type.String(),
+  content: Type.String(),
+});
+const CatalogueDraftCompiler = TypeCompiler.Compile(CatalogueDraftSchema);
+
+const CatalogueOptionalSchemaNameSchema = Type.Object({
+  schemaName: Type.Optional(Type.String()),
+});
+const CatalogueOptionalSchemaNameCompiler = TypeCompiler.Compile(CatalogueOptionalSchemaNameSchema);
+
 export const publicProcedure = t.procedure;
 export const router = t.router;
 
@@ -424,7 +461,65 @@ export class TrpcRouter {
     private readonly supertokensService: SupertokensService,
     private readonly notificationsService: NotificationsService,
     private readonly usersService: UsersService,
+    // Optional because the form catalogue only exists when multi-tenancy is
+    // enabled — TrpcRouter is constructed either way. The catalogue procedures
+    // say so plainly rather than failing to resolve a dependency at boot.
+    //
+    // @Inject is required here, not decoration. A parameter typed
+    // `Service | null` reflects as `Object` under emitDecoratorMetadata,
+    // because a union has no single runtime constructor — so Nest has no token
+    // to resolve and, being @Optional, quietly injects undefined. Everything
+    // still boots, and every call silently behaves as though the catalogue were
+    // switched off. Naming the token explicitly is what makes the injection
+    // actually happen.
+    @Optional() @Inject(MasterCatalogService) private readonly masterCatalog?: MasterCatalogService,
+    @Optional() @Inject(TenantCatalogService) private readonly tenantCatalog?: TenantCatalogService,
+    @Optional() @Inject(PlatformDbService) private readonly platformDb?: PlatformDbService,
   ) {}
+
+  /** Throws unless the catalogue is wired up. */
+  private requireCatalogue<T>(service: T | undefined): T {
+    if (!service) {
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'The form-schema catalogue requires MULTI_TENANCY_ENABLED=true.',
+      });
+    }
+    return service;
+  }
+
+  /**
+   * The SuperTokens id of the caller, having confirmed they are a platform
+   * super admin.
+   *
+   * Checked here *and* enforced again by Postgres: MasterCatalogService writes
+   * through PlatformDbService.asPublisher, which re-checks and then assumes the
+   * platform_publisher role. This check exists to return a clean 403 at the
+   * edge; the role assumption is what makes bypassing it impossible.
+   */
+  private async requireSuperAdmin(ctx: { session: { getUserId(): string } }): Promise<string> {
+    const platform = this.requireCatalogue(this.platformDb);
+    const userId = ctx.session.getUserId();
+    if (!(await platform.isSuperAdmin(userId))) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'This action requires a platform super admin.',
+      });
+    }
+    return userId;
+  }
+
+  /** The active tenant, or a clean 403 rather than a 500 from deeper down. */
+  private requireTenant() {
+    const tenant = tryCurrentTenant();
+    if (!tenant) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'No tenant is associated with this account.',
+      });
+    }
+    return tenant;
+  }
 
   /**
    * Re-checks every report in (vesselId, schemaName)'s chain against the
@@ -527,6 +622,207 @@ export class TrpcRouter {
   }
 
   appRouter = router({
+    /**
+     * The master form-schema catalogue, and each tenant's adoptions of it.
+     *
+     * `catalogue.master.*` is super-admin only: a platform super admin
+     * publishes documents every tenant may choose from. `catalogue.tenant.*`
+     * is what a tenant administrator uses to adopt one, fork it, or publish
+     * their own — a tenant can never write a master schema, and its database
+     * role holds only SELECT on the catalogue, so that is enforced below the
+     * application rather than by these checks alone.
+     */
+    catalogue: router({
+      /** What the current caller may do — drives which UI is offered. */
+      whoami: protectedProcedure.query(async ({ ctx }) => {
+        const tenant = tryCurrentTenant();
+        const isSuperAdmin = this.platformDb
+          ? await this.platformDb.isSuperAdmin(ctx.session.getUserId())
+          : false;
+        return {
+          // Boolean(), not `!== null`: an unresolved optional dependency
+          // arrives as undefined, which `!== null` reports as present.
+          enabled: Boolean(this.platformDb),
+          isSuperAdmin,
+          tenant: tenant ? { slug: tenant.slug, tenantId: tenant.tenantId } : null,
+        };
+      }),
+
+      master: router({
+        list: protectedProcedure.query(() =>
+          this.requireCatalogue(this.masterCatalog).listSchemas(),
+        ),
+
+        versions: protectedProcedure
+          .input((val: unknown) => {
+            if (!CatalogueSchemaNameCompiler.Check(val)) throw new Error('Invalid input');
+            return val as Static<typeof CatalogueSchemaNameSchema>;
+          })
+          .query(({ input }) =>
+            this.requireCatalogue(this.masterCatalog).listVersions(input.schemaName),
+          ),
+
+        // A mutation rather than a query because it is an upload being checked,
+        // not addressable state — the same shape the existing schema preview uses.
+        preview: protectedProcedure
+          .input((val: unknown) => {
+            if (!CatalogueContentCompiler.Check(val)) throw new Error('Invalid input');
+            return val as Static<typeof CatalogueContentSchema>;
+          })
+          .mutation(async ({ input, ctx }) => {
+            await this.requireSuperAdmin(ctx);
+            return this.requireCatalogue(this.masterCatalog).preview(input.content);
+          }),
+
+        publish: protectedProcedure
+          .input((val: unknown) => {
+            if (!CatalogueContentCompiler.Check(val)) throw new Error('Invalid input');
+            return val as Static<typeof CatalogueContentSchema>;
+          })
+          .mutation(async ({ input, ctx }) => {
+            const userId = await this.requireSuperAdmin(ctx);
+            return this.requireCatalogue(this.masterCatalog).publish(userId, {
+              content: input.content,
+              title: input.title,
+              description: input.description,
+            });
+          }),
+
+        deprecate: protectedProcedure
+          .input((val: unknown) => {
+            if (!CatalogueVersionIdCompiler.Check(val)) throw new Error('Invalid input');
+            return val as Static<typeof CatalogueVersionIdSchema>;
+          })
+          .mutation(async ({ input, ctx }) => {
+            const userId = await this.requireSuperAdmin(ctx);
+            return this.requireCatalogue(this.masterCatalog).deprecateVersion(
+              userId,
+              input.versionId,
+            );
+          }),
+      }),
+
+      tenant: router({
+        /** Every master schema, annotated with this tenant's adoption state. */
+        browse: protectedProcedure.query(() => {
+          this.requireTenant();
+          return this.requireCatalogue(this.tenantCatalog).browse();
+        }),
+
+        resolve: protectedProcedure
+          .input((val: unknown) => {
+            if (!CatalogueSchemaNameCompiler.Check(val)) throw new Error('Invalid input');
+            return val as Static<typeof CatalogueSchemaNameSchema>;
+          })
+          .query(({ input }) => {
+            this.requireTenant();
+            return this.requireCatalogue(this.tenantCatalog).resolve(input.schemaName);
+          }),
+
+        listOwn: protectedProcedure
+          .input((val: unknown) => {
+            if (!CatalogueOptionalSchemaNameCompiler.Check(val)) throw new Error('Invalid input');
+            return val as Static<typeof CatalogueOptionalSchemaNameSchema>;
+          })
+          .query(({ input }) => {
+            this.requireTenant();
+            return this.requireCatalogue(this.tenantCatalog).listOwnVersions(input.schemaName);
+          }),
+
+        adopt: protectedProcedure
+          .input((val: unknown) => {
+            if (!CatalogueVersionIdCompiler.Check(val)) throw new Error('Invalid input');
+            return val as Static<typeof CatalogueVersionIdSchema>;
+          })
+          .mutation(({ input, ctx }) => {
+            this.requireTenant();
+            return this.requireCatalogue(this.tenantCatalog).adoptMaster(
+              input.versionId,
+              ctx.session.getUserId(),
+            );
+          }),
+
+        unadopt: protectedProcedure
+          .input((val: unknown) => {
+            if (!CatalogueSchemaNameCompiler.Check(val)) throw new Error('Invalid input');
+            return val as Static<typeof CatalogueSchemaNameSchema>;
+          })
+          .mutation(({ input }) => {
+            this.requireTenant();
+            return this.requireCatalogue(this.tenantCatalog).unadopt(input.schemaName);
+          }),
+
+        /**
+         * "Edit this master schema" is expressed as fork — the master document
+         * is not writable by a tenant at all. The copy starts as a draft, so a
+         * half-finished edit never reaches a vessel.
+         */
+        fork: protectedProcedure
+          .input((val: unknown) => {
+            if (!CatalogueForkCompiler.Check(val)) throw new Error('Invalid input');
+            return val as Static<typeof CatalogueForkSchema>;
+          })
+          .mutation(({ input, ctx }) => {
+            this.requireTenant();
+            return this.requireCatalogue(this.tenantCatalog).fork(
+              input.masterVersionId,
+              input.newVersion,
+              ctx.session.getUserId(),
+            );
+          }),
+
+        createOwn: protectedProcedure
+          .input((val: unknown) => {
+            if (!CatalogueContentCompiler.Check(val)) throw new Error('Invalid input');
+            return val as Static<typeof CatalogueContentSchema>;
+          })
+          .mutation(({ input, ctx }) => {
+            this.requireTenant();
+            return this.requireCatalogue(this.tenantCatalog).createOwn(
+              input.content,
+              ctx.session.getUserId(),
+            );
+          }),
+
+        updateDraft: protectedProcedure
+          .input((val: unknown) => {
+            if (!CatalogueDraftCompiler.Check(val)) throw new Error('Invalid input');
+            return val as Static<typeof CatalogueDraftSchema>;
+          })
+          .mutation(({ input }) => {
+            this.requireTenant();
+            return this.requireCatalogue(this.tenantCatalog).updateDraft(
+              input.versionId,
+              input.content,
+            );
+          }),
+
+        publishOwn: protectedProcedure
+          .input((val: unknown) => {
+            if (!CatalogueVersionIdCompiler.Check(val)) throw new Error('Invalid input');
+            return val as Static<typeof CatalogueVersionIdSchema>;
+          })
+          .mutation(({ input, ctx }) => {
+            this.requireTenant();
+            return this.requireCatalogue(this.tenantCatalog).publishOwn(
+              input.versionId,
+              ctx.session.getUserId(),
+            );
+          }),
+
+        /** What this fork changed, and what master has changed since. */
+        divergence: protectedProcedure
+          .input((val: unknown) => {
+            if (!CatalogueVersionIdCompiler.Check(val)) throw new Error('Invalid input');
+            return val as Static<typeof CatalogueVersionIdSchema>;
+          })
+          .query(({ input }) => {
+            this.requireTenant();
+            return this.requireCatalogue(this.tenantCatalog).forkDivergence(input.versionId);
+          }),
+      }),
+    }),
+
     ping: publicProcedure
       .input((val: unknown) => {
         if (!PingCompiler.Check(val)) throw new Error('Invalid input');

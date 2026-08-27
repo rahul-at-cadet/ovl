@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { MasterCatalogService } from './master-catalog.service';
 import { TenantCatalogService } from './tenant-catalog.service';
 import { CuratedCatalogueSeederService } from './curated-catalogue-seeder.service';
@@ -10,6 +10,7 @@ import { CuratedCatalogueSeederService } from './curated-catalogue-seeder.servic
  * which are available globally — TenancyModule is @Global, mirroring how
  * DatabaseModule and AuthModule are registered in this codebase.
  */
+@Global()
 @Module({
   providers: [MasterCatalogService, TenantCatalogService, CuratedCatalogueSeederService],
   exports: [MasterCatalogService, TenantCatalogService, CuratedCatalogueSeederService],

@@ -8,6 +8,8 @@ import { TenantRegistryService, type TenantDescriptor } from '../tenancy/tenant-
 import { SuperAdminService } from '../tenancy/super-admin.service';
 import { PlatformDbService } from '../tenancy/platform-db.service';
 import { runAsSystemForTenant } from '../tenancy/tenant-context';
+import { formSchemas } from '@ovl/database';
+import { eq } from 'drizzle-orm';
 import type { FormSchemaDocument } from './form-schema-document';
 
 /**
@@ -113,6 +115,18 @@ describeIntegration('form catalogue isolation (live database)', () => {
         .catch(() => undefined);
     }
     await app.get(SuperAdminService).revoke(superAdminId).catch(() => undefined);
+
+    // Destroying the tenants does not remove what this suite published into
+    // the shared master catalogue — that lives in `platform` and outlives
+    // them. Left behind, every run would add two more schemas to a catalogue
+    // other people are looking at.
+    await app
+      .get(PlatformDbService)
+      .runAsPublisher(async (db) =>
+        db.delete(formSchemas).where(eq(formSchemas.schemaName, schemaName)),
+      )
+      .catch(() => undefined);
+
     await app.close();
   });
 
