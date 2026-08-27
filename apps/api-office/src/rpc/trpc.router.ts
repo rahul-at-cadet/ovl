@@ -935,15 +935,27 @@ export class TrpcRouter {
           return val as Static<typeof EnrollEdgeSchema>;
         })
         .mutation(async ({ input, ctx }) => {
-          // 1. Verify API Key
-          const keys = await this.db.select().from(schema.apiKeys)
-            .where(eq(schema.apiKeys.tokenLookupHash, ctx.tokenLookupHash));
-          
-          if (keys.length === 0 || keys[0].tokenHash !== ctx.tokenHash || keys[0].revokedAt) {
+          // 1. Verify the API key.
+          //
+          // Two steps, because api_keys now lives inside a tenant schema: the
+          // platform index says which tenant to look in, and only then is the
+          // full token hash checked against that tenant's own keys. The lookup
+          // hash is a pointer, never a credential.
+          const resolver = this.requireCatalogue(this.edgeTenants);
+          const tenant = await resolver.resolve(ctx.tokenLookupHash);
+          if (!tenant) {
             throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid or revoked API key' });
           }
+          await runAsSystemForTenant({ ...tenant, requestId: 'edge-enroll' }, () =>
+            this.assertEdgeKeyValid(ctx.tokenHash),
+          );
 
-          // 2. Lookup Vessel by IMO
+          // 2. The vessel row itself is still created on the legacy shared
+          // connection, because pullConfig and pushEvents have not moved yet
+          // and would not find it in a tenant schema. This is the coexistence
+          // seam, and it moves when the sync path does.
+
+          // Lookup Vessel by IMO
           const existing = await this.db.select().from(schema.vessels).where(eq(schema.vessels.imo, input.imoNumber));
           
           let vesselId;
