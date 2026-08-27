@@ -7,6 +7,7 @@ import {
   NestModule,
   OnApplicationShutdown,
   Inject,
+  Optional,
 } from '@nestjs/common';
 import { Pool } from 'pg';
 import { createPool, createPlatformDb } from '@ovl/database';
@@ -51,7 +52,10 @@ import { SuperAdminService } from './super-admin.service';
 export class TenancyModule implements NestModule, OnApplicationShutdown {
   private static readonly logger = new Logger(TenancyModule.name);
 
-  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+  constructor(
+    @Inject(PG_POOL) private readonly pool: Pool,
+    @Optional() @Inject(ADMIN_PG_POOL) private readonly adminPool: Pool | null,
+  ) {}
 
   static forRoot(options: TenancyModuleOptions): DynamicModule {
     const resolved = resolveTenancyOptions(options);
@@ -133,9 +137,14 @@ export class TenancyModule implements NestModule, OnApplicationShutdown {
       .forRoutes('*');
   }
 
-  onApplicationShutdown(): void {
-    // Without this, `nest start --watch` and integration tests leak a pool per
-    // reload until the machine runs out of Postgres connections.
-    void this.pool.end().catch(() => undefined);
+  async onApplicationShutdown(): Promise<void> {
+    // Both pools, not just the serving one. Without this, `nest start --watch`
+    // and every integration-test run leak a pool per reload until the machine
+    // runs out of Postgres connections — and the admin pool is the easier one
+    // to forget, because it is usually absent.
+    await Promise.all([
+      this.pool.end().catch(() => undefined),
+      this.adminPool?.end().catch(() => undefined),
+    ]);
   }
 }

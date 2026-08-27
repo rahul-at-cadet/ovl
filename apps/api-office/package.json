@@ -30,7 +30,8 @@
     "catalogue:list": "ts-node -r tsconfig-paths/register src/form-catalogue/cli/catalogue.ts list",
     "catalogue:admins": "ts-node -r tsconfig-paths/register src/form-catalogue/cli/catalogue.ts admins",
     "catalogue:grant-admin": "ts-node -r tsconfig-paths/register src/form-catalogue/cli/catalogue.ts grant-admin",
-    "catalogue:revoke-admin": "ts-node -r tsconfig-paths/register src/form-catalogue/cli/catalogue.ts revoke-admin"
+    "catalogue:revoke-admin": "ts-node -r tsconfig-paths/register src/form-catalogue/cli/catalogue.ts revoke-admin",
+    "test:integration": "jest --runInBand --testPathPatterns integration"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -90,6 +91,9 @@
       "**/*.(t|j)s"
     ],
     "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "setupFiles": [
+      "<rootDir>/../test/integration-env.ts"
+    ]
   }
 }
