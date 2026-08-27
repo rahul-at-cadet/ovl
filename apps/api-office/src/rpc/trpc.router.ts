@@ -40,6 +40,7 @@ import { createEdgeRouter, createSyncRouter, type SyncRouterDeps } from './sync.
 import { formatRelativeTime, ONLINE_THRESHOLD_MS } from './display';
 import { createVesselsRouter } from './vessels.router';
 import { createReportsRouter } from './reports.router';
+import { createDashboardRouter, createCommercialRouter, type OfficeRouterDeps } from './office.router';
 import {
   authenticateEdge as authenticateEdgeToken,
   assertEdgeKeyValid as assertEdgeKeyValidFor,
@@ -113,22 +114,8 @@ const GetSchemaFieldsSchema = Type.Object({
 });
 const GetSchemaFieldsCompiler = TypeCompiler.Compile(GetSchemaFieldsSchema);
 
-const COMMERCIAL_SCHEMA_LABELS: Record<string, string> = {
-  'commercial-period': 'Commercial Period',
-  'cargo-nomination': 'Cargo Nomination',
-};
 
-const ListCommercialReportsSchema = Type.Object({
-  schemaName: Type.String(),
-});
-const ListCommercialReportsCompiler = TypeCompiler.Compile(ListCommercialReportsSchema);
 
-const CreateCommercialReportSchema = Type.Object({
-  schemaName: Type.String(),
-  vesselId: Type.String(),
-  fields: Type.Record(Type.String(), Type.Any()),
-});
-const CreateCommercialReportCompiler = TypeCompiler.Compile(CreateCommercialReportSchema);
 
 
 const CreateApiKeySchema = Type.Object({
@@ -331,6 +318,16 @@ export class TrpcRouter {
    * secret — into the thing that grants access.
    */
 
+
+  /** What the extracted office-side routers need, resolved per call. */
+  private officeDeps(): OfficeRouterDeps {
+    return {
+      db: this.db,
+      supertokensService: this.supertokensService,
+      notificationsService: this.notificationsService,
+      schemaVersionsService: this.schemaVersionsService,
+    };
+  }
 
   /** What the extracted vessel-facing routers need, resolved per call. */
   private syncDeps(): SyncRouterDeps {
@@ -869,54 +866,10 @@ export class TrpcRouter {
         };
       }),
     }),
-    dashboard: router({
-      getOverview: protectedProcedure.query(async () => {
-        const activeVesselsResult = await this.db.select({ count: sql<number>`count(*)` }).from(schema.vessels);
-        const incomingReportsResult = await this.db.select({ count: sql<number>`count(*)` }).from(schema.reportVersions);
-
-        // Fleet-wide sync health: same "online" definition as the
-        // Vessels list's edgeStatus badge (ONLINE_THRESHOLD_MS), rolled
-        // up into a fleet-wide percentage. Replaces what used to be a
-        // hardcoded 100% "Database Sync" figure with the actual fraction
-        // of the fleet that has checked in recently.
-        const syncRows = await this.db
-          .select({ lastSeenAt: schema.vesselSyncStatus.lastSeenAt })
-          .from(schema.vessels)
-          .leftJoin(schema.vesselSyncStatus, eq(schema.vesselSyncStatus.vesselId, schema.vessels.id));
-        const now = Date.now();
-        const onlineCount = syncRows.filter((r) => {
-          if (!r.lastSeenAt) return false;
-          return now - new Date(r.lastSeenAt).getTime() <= ONLINE_THRESHOLD_MS;
-        }).length;
-        const vesselsTotal = syncRows.length;
-        const syncHealthPercent = vesselsTotal === 0 ? 100 : Math.round((onlineCount / vesselsTotal) * 100);
-        const syncWarnings = vesselsTotal - onlineCount;
-
-        const recentEvents = await this.db
-          .select({
-            eventType: schema.reportAuditEvents.eventType,
-            occurredAt: schema.reportAuditEvents.occurredAt,
-            vesselName: schema.vessels.name,
-          })
-          .from(schema.reportAuditEvents)
-          .leftJoin(schema.vessels, eq(schema.reportAuditEvents.vesselId, schema.vessels.id))
-          .orderBy(desc(schema.reportAuditEvents.occurredAt))
-          .limit(10);
-
-        return {
-          activeVessels: activeVesselsResult[0].count,
-          incomingReports: incomingReportsResult[0].count,
-          syncWarnings,
-          syncHealthPercent,
-          networkUptime: 99.9,
-          liveStream: recentEvents.map((e) => ({
-            vessel: e.vesselName || 'Unknown',
-            event: `Report ${e.eventType}`,
-            time: new Date(e.occurredAt).toLocaleString(),
-          })),
-        };
-      })
-    }),
+    // Extracted to office.router.ts.
+    dashboard: createDashboardRouter(() => this.officeDeps()),
+    // Extracted to notifications.router.ts. See that file for why the router
+    // is being split into per-domain modules.
     // Extracted to notifications.router.ts. See that file for why the router
     // is being split into per-domain modules.
     notifications: createNotificationsRouter(() => ({
@@ -957,117 +910,8 @@ export class TrpcRouter {
     // check passes, same as the original's own scope note on why (this
     // port's report_versions has no equivalent of vessel-side draft
     // rows/section locks to build a save-progressively flow on top of).
-    commercial: router({
-      list: protectedProcedure
-        .input((val: unknown) => {
-          if (!ListCommercialReportsCompiler.Check(val)) throw new Error('Invalid input');
-          return val as Static<typeof ListCommercialReportsSchema>;
-        })
-        .query(async ({ input }) => {
-          const schemaKind = `${input.schemaName}.json`;
-          const reports = await this.db
-            .select({
-              id: schema.reportVersions.reportId,
-              vesselId: schema.reportVersions.vesselId,
-              versionNo: schema.reportVersions.versionNo,
-              type: schema.reportVersions.eventType,
-              status: schema.reportVersions.state,
-              date: schema.reportVersions.receivedAt,
-              vesselName: schema.vessels.name,
-              vesselImo: schema.vessels.imo,
-            })
-            .from(schema.reportVersions)
-            .leftJoin(schema.vessels, eq(schema.reportVersions.vesselId, schema.vessels.id))
-            .where(eq(schema.reportVersions.schemaKind, schemaKind));
-
-          const latestByReportId = new Map<string, typeof reports[number]>();
-          for (const r of reports) {
-            const existing = latestByReportId.get(r.id);
-            if (!existing || r.versionNo > existing.versionNo) latestByReportId.set(r.id, r);
-          }
-          return Array.from(latestByReportId.values())
-            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-            .map((r) => ({
-              id: r.id,
-              vesselId: r.vesselId,
-              vessel: r.vesselName || 'Unknown',
-              imo: r.vesselImo || 'Unknown',
-              type: r.type,
-              status: r.status,
-              date: new Date(r.date).toISOString(),
-            }));
-        }),
-      create: protectedProcedure
-        .input((val: unknown) => {
-          if (!CreateCommercialReportCompiler.Check(val)) throw new Error('Invalid input');
-          return val as Static<typeof CreateCommercialReportSchema>;
-        })
-        .mutation(async ({ input, ctx }) => {
-          const localUser = await this.supertokensService.getLocalUser(ctx.session.getUserId());
-          if (!localUser || !(localUser.roles as string[]).includes('commercialEditor')) {
-            throw new TRPCError({ code: 'FORBIDDEN', message: 'Only Commercial Editor may author commercial data' });
-          }
-          const label = COMMERCIAL_SCHEMA_LABELS[input.schemaName];
-          if (!label) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Unknown commercial schema' });
-
-          const vesselRows = await this.db.select().from(schema.vessels).where(eq(schema.vessels.id, input.vesselId)).limit(1);
-          if (!vesselRows[0]) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Unknown vessel' });
-
-          // Real-but-scoped health check: mandatory-field completeness
-          // only, not the original's full plausibility/continuity rule
-          // engine — this port has no equivalent
-          // validation.EvaluatePlausibilityRules to run, and
-          // approximating safety rules without it would be worse than
-          // not having them (same principled scope cut as the vessel
-          // ReportForm's own Health Check panel).
-          const schemaFieldsResult = await this.schemaVersionsService.getLatestFields(input.schemaName);
-          const knownFields = schemaFieldsResult?.fields ?? [];
-          const findings = knownFields
-            .filter((f) => f.schemaMandatory && (input.fields[f.name] === undefined || input.fields[f.name] === null || input.fields[f.name] === ''))
-            .map((f) => ({ ruleId: 'fieldPolicy.mandatory', severity: 'error' as const, field: f.name, message: `${f.label || f.name} is required` }));
-
-          if (findings.length > 0) {
-            return { report: null, findings };
-          }
-
-          const reportId = crypto.randomUUID();
-          const now = new Date().toISOString();
-          const schemaKind = `${input.schemaName}.json`;
-
-          await this.db.insert(schema.reportVersions).values({
-            vesselId: input.vesselId,
-            reportId,
-            versionNo: 1,
-            schemaKind,
-            schemaVersion: schemaFieldsResult?.version ?? '',
-            eventType: label,
-            state: 'submitted',
-            eventTime: now,
-            fields: input.fields,
-            submittedAt: now,
-            receivedAt: now,
-          });
-
-          for (const eventType of ['created', 'ready', 'submitted']) {
-            await this.db.insert(schema.reportAuditEvents).values({
-              vesselId: input.vesselId,
-              reportId,
-              versionNo: 1,
-              eventType,
-              actor: localUser.username,
-              occurredAt: now,
-              detail: {},
-              receivedAt: now,
-              origin: 'office',
-            });
-          }
-
-          return {
-            report: { id: reportId, vesselId: input.vesselId, type: label, status: 'submitted' },
-            findings: [] as { ruleId: string; severity: 'error' | 'warning'; field?: string; message: string }[],
-          };
-        }),
-    }),
+    // Extracted to office.router.ts.
+    commercial: createCommercialRouter(() => this.officeDeps()),
     configBundles: router({
       list: protectedProcedure.query(() => this.configBundleService.list()),
       preview: protectedProcedure.query(() => this.configBundleService.preview()),
