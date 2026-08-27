@@ -13,6 +13,18 @@
  */
 if (process.env.TENANCY_TEST_DATABASE_URL && process.env.TENANCY_TEST_ADMIN_DATABASE_URL) {
   process.env.MULTI_TENANCY_ENABLED = 'true';
-  process.env.DATABASE_URL = process.env.TENANCY_TEST_DATABASE_URL;
+  process.env.TENANCY_DATABASE_URL = process.env.TENANCY_TEST_DATABASE_URL;
   process.env.ADMIN_DATABASE_URL = process.env.TENANCY_TEST_ADMIN_DATABASE_URL;
+
+  // Two roles, exactly as the dev stack runs them. DATABASE_URL still serves
+  // the legacy shared-schema connection and therefore needs a role that can
+  // reach `public`; TENANCY_DATABASE_URL is ovl_api, which deliberately
+  // cannot.
+  //
+  // Collapsing them onto ovl_api would make every test of the not-yet-migrated
+  // sync path fail with "relation vessels does not exist" — which reads like a
+  // migration bug and is really just a test environment that does not resemble
+  // production.
+  process.env.DATABASE_URL =
+    process.env.TENANCY_TEST_LEGACY_DATABASE_URL ?? process.env.TENANCY_TEST_ADMIN_DATABASE_URL;
 }

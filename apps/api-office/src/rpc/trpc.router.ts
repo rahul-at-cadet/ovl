@@ -407,6 +407,18 @@ const PullSchemasCompiler = TypeCompiler.Compile(PullSchemasSchema);
 export const publicProcedure = t.procedure;
 export const router = t.router;
 
+/**
+ * Builds an in-process caller for a router.
+ *
+ * Exported for the sync contract tests, which drive the real edge and sync
+ * procedures — authentication included — against a live database without
+ * standing up an HTTP server. The alternative, asserting against mocks, would
+ * only prove the mocks behave as the test expects, and the properties that
+ * matter here (a key verified in the right schema, a cascade committing with
+ * the version that triggered it) are exactly the ones a mock cannot show.
+ */
+export const createCallerFactory = t.createCallerFactory;
+
 const isEdgeAuthed = t.middleware(async ({ ctx, next }) => {
   const authHeader = ctx.req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ovl_prod_')) {
@@ -531,6 +543,51 @@ export class TrpcRouter {
    * make the platform index — which stores a truncated hash and is not a
    * secret — into the thing that grants access.
    */
+  /**
+   * Authenticates an edge (vessel) caller. Every edge procedure must call this.
+   *
+   * The `isEdgeAuthed` middleware only parses the bearer token and derives its
+   * hashes — it never checks them against anything, as its own comment admits
+   * ("we will pass the db to the middleware inside the router class"). That was
+   * only ever done inside `enroll`, so `pushEvents` and `pullConfig` accepted
+   * any string beginning with `ovl_prod_`: an unauthenticated caller could push
+   * report versions for any vessel id and read back that vessel's config, chat
+   * and remarks. A contract test caught it.
+   *
+   * Verification happens where the keys actually live. With tenancy enabled
+   * that is the tenant's own schema, reached through the platform pointer — the
+   * lookup hash selects a schema, the full token hash authenticates. Without
+   * tenancy it falls back to the shared table, so a single-tenant deployment
+   * gets the same check rather than staying on the unverified path.
+   */
+  private async authenticateEdge(ctx: {
+    tokenLookupHash: string;
+    tokenHash: string;
+  }): Promise<void> {
+    const unauthorized = new TRPCError({
+      code: 'UNAUTHORIZED',
+      message: 'Invalid or revoked API key',
+    });
+
+    if (this.edgeTenants && this.tenantDb) {
+      const tenant = await this.edgeTenants.resolve(ctx.tokenLookupHash);
+      if (!tenant) throw unauthorized;
+      await runAsSystemForTenant({ ...tenant, requestId: 'edge-auth' }, () =>
+        this.assertEdgeKeyValid(ctx.tokenHash),
+      );
+      return;
+    }
+
+    const keys = await this.db
+      .select()
+      .from(schema.apiKeys)
+      .where(eq(schema.apiKeys.tokenLookupHash, ctx.tokenLookupHash));
+
+    if (keys.length === 0 || keys[0].tokenHash !== ctx.tokenHash || keys[0].revokedAt) {
+      throw unauthorized;
+    }
+  }
+
   private async assertEdgeKeyValid(tokenHash: string): Promise<void> {
     const valid = await this.requireCatalogue(this.tenantDb).withTenant(
       async (db) => {
@@ -984,7 +1041,8 @@ export class TrpcRouter {
           if (!PushEventsCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof PushEventsSchema>;
         })
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
+          await this.authenticateEdge(ctx);
           console.log(`Office received ${input.events.length} events from vessel ${input.vesselId}`);
 
           await this.db.insert(schema.vesselSyncStatus)
@@ -1104,7 +1162,8 @@ export class TrpcRouter {
           if (!PullConfigInputCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof PullConfigInputSchema>;
         })
-        .query(async ({ input }) => {
+        .query(async ({ input, ctx }) => {
+          await this.authenticateEdge(ctx);
           const bundle = await this.configBundleService.resolveForVessel(input.vesselId);
           const syncedAt = new Date().toISOString();
 
