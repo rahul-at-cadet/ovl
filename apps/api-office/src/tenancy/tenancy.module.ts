@@ -25,6 +25,8 @@ import { TenantDbService } from './tenant-db.service';
 import { TenantCacheService } from './tenant-cache.service';
 import { TenantConcurrencyService } from './tenant-concurrency.service';
 import { TenantProvisioningService } from './tenant-provisioning.service';
+import { PlatformDbService } from './platform-db.service';
+import { SuperAdminService } from './super-admin.service';
 
 /**
  * Schema-per-tenant data access for the office API.
@@ -99,6 +101,8 @@ export class TenancyModule implements NestModule, OnApplicationShutdown {
         TenantDbService,
         TenantCacheService,
         TenantProvisioningService,
+        PlatformDbService,
+        SuperAdminService,
         TenantMiddleware,
         TenantGuard,
       ],
@@ -111,6 +115,8 @@ export class TenancyModule implements NestModule, OnApplicationShutdown {
         TenantDbService,
         TenantCacheService,
         TenantProvisioningService,
+        PlatformDbService,
+        SuperAdminService,
         TenantMiddleware,
         TenantGuard,
       ],

@@ -8,6 +8,7 @@ import { UsersModule } from './users/users.module';
 import { TrpcModule } from './rpc/trpc.module';
 import { ReportsModule } from './reports/reports.module';
 import { TenancyModule } from './tenancy/tenancy.module';
+import { FormCatalogueModule } from './form-catalogue/form-catalogue.module';
 
 /**
  * Multi-tenancy is opt-in while the migration from the single shared schema is
@@ -27,6 +28,9 @@ const tenancyImports = multiTenancyEnabled
         adminConnectionString: process.env.ADMIN_DATABASE_URL,
         poolMax: process.env.PG_POOL_MAX ? Number(process.env.PG_POOL_MAX) : undefined,
       }),
+      // Depends on PlatformDbService and TenantDbService, so it only makes
+      // sense once TenancyModule is registered.
+      FormCatalogueModule,
     ]
   : [];
 

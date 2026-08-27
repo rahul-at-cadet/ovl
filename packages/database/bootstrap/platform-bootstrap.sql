@@ -82,6 +82,25 @@ CREATE TABLE IF NOT EXISTS platform.tenant_users (
 
 CREATE INDEX IF NOT EXISTS tenant_users_tenant_id_idx ON platform.tenant_users (tenant_id);
 
+-- Who may publish into the master catalogue.
+--
+-- Deliberately NOT a value in `users.roles`: that table lives inside a tenant
+-- schema and its roles are tenant-scoped by definition, so an 'admin' there is
+-- an administrator *of that tenant*. A platform super admin sits above tenants
+-- and therefore has to be recorded above them too.
+--
+-- ovl_api can read this without assuming any role, because the check has to
+-- happen *before* deciding whether to assume platform_publisher. It cannot
+-- write it — membership is granted out of band via the CLI, so a compromised
+-- request path cannot promote anyone, including itself.
+CREATE TABLE IF NOT EXISTS platform.super_admins (
+    supertokens_user_id text PRIMARY KEY,
+    email               text NOT NULL,
+    note                text,
+    created_at          timestamp with time zone NOT NULL DEFAULT now(),
+    created_by          text
+);
+
 CREATE TABLE IF NOT EXISTS platform.tenant_migrations (
     tenant_id  uuid NOT NULL REFERENCES platform.tenants (id) ON DELETE CASCADE,
     version    text NOT NULL,
@@ -138,7 +157,7 @@ $$;
 -- The registry is the only thing ovl_api can touch without assuming a tenant
 -- role: enough to answer "which schema does this user belong to?", nothing more.
 GRANT USAGE ON SCHEMA platform TO ovl_api;
-GRANT SELECT ON platform.tenants, platform.tenant_users TO ovl_api;
+GRANT SELECT ON platform.tenants, platform.tenant_users, platform.super_admins TO ovl_api;
 
 -- Deliberately NOT granted: any privilege on `public`, or on any tenant schema.
 -- Those arrive only via GRANT tenant_<slug>_rw TO ovl_api during provisioning.
@@ -179,7 +198,7 @@ $$;
 
 -- Provisioning writes the registry; ovl_api only reads it.
 GRANT USAGE ON SCHEMA platform TO ovl_admin;
-GRANT SELECT, INSERT, UPDATE, DELETE ON platform.tenants, platform.tenant_users, platform.tenant_migrations TO ovl_admin;
+GRANT SELECT, INSERT, UPDATE, DELETE ON platform.tenants, platform.tenant_users, platform.tenant_migrations, platform.super_admins TO ovl_admin;
 
 -- ---------------------------------------------------------------------------
 -- 5. Master form-schema catalogue
@@ -351,6 +370,21 @@ GRANT SELECT ON
 -- ADMIN OPTION is what lets provisioning hand this membership to a new tenant
 -- role. Without it the GRANT would warn-and-do-nothing, exactly as above.
 GRANT tenant_catalogue_reader TO ovl_admin WITH ADMIN OPTION;
+
+-- ovl_api reads the catalogue directly, without assuming any role.
+--
+-- Safe, and necessary. Safe because the master catalogue holds no tenant data
+-- — it is the shared list of form definitions every tenant may choose from, so
+-- reading it crosses no isolation boundary. Necessary because a super admin
+-- browsing the catalogue has no tenant context to borrow a role from, and
+-- because membership in tenant_catalogue_reader would be dormant for ovl_api
+-- anyway: it is NOINHERIT, so an unassumed membership grants nothing.
+--
+-- SELECT only. Writing still requires assuming platform_publisher.
+GRANT SELECT ON
+    platform.form_schemas, platform.form_schema_versions, platform.form_schema_fields,
+    platform.form_enums, platform.form_enum_versions, platform.form_enum_values
+    TO ovl_api;
 
 COMMIT;
 

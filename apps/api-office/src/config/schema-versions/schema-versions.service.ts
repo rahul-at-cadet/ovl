@@ -45,6 +45,17 @@ export class SchemaVersionsService implements OnModuleInit {
    * clobbers a real admin-uploaded version.
    */
   async onModuleInit() {
+    // Superseded by the master form-schema catalogue once multi-tenancy is on.
+    // That catalogue lives in `platform`, is seeded from these same curated
+    // files by CuratedCatalogueSeederService, and is what tenants adopt from —
+    // so seeding the single-tenant `schema_versions` table as well would write
+    // a second, divergent copy into whichever schema happened to be on the
+    // search_path. See apps/api-office/src/form-catalogue/.
+    if (process.env.MULTI_TENANCY_ENABLED === 'true') {
+      this.logger.log('Multi-tenancy is enabled; the master catalogue seeds schemas instead.');
+      return;
+    }
+
     const curatedDir = path.join(process.cwd(), 'src', 'schemas');
     if (!fs.existsSync(curatedDir)) {
       this.logger.warn(`Curated schemas directory not found at ${curatedDir}`);

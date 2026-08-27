@@ -108,6 +108,28 @@ export const tenantMigrations = platform.table(
 	},
 );
 
+/**
+ * Who may publish into the master catalogue.
+ *
+ * Deliberately not a value in `users.roles`: that table lives inside a tenant
+ * schema, so a role there is an administrator *of that tenant*. A platform
+ * super admin sits above tenants and is recorded above them.
+ *
+ * `ovl_api` can read this without assuming any role — the check has to happen
+ * before deciding whether to assume `platform_publisher` — but cannot write it.
+ * Membership is granted out of band through the CLI, so a compromised request
+ * path cannot promote anyone, itself included.
+ */
+export const superAdmins = platform.table('super_admins', {
+	supertokensUserId: text('supertokens_user_id').primaryKey().notNull(),
+	email: text('email').notNull(),
+	note: text('note'),
+	createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	createdBy: text('created_by'),
+});
+
+export type SuperAdminRow = typeof superAdmins.$inferSelect;
+
 export type TenantRow = typeof tenants.$inferSelect;
 export type TenantUserRow = typeof tenantUsers.$inferSelect;
 export type TenantMigrationRow = typeof tenantMigrations.$inferSelect;

@@ -24,7 +24,13 @@
     "tenant:assign": "ts-node -r tsconfig-paths/register src/tenancy/cli/provision-tenant.ts assign",
     "tenant:suspend": "ts-node -r tsconfig-paths/register src/tenancy/cli/provision-tenant.ts suspend",
     "tenant:activate": "ts-node -r tsconfig-paths/register src/tenancy/cli/provision-tenant.ts activate",
-    "tenant:destroy": "ts-node -r tsconfig-paths/register src/tenancy/cli/provision-tenant.ts destroy"
+    "tenant:destroy": "ts-node -r tsconfig-paths/register src/tenancy/cli/provision-tenant.ts destroy",
+    "catalogue": "ts-node -r tsconfig-paths/register src/form-catalogue/cli/catalogue.ts",
+    "catalogue:seed": "ts-node -r tsconfig-paths/register src/form-catalogue/cli/catalogue.ts seed",
+    "catalogue:list": "ts-node -r tsconfig-paths/register src/form-catalogue/cli/catalogue.ts list",
+    "catalogue:admins": "ts-node -r tsconfig-paths/register src/form-catalogue/cli/catalogue.ts admins",
+    "catalogue:grant-admin": "ts-node -r tsconfig-paths/register src/form-catalogue/cli/catalogue.ts grant-admin",
+    "catalogue:revoke-admin": "ts-node -r tsconfig-paths/register src/form-catalogue/cli/catalogue.ts revoke-admin"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
