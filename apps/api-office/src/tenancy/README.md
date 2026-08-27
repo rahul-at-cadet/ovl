@@ -282,9 +282,7 @@ control and caching — the machinery. Not yet done:
 2. **tRPC procedures.** Add `tenantProcedure = protectedProcedure.use(...)`
    asserting a context, and migrate procedures onto it. The middleware is
    already mounted ahead of the tRPC handler in `main.ts`.
-3. **Migration fan-out.** A runner that applies `packages/database/drizzle/*`
-   across every tenant schema, recording progress in
-   `platform.tenant_migrations` so a partial run is resumable.
+3. ~~**Migration fan-out.**~~ Done — see **Migrations** below.
 4. **Data backfill.** Move the existing single-tenant `public` data into the
    first tenant schema.
 5. **A cross-tenant integration test.** Two real tenants, concurrent
@@ -292,6 +290,41 @@ control and caching — the machinery. Not yet done:
    test that would actually catch a regression in layer 4.
 6. **Per-tenant metrics.** Tag pool saturation and shed counts by tenant, so a
    noisy neighbour is visible before it is reported.
+
+## Migrations
+
+Tenant schema changes are ordered SQL in
+`packages/database/tenant-migrations/`, applied by
+`TenantMigrationRunnerService`.
+
+```bash
+npm run tenant:migrate:status --workspace api-office
+npm run tenant:migrate --workspace api-office
+```
+
+A new tenant is built from `bootstrap/fresh-database.sql` **plus every
+migration**, then has the whole set recorded as applied. An existing tenant
+gets only what it is missing. Both paths converge on the same shape, so a
+change is written once — as a migration — rather than twice, once in the
+template and once as a migration, which is exactly how the two drift apart.
+
+Three properties worth keeping:
+
+- **Each tenant is its own transaction**, and the DDL and the ledger row commit
+  together. A run that dies on tenant 40 of 200 leaves 39 correctly migrated
+  and is resumed, not restarted — and no tenant can end up migrated without
+  that fact being recorded, or vice versa.
+- **A failure does not stop the fleet.** One tenant with a wedged lock should
+  not block the other 199; failures come back in the result and the run is safe
+  to repeat.
+- **An applied migration must never be edited.** The runner checksums every
+  file and refuses to proceed if one a tenant has already applied has changed,
+  because from that point the ledger is describing a schema that does not
+  exist. Add a new migration.
+
+Because the fan-out is not atomic *across* tenants, a failed run leaves the
+fleet on mixed versions — each internally consistent. Prefer additive
+migrations, so a partially-migrated fleet keeps working.
 
 ## Extension points
 

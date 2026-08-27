@@ -5,6 +5,8 @@
  *   npm run tenant:provision     --workspace api-office -- --name "Northstar Shipping"
  *   npm run tenant:assign        --workspace api-office -- --user <supertokensUserId> --slug northstar_shipping
  *   npm run tenant:suspend       --workspace api-office -- --slug northstar_shipping
+ *   npm run tenant:migrate       --workspace api-office
+ *   npm run tenant:migrate:status --workspace api-office
  *   npm run tenant:destroy       --workspace api-office -- --slug northstar_shipping --confirm "drop tenant northstar_shipping"
  *
  * Requires ADMIN_DATABASE_URL — a role that may CREATE SCHEMA, CREATE ROLE and
@@ -19,6 +21,7 @@ import { Logger } from '@nestjs/common';
 import { AppModule } from '../../app.module';
 import { TenantProvisioningService } from '../tenant-provisioning.service';
 import { TenantRegistryService } from '../tenant-registry.service';
+import { TenantMigrationRunnerService } from '../tenant-migration-runner.service';
 
 type Args = Record<string, string | boolean>;
 
@@ -65,7 +68,7 @@ async function main(): Promise<void> {
   const args = parseArgs(rest);
 
   if (!command) {
-    out('Usage: tenant-cli <list|provision|assign|suspend|activate|destroy> [--flags]');
+    out('Usage: tenant-cli <list|provision|assign|suspend|activate|migrate|migrate-status|destroy> [--flags]');
     process.exitCode = 1;
     return;
   }
@@ -114,6 +117,40 @@ async function main(): Promise<void> {
         const slug = require_(args, 'slug');
         await provisioning.setStatus(slug, command === 'suspend' ? 'suspended' : 'active');
         out(`Tenant ${slug} is now ${command === 'suspend' ? 'suspended' : 'active'}`);
+        break;
+      }
+
+      case 'migrate': {
+        const runner = app.get(TenantMigrationRunnerService);
+        const results = await runner.migrateAll();
+        const changed = results.filter((r) => r.applied.length > 0);
+        const failed = results.filter((r) => r.error);
+
+        for (const r of changed) out(`${r.slug.padEnd(24)} applied ${r.applied.join(', ')}`);
+        for (const r of failed) out(`${r.slug.padEnd(24)} FAILED  ${r.error}`);
+        if (changed.length === 0 && failed.length === 0) out('Every tenant is up to date.');
+        // A fan-out is not atomic across tenants, so a partial run is a real
+        // outcome the caller has to see rather than a silent success.
+        if (failed.length > 0) process.exitCode = 1;
+        break;
+      }
+
+      case 'migrate-status': {
+        const runner = app.get(TenantMigrationRunnerService);
+        const rows = await runner.status();
+        if (rows.length === 0) {
+          out('No tenants registered.');
+          break;
+        }
+        out('TENANT'.padEnd(24) + 'APPLIED'.padEnd(10) + 'PENDING'.padEnd(24) + 'DRIFTED');
+        for (const r of rows) {
+          out(
+            r.slug.padEnd(24) +
+              String(r.applied.length).padEnd(10) +
+              (r.pending.join(',') || '-').padEnd(24) +
+              (r.drifted.join(',') || '-'),
+          );
+        }
         break;
       }
 

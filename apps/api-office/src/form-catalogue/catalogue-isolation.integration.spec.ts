@@ -7,6 +7,7 @@ import { TenantProvisioningService } from '../tenancy/tenant-provisioning.servic
 import { TenantRegistryService, type TenantDescriptor } from '../tenancy/tenant-registry.service';
 import { SuperAdminService } from '../tenancy/super-admin.service';
 import { PlatformDbService } from '../tenancy/platform-db.service';
+import { TenantMigrationRunnerService } from '../tenancy/tenant-migration-runner.service';
 import { runAsSystemForTenant } from '../tenancy/tenant-context';
 import { formSchemas } from '@ovl/database';
 import { eq } from 'drizzle-orm';
@@ -298,6 +299,81 @@ describeIntegration('form catalogue isolation (live database)', () => {
         expect(rows[0].schema).not.toBe(alpha.schemaName);
       } finally {
         client.release();
+      }
+    });
+  });
+
+  describe('migration fan-out', () => {
+    /**
+     * A tenant built from the template plus the full migration set must land on
+     * the same shape a migrated tenant reaches. If the baseline were not
+     * recorded, the next fan-out would re-run every migration against objects
+     * that already exist.
+     */
+    it('records a freshly provisioned tenant as fully migrated', async () => {
+      const runner = app.get(TenantMigrationRunnerService);
+      const status = await runner.status();
+
+      for (const slug of [alphaSlug, betaSlug]) {
+        const row = status.find((s) => s.slug === slug)!;
+        expect(row.pending).toEqual([]);
+        expect(row.drifted).toEqual([]);
+        expect(row.applied).toEqual(runner.migrations().map((m) => m.version));
+      }
+    });
+
+    it('is a no-op when everything is already applied', async () => {
+      const runner = app.get(TenantMigrationRunnerService);
+      const results = await runner.migrateAll();
+
+      // Scoped to this suite's own tenants on purpose. migrateAll() is
+      // fleet-wide, so asserting over every result would make this test depend
+      // on whatever else happens to live in the target database — which is how
+      // it failed the first time it ran, against leftover tenants that
+      // predated the migration ledger.
+      for (const slug of [alphaSlug, betaSlug]) {
+        const result = results.find((r) => r.slug === slug)!;
+        expect(result.error).toBeUndefined();
+        expect(result.applied).toEqual([]);
+      }
+    });
+
+    /**
+     * Editing a migration that tenants have already applied means the ledger
+     * stops describing the schema. Simulated here by tampering with the
+     * recorded checksum, which is indistinguishable from the file having
+     * changed underneath it.
+     */
+    it('refuses to run when an applied migration no longer matches what was recorded', async () => {
+      const runner = app.get(TenantMigrationRunnerService);
+      const migrations = runner.migrations();
+      if (migrations.length === 0) return;
+
+      const version = migrations[0].version;
+      const pool = (runner as unknown as { adminPool: import('pg').Pool }).adminPool;
+
+      await pool.query(
+        `UPDATE platform.tenant_migrations SET checksum = 'sha256:tampered'
+          WHERE tenant_id = $1 AND version = $2`,
+        [alpha.tenantId, version],
+      );
+
+      try {
+        const status = await runner.status();
+        expect(status.find((s) => s.slug === alphaSlug)!.drifted).toContain(version);
+
+        const results = await runner.migrateAll();
+        expect(results.find((r) => r.slug === alphaSlug)!.error).toMatch(/has changed since/);
+
+        // The other tenant is untouched: one tenant's drift does not stop the
+        // rest of the fleet being migrated.
+        expect(results.find((r) => r.slug === betaSlug)!.error).toBeUndefined();
+      } finally {
+        await pool.query(
+          `UPDATE platform.tenant_migrations SET checksum = $3
+            WHERE tenant_id = $1 AND version = $2`,
+          [alpha.tenantId, version, migrations[0].checksum],
+        );
       }
     });
   });

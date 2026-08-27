@@ -31,7 +31,9 @@
     "catalogue:admins": "ts-node -r tsconfig-paths/register src/form-catalogue/cli/catalogue.ts admins",
     "catalogue:grant-admin": "ts-node -r tsconfig-paths/register src/form-catalogue/cli/catalogue.ts grant-admin",
     "catalogue:revoke-admin": "ts-node -r tsconfig-paths/register src/form-catalogue/cli/catalogue.ts revoke-admin",
-    "test:integration": "jest --runInBand --testPathPatterns integration"
+    "test:integration": "jest --runInBand --testPathPatterns integration",
+    "tenant:migrate": "ts-node -r tsconfig-paths/register src/tenancy/cli/provision-tenant.ts migrate",
+    "tenant:migrate:status": "ts-node -r tsconfig-paths/register src/tenancy/cli/provision-tenant.ts migrate-status"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

@@ -10,6 +10,7 @@ import {
   slugify,
 } from './tenant-identifiers';
 import { TenantRegistryService, type TenantDescriptor } from './tenant-registry.service';
+import { TenantMigrationRunnerService } from './tenant-migration-runner.service';
 
 export interface ProvisionTenantInput {
   /** URL-safe key. Derived from `name` when omitted. */
@@ -51,6 +52,7 @@ export class TenantProvisioningService {
   constructor(
     @Optional() @Inject(ADMIN_PG_POOL) private readonly adminPool: Pool | null,
     private readonly registry: TenantRegistryService,
+    private readonly migrations: TenantMigrationRunnerService,
   ) {}
 
   get enabled(): boolean {
@@ -138,6 +140,12 @@ export class TenantProvisioningService {
       await client.query(`SET LOCAL search_path TO ${schemaIdent}`);
       await client.query(this.templateDdl());
       await client.query('RESET ROLE');
+
+      // A new tenant is built from the template *plus every migration*, so it
+      // lands on the same shape an existing tenant reaches by migrating. Then
+      // the whole set is recorded as applied — without that, the next fan-out
+      // would try to run them again against objects that already exist.
+      await this.migrations.recordBaseline(client, tenantId);
 
       await this.assertCatalogueReadable(client, roleName);
 
@@ -273,19 +281,24 @@ export class TenantProvisioningService {
    */
   private templateDdl(): string {
     const packageRoot = dirname(require.resolve('@ovl/database/package.json'));
-    const bootstrapDir = join(packageRoot, 'bootstrap');
 
-    // fresh-database.sql is drizzle-kit output and needs the `"public".`
-    // stripping; tenant-form-catalogue.sql is hand-written and already
-    // unqualified. Kept as separate files so regenerating the former cannot
-    // silently drop the latter.
-    const core = readFileSync(join(bootstrapDir, 'fresh-database.sql'), 'utf8').replaceAll(
-      '"public".',
-      '',
-    );
-    const formCatalogue = readFileSync(join(bootstrapDir, 'tenant-form-catalogue.sql'), 'utf8');
+    // The baseline, then every migration in order — the same sequence an
+    // existing tenant reaches by being migrated, so both paths converge on one
+    // shape. A change is written once, as a migration, rather than twice (in
+    // the template for new tenants and again as a migration for existing ones),
+    // which is exactly how the two drift apart.
+    //
+    // fresh-database.sql is drizzle-kit output and hard-qualifies its foreign
+    // keys as `REFERENCES "public"."x"`. Left alone, every tenant's tables
+    // would carry foreign keys pointing into `public` — a real cross-schema
+    // reference. Stripping the qualification lets them resolve through
+    // search_path like every other name in the file.
+    const core = readFileSync(
+      join(packageRoot, 'bootstrap', 'fresh-database.sql'),
+      'utf8',
+    ).replaceAll('"public".', '');
 
-    return `${core}\n;\n${formCatalogue}`;
+    return `${core}\n;\n${this.migrations.combinedSql()}`;
   }
 
   private requirePool(): Pool {
