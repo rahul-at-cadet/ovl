@@ -181,6 +181,177 @@ $$;
 GRANT USAGE ON SCHEMA platform TO ovl_admin;
 GRANT SELECT, INSERT, UPDATE, DELETE ON platform.tenants, platform.tenant_users, platform.tenant_migrations TO ovl_admin;
 
+-- ---------------------------------------------------------------------------
+-- 5. Master form-schema catalogue
+--
+-- Published by a platform super admin, readable by every tenant, writable by
+-- none of them. Tenants receive GRANT SELECT and nothing else, so "a tenant can
+-- never change a master schema" is enforced by Postgres rather than promised by
+-- application code — an UPDATE here comes back `permission denied`.
+--
+-- A tenant that wants a master schema changed forks it: the document is copied
+-- into that tenant's own form_schema_versions and its adoption is repointed at
+-- the copy. Nothing in this section is touched.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS platform.form_schemas (
+    schema_name text PRIMARY KEY,
+    title       text NOT NULL,
+    description text,
+    status      text NOT NULL DEFAULT 'active',
+    created_at  timestamp with time zone NOT NULL DEFAULT now(),
+    updated_at  timestamp with time zone NOT NULL DEFAULT now(),
+    CONSTRAINT form_schemas_status_check CHECK (status IN ('active', 'deprecated'))
+);
+
+CREATE TABLE IF NOT EXISTS platform.form_schema_versions (
+    id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    schema_name      text NOT NULL REFERENCES platform.form_schemas (schema_name) ON DELETE CASCADE,
+    version          text NOT NULL,
+    ovd_version      text,
+    content          jsonb NOT NULL,
+    content_checksum text NOT NULL,
+    sections         jsonb NOT NULL DEFAULT '[]'::jsonb,
+    status           text NOT NULL DEFAULT 'published',
+    published_at     timestamp with time zone,
+    published_by     text,
+    created_at       timestamp with time zone NOT NULL DEFAULT now(),
+    CONSTRAINT form_schema_versions_status_check
+        CHECK (status IN ('draft', 'published', 'deprecated'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS form_schema_versions_name_version_key
+    ON platform.form_schema_versions (schema_name, version);
+CREATE INDEX IF NOT EXISTS form_schema_versions_checksum_idx
+    ON platform.form_schema_versions (content_checksum);
+CREATE INDEX IF NOT EXISTS form_schema_versions_status_idx
+    ON platform.form_schema_versions (status);
+
+CREATE TABLE IF NOT EXISTS platform.form_schema_fields (
+    schema_version_id uuid NOT NULL REFERENCES platform.form_schema_versions (id) ON DELETE CASCADE,
+    ordinal           integer NOT NULL,
+    name              text NOT NULL,
+    label             text,
+    type              text NOT NULL,
+    unit              text,
+    max_length        integer,
+    enum_ref          text,
+    schema_mandatory  boolean NOT NULL DEFAULT false,
+    mandatory_note    text,
+    relevance         text,
+    section           text,
+    applies_to_events jsonb NOT NULL DEFAULT '[]'::jsonb,
+    description       text,
+    attributes        jsonb NOT NULL DEFAULT '{}'::jsonb,
+    PRIMARY KEY (schema_version_id, name)
+);
+
+CREATE INDEX IF NOT EXISTS form_schema_fields_enum_ref_idx
+    ON platform.form_schema_fields (enum_ref);
+CREATE INDEX IF NOT EXISTS form_schema_fields_name_idx
+    ON platform.form_schema_fields (name);
+
+CREATE TABLE IF NOT EXISTS platform.form_enums (
+    enum_name  text PRIMARY KEY,
+    title      text NOT NULL,
+    status     text NOT NULL DEFAULT 'active',
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    updated_at timestamp with time zone NOT NULL DEFAULT now(),
+    CONSTRAINT form_enums_status_check CHECK (status IN ('active', 'deprecated'))
+);
+
+CREATE TABLE IF NOT EXISTS platform.form_enum_versions (
+    id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    enum_name        text NOT NULL REFERENCES platform.form_enums (enum_name) ON DELETE CASCADE,
+    version          text NOT NULL,
+    ovd_version      text,
+    content          jsonb NOT NULL,
+    content_checksum text NOT NULL,
+    status           text NOT NULL DEFAULT 'published',
+    published_at     timestamp with time zone,
+    published_by     text,
+    created_at       timestamp with time zone NOT NULL DEFAULT now(),
+    CONSTRAINT form_enum_versions_status_check
+        CHECK (status IN ('draft', 'published', 'deprecated'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS form_enum_versions_name_version_key
+    ON platform.form_enum_versions (enum_name, version);
+
+CREATE TABLE IF NOT EXISTS platform.form_enum_values (
+    enum_version_id uuid NOT NULL REFERENCES platform.form_enum_versions (id) ON DELETE CASCADE,
+    ordinal         integer NOT NULL,
+    code            text NOT NULL,
+    label           text,
+    description     text,
+    attributes      jsonb NOT NULL DEFAULT '{}'::jsonb,
+    PRIMARY KEY (enum_version_id, code)
+);
+
+-- ---------------------------------------------------------------------------
+-- 6. The role that publishes the master catalogue
+--
+-- Same dormant-membership trick as tenant roles, for the same reason. ovl_api
+-- is a member of platform_publisher but NOINHERIT, so the privilege exists only
+-- inside a transaction that has explicitly run `SET LOCAL ROLE
+-- platform_publisher` after checking the caller is a platform super admin.
+--
+-- A bug on an ordinary tenant request path therefore cannot write here: it
+-- never assumes the role, and without assuming it the write is refused by the
+-- database. NOLOGIN, so it is a privilege container and never a way in.
+-- ---------------------------------------------------------------------------
+
+SELECT format('CREATE ROLE %I NOLOGIN', 'platform_publisher')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'platform_publisher')
+\gexec
+
+GRANT USAGE ON SCHEMA platform TO platform_publisher;
+GRANT SELECT, INSERT, UPDATE, DELETE ON
+    platform.form_schemas, platform.form_schema_versions, platform.form_schema_fields,
+    platform.form_enums, platform.form_enum_versions, platform.form_enum_values
+    TO platform_publisher;
+GRANT platform_publisher TO ovl_api;
+
+-- Provisioning also needs to seed the catalogue from the curated files.
+GRANT platform_publisher TO ovl_admin;
+
+-- ---------------------------------------------------------------------------
+-- 7. Read access to the catalogue, as a group role
+--
+-- Tenant roles get catalogue access by being granted THIS role, rather than by
+-- provisioning issuing GRANTs on the platform tables directly. Two reasons, and
+-- the second one cost a debugging session:
+--
+--   * One definition of "may read the catalogue". Adding a table to the
+--     catalogue later is one GRANT here, not an edit to provisioning that
+--     silently leaves every existing tenant behind.
+--
+--   * Provisioning runs as ovl_admin, which does not own the `platform` schema
+--     and therefore has no grant option on it. PostgreSQL does not raise an
+--     error in that case — it emits `WARNING: no privileges were granted` and
+--     commits. The GRANTs looked right, ran without failing, and did nothing.
+--     Handing out a role membership works because ovl_admin is given ADMIN
+--     OPTION on this role below, and TenantProvisioningService now verifies the
+--     result rather than trusting it.
+--
+-- SELECT only. This is what makes "a tenant can never change a master schema" a
+-- database privilege rather than an application rule.
+-- ---------------------------------------------------------------------------
+
+SELECT format('CREATE ROLE %I NOLOGIN', 'tenant_catalogue_reader')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tenant_catalogue_reader')
+\gexec
+
+GRANT USAGE ON SCHEMA platform TO tenant_catalogue_reader;
+GRANT SELECT ON
+    platform.form_schemas, platform.form_schema_versions, platform.form_schema_fields,
+    platform.form_enums, platform.form_enum_versions, platform.form_enum_values
+    TO tenant_catalogue_reader;
+
+-- ADMIN OPTION is what lets provisioning hand this membership to a new tenant
+-- role. Without it the GRANT would warn-and-do-nothing, exactly as above.
+GRANT tenant_catalogue_reader TO ovl_admin WITH ADMIN OPTION;
+
 COMMIT;
 
 -- ---------------------------------------------------------------------------

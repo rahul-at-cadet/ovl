@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { Pool, escapeIdentifier, escapeLiteral } from 'pg';
+import { Pool, escapeIdentifier, escapeLiteral, type PoolClient } from 'pg';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { ADMIN_PG_POOL } from './tenancy.constants';
@@ -110,6 +110,18 @@ export class TenantProvisioningService {
       // Dormant until then, because ovl_api is NOINHERIT.
       await client.query(`GRANT ${roleIdent} TO ${apiRoleIdent}`);
 
+      // Read-only access to the master form-schema catalogue, granted as a role
+      // membership rather than as direct table GRANTs.
+      //
+      // Direct GRANTs do not work here and fail *silently*: provisioning runs as
+      // ovl_admin, which does not own the `platform` schema and so has no grant
+      // option on it. PostgreSQL answers that with `WARNING: no privileges were
+      // granted` and commits anyway — the statements ran, reported no error, and
+      // granted nothing. The membership works because bootstrap gives ovl_admin
+      // ADMIN OPTION on this role, and it keeps one definition of "may read the
+      // catalogue" instead of a list that drifts out of step with the tables.
+      await client.query(`GRANT tenant_catalogue_reader TO ${roleIdent}`);
+
       const inserted = await client.query<{ id: string }>(
         `INSERT INTO platform.tenants (slug, name, schema_name, role_name, status)
          VALUES ($1, $2, $3, $4, 'provisioning')
@@ -126,6 +138,8 @@ export class TenantProvisioningService {
       await client.query(`SET LOCAL search_path TO ${schemaIdent}`);
       await client.query(this.templateDdl());
       await client.query('RESET ROLE');
+
+      await this.assertCatalogueReadable(client, roleName);
 
       await client.query(
         `UPDATE platform.tenants SET status = 'active', updated_at = now() WHERE id = $1`,
@@ -212,6 +226,36 @@ export class TenantProvisioningService {
   }
 
   /**
+   * Proves the new tenant role can actually read the master catalogue.
+   *
+   * Checked rather than assumed because the failure mode here is silent: a
+   * GRANT issued without grant option emits a warning and commits, so the
+   * privileges can be absent while every statement reported success. A tenant
+   * provisioned in that state looks healthy and then shows an empty schema
+   * picker to real users.
+   *
+   * Runs inside the provisioning transaction, so a failure rolls the whole
+   * tenant back rather than leaving a half-privileged one registered.
+   */
+  private async assertCatalogueReadable(client: PoolClient, roleName: string): Promise<void> {
+    const { rows } = await client.query<{ usage: boolean; select: boolean }>(
+      `SELECT has_schema_privilege($1, 'platform', 'USAGE') AS usage,
+              has_table_privilege($1, 'platform.form_schema_versions', 'SELECT') AS select`,
+      [roleName],
+    );
+
+    const result = rows[0];
+    if (!result?.usage || !result?.select) {
+      throw new Error(
+        `Tenant role ${roleName} cannot read the master form-schema catalogue ` +
+          `(USAGE=${result?.usage}, SELECT=${result?.select}). The membership grant did not ` +
+          `take effect — check that platform-bootstrap.sql has been run and that it granted ` +
+          `tenant_catalogue_reader TO ovl_admin WITH ADMIN OPTION.`,
+      );
+    }
+  }
+
+  /**
    * The DDL that defines a fresh tenant schema.
    *
    * Reuses `@ovl/database`'s existing single-tenant bootstrap rather than
@@ -229,8 +273,19 @@ export class TenantProvisioningService {
    */
   private templateDdl(): string {
     const packageRoot = dirname(require.resolve('@ovl/database/package.json'));
-    const sqlPath = join(packageRoot, 'bootstrap', 'fresh-database.sql');
-    return readFileSync(sqlPath, 'utf8').replaceAll('"public".', '');
+    const bootstrapDir = join(packageRoot, 'bootstrap');
+
+    // fresh-database.sql is drizzle-kit output and needs the `"public".`
+    // stripping; tenant-form-catalogue.sql is hand-written and already
+    // unqualified. Kept as separate files so regenerating the former cannot
+    // silently drop the latter.
+    const core = readFileSync(join(bootstrapDir, 'fresh-database.sql'), 'utf8').replaceAll(
+      '"public".',
+      '',
+    );
+    const formCatalogue = readFileSync(join(bootstrapDir, 'tenant-form-catalogue.sql'), 'utf8');
+
+    return `${core}\n;\n${formCatalogue}`;
   }
 
   private requirePool(): Pool {
