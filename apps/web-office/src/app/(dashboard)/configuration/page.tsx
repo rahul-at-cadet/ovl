@@ -15,8 +15,10 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@ovl/ui/components/dialog";
-import { Upload, Plus, FileJson, Layers, Link as LinkIcon, ShieldAlert, ScrollText, Ship } from "lucide-react";
+import { Upload, Plus, FileJson, Layers, Link as LinkIcon, ShieldAlert, ScrollText, Ship, Library, ShieldCheck } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { FormCatalogueTab } from "./FormCatalogueTab";
+import { MasterCatalogueTab } from "./MasterCatalogueTab";
 import { FieldPolicyTab } from "./FieldPolicyTab";
 import { ComplianceTab } from "./ComplianceTab";
 import { VesselConfigsTab } from "./VesselConfigsTab";
@@ -25,6 +27,14 @@ import { scopeLabel, type Scope } from "@/lib/config/complianceLogic";
 
 export default function ConfigurationPage() {
   const [activeTab, setActiveTab] = useState("schemas");
+
+  // Which catalogue tabs to offer. The server answers this rather than the
+  // client inferring it from a role string, because "super admin" is a
+  // platform-level fact recorded outside any tenant — and the server enforces
+  // it regardless of what the UI chooses to render.
+  const { data: access } = trpc.catalogue.whoami.useQuery();
+  const catalogueEnabled = access?.enabled === true;
+  const isSuperAdmin = access?.isSuperAdmin === true;
 
   return (
     <div className="p-8">
@@ -36,11 +46,29 @@ export default function ConfigurationPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} orientation="horizontal" className="w-full">
-        <TabsList className="mb-6">
+        {/*
+          Scrolls within itself rather than widening the page. With enough tabs
+          the list outgrows the content column, and a page that scrolls
+          sideways shifts every table under it — which reads as the headers and
+          their rows drifting out of alignment, even though the table is fine.
+        */}
+        <TabsList className="mb-6 max-w-full overflow-x-auto justify-start">
           <TabsTrigger value="schemas" className="flex items-center gap-2">
             <FileJson className="w-4 h-4" />
             Schemas
           </TabsTrigger>
+          {catalogueEnabled && (
+            <TabsTrigger value="formCatalogue" className="flex items-center gap-2">
+              <Library className="w-4 h-4" />
+              Form Catalogue
+            </TabsTrigger>
+          )}
+          {catalogueEnabled && isSuperAdmin && (
+            <TabsTrigger value="masterCatalogue" className="flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4" />
+              Platform Catalogue
+            </TabsTrigger>
+          )}
           <TabsTrigger value="fieldPolicy" className="flex items-center gap-2">
             <ShieldAlert className="w-4 h-4" />
             Field Policy
@@ -66,6 +94,18 @@ export default function ConfigurationPage() {
         <TabsContent value="schemas">
           <SchemasTab />
         </TabsContent>
+
+        {catalogueEnabled && (
+          <TabsContent value="formCatalogue">
+            <FormCatalogueTab />
+          </TabsContent>
+        )}
+
+        {catalogueEnabled && isSuperAdmin && (
+          <TabsContent value="masterCatalogue">
+            <MasterCatalogueTab />
+          </TabsContent>
+        )}
 
         <TabsContent value="fieldPolicy">
           <FieldPolicyTab />
