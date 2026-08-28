@@ -121,8 +121,18 @@ export default function GlobalReportsPage() {
                   </TableCell>
                 </TableRow>
               ) : filteredReports.length > 0 ? (
+                // align-top on the cells: the Vessel column is two lines (name
+                // over IMO) while every other column is one, and the default
+                // align-middle centres that taller block — leaving the bold
+                // vessel name ~7px above the report id, type, status and date,
+                // which reads as the row being out of line with its headers.
+                // Topping them out lines every first line up. py-3 keeps the
+                // row height.
                 filteredReports.map((report: any) => (
-                  <TableRow key={report.id} className="border-border hover:bg-muted transition-colors group">
+                  <TableRow
+                    key={report.id}
+                    className="border-border hover:bg-muted transition-colors group [&>td]:align-top [&>td]:py-3"
+                  >
                   <TableCell className="hidden md:table-cell font-medium text-foreground font-mono text-sm">
                     {report.id}
                   </TableCell>
