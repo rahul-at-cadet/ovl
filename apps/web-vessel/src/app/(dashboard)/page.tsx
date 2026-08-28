@@ -468,7 +468,7 @@ export default function DashboardPage() {
             overflowed and the extra content was clipped with nothing to
             scroll. min-h-0 lets it shrink so its own body can scroll instead. */}
         <Panel title="Synchronisation" icon={RefreshCw} className="min-h-0">
-          <div className="p-4 flex flex-col gap-3 xl:min-h-0 xl:overflow-y-auto">
+          <div className="p-4 flex flex-col gap-3 xl:flex-1 xl:min-h-0 xl:overflow-y-auto">
             <dl className="text-sm">
               <div className="flex items-center justify-between gap-3 py-1.5">
                 <dt className="text-muted-foreground">Local API</dt>
@@ -559,10 +559,15 @@ export default function DashboardPage() {
                 </ul>
               </div>
             )}
+            {/* mt-auto so the action hugs the bottom of the panel instead of
+                floating directly under the readouts with dead space beneath
+                it. When the body does overflow — mismatch alert plus a run
+                history — there is no free space to absorb, so it simply
+                stays last and scrolls with the rest. */}
             <Button
               onClick={() => syncNowMutation.mutate()}
               disabled={syncNowMutation.isPending || !syncStatus?.enrolled}
-              className="w-full justify-center"
+              className="w-full justify-center xl:mt-auto"
             >
               {syncNowMutation.isPending ? (
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
