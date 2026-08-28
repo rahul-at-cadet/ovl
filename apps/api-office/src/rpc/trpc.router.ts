@@ -76,6 +76,13 @@ const PushEventsCompiler = TypeCompiler.Compile(PushEventsSchema);
 const PullConfigInputSchema = Type.Object({
   vesselId: Type.String(),
   lastSyncAt: Type.Optional(Type.String()),
+  // What the vessel calls itself. Optional so a vessel on an older build
+  // still checks in normally; office simply has nothing to compare against.
+  vesselName: Type.Optional(Type.String()),
+  imoNumber: Type.Optional(Type.String()),
+  // The vessel's own id for this sync cycle, so both sides file their half
+  // of one run under the same reference.
+  runId: Type.Optional(Type.String()),
   // Architecture 9.3/12.4's remote user administration, piggybacked on
   // this same check-in rather than a dedicated RPC (mirrors
   // ovl/office/syncservice's SyncStatus fields of the same names): the
@@ -526,6 +533,40 @@ export class TrpcRouter {
     }
   }
 
+  /**
+   * Shore's half of one sync run. Never allowed to break a check-in: history
+   * is diagnostic, and a vessel must still sync if recording it fails.
+   * `tenantId` is left at its column default for now — the column exists so
+   * that per-tenant history does not require back-filling an append-only
+   * table later.
+   */
+  private async recordSyncRun(run: {
+    runId: string | null;
+    vesselId: string;
+    outcome: 'served' | 'noBundle' | 'unknownVessel';
+    resolvedBundleId?: string | null;
+    resolvedBundleVersion?: number | null;
+    reportedName: string | null;
+    reportedImo: string | null;
+    note?: string | null;
+  }) {
+    try {
+      await this.db.insert(schema.syncRuns).values({
+        runId: run.runId,
+        vesselId: run.vesselId,
+        receivedAt: new Date().toISOString(),
+        outcome: run.outcome,
+        resolvedBundleId: run.resolvedBundleId ?? null,
+        resolvedBundleVersion: run.resolvedBundleVersion ?? null,
+        reportedName: run.reportedName,
+        reportedImo: run.reportedImo,
+        note: run.note ?? null,
+      });
+    } catch (err: any) {
+      console.error(`Could not record sync run for vessel ${run.vesselId}:`, err?.message ?? err);
+    }
+  }
+
   appRouter = router({
     ping: publicProcedure
       .input((val: unknown) => {
@@ -704,6 +745,42 @@ export class TrpcRouter {
           return val as Static<typeof PullConfigInputSchema>;
         })
         .query(async ({ input }) => {
+          // Check the vessel is actually registered before touching
+          // vessel_sync_status. That table has an FK onto vessels, so an
+          // unknown id used to surface as a raw Postgres foreign-key
+          // violation from deep inside the insert — which the vessel then
+          // swallowed, leaving "sync complete" and no bundle. A vessel
+          // holding an id that shore has never heard of (office database
+          // rebuilt after enrolment, vessel restored from a backup) needs
+          // to be told to re-enrol, not handed a constraint error.
+          const knownVessel = (
+            await this.db
+              .select()
+              .from(schema.vessels)
+              .where(eq(schema.vessels.id, input.vesselId))
+              .limit(1)
+          )[0];
+          if (!knownVessel) {
+            // Recorded before throwing. A vessel office cannot identify is
+            // exactly the case that previously vanished without trace, so
+            // the attempt itself is the thing worth keeping — sync_runs has
+            // no FK onto vessels precisely so this insert can succeed.
+            await this.recordSyncRun({
+              runId: input.runId ?? null,
+              vesselId: input.vesselId,
+              outcome: 'unknownVessel',
+              reportedName: input.vesselName ?? null,
+              reportedImo: input.imoNumber ?? null,
+              note: 'Vessel id is not registered with this office.',
+            });
+            throw new TRPCError({
+              code: 'NOT_FOUND',
+              message:
+                `Vessel ${input.vesselId} is not registered with this office. ` +
+                `Re-enrol the vessel from its setup screen.`,
+            });
+          }
+
           const bundle = await this.configBundleService.resolveForVessel(input.vesselId);
           const syncedAt = new Date().toISOString();
 
@@ -713,6 +790,8 @@ export class TrpcRouter {
               lastSeenAt: syncedAt,
               appliedBundleId: bundle?.bundleId ?? '',
               appliedBundleVersion: bundle?.versionNo ?? 0,
+              reportedName: input.vesselName ?? null,
+              reportedImo: input.imoNumber ?? null,
             })
             .onConflictDoUpdate({
               target: schema.vesselSyncStatus.vesselId,
@@ -720,8 +799,21 @@ export class TrpcRouter {
                 lastSeenAt: syncedAt,
                 appliedBundleId: bundle?.bundleId ?? '',
                 appliedBundleVersion: bundle?.versionNo ?? 0,
+                reportedName: input.vesselName ?? null,
+                reportedImo: input.imoNumber ?? null,
               },
             });
+
+          await this.recordSyncRun({
+            runId: input.runId ?? null,
+            vesselId: input.vesselId,
+            outcome: bundle ? 'served' : 'noBundle',
+            resolvedBundleId: bundle?.bundleId ?? null,
+            resolvedBundleVersion: bundle?.versionNo ?? null,
+            reportedName: input.vesselName ?? null,
+            reportedImo: input.imoNumber ?? null,
+            note: bundle ? null : 'No bundle assignment covers this vessel.',
+          });
 
           // Piggybacked on this same check-in rather than a dedicated RPC —
           // see VesselUsersService.handleCheckIn's own comment.
@@ -777,6 +869,9 @@ export class TrpcRouter {
           return {
             bundle,
             syncedAt,
+            // Shore's own record of this vessel, echoed back so the ship can
+            // display both names and flag a divergence locally.
+            vessel: { id: knownVessel.id, name: knownVessel.name, imo: knownVessel.imo },
             userCommands,
             chatMessages,
             remarks,
@@ -1813,6 +1908,15 @@ export class TrpcRouter {
         .mutation(({ input }) => this.configBundleService.assign(input.scope as Scope, input.bundleId)),
       listAssignments: protectedProcedure.query(() => this.configBundleService.listAssignments()),
       vesselConfigs: protectedProcedure.query(() => this.configBundleService.vesselConfigs()),
+      // Shore-side sync history. Optionally narrowed to one vessel; without a
+      // filter it is the fleet's check-in log, which is where an unknown
+      // vessel repeatedly failing to enrol becomes visible.
+      syncHistory: protectedProcedure
+        .input((val: unknown) => {
+          const v = (val ?? {}) as { vesselId?: string; limit?: number };
+          return { vesselId: v.vesselId, limit: typeof v.limit === 'number' ? v.limit : 50 };
+        })
+        .query(({ input }) => this.configBundleService.syncHistory(input.vesselId, input.limit)),
     }),
     compliance: router({
       ruleCatalog: protectedProcedure.query(() => this.complianceService.ruleCatalog()),

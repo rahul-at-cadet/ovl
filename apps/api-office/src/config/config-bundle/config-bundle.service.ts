@@ -242,10 +242,57 @@ export class ConfigBundleService {
         vesselName: v.name,
         imo: v.imo,
         status,
+        // Needed so callers can tie a vessel's real state back to a specific
+        // bundle row — the publish history could only ever say "assigned"
+        // without it, which is why it showed a hardcoded "pending" forever.
+        assignedBundleId: bundle?.id ?? null,
         assignedBundleLabel: bundle?.label || null,
+        appliedBundleId: sync?.appliedBundleId || null,
         activeSince: sync?.lastSeenAt ?? null,
+        // What the ship calls itself on its own check-ins. enroll matches by
+        // IMO and keeps office's name, so these can diverge permanently and
+        // nothing surfaced it until now.
+        reportedName: sync?.reportedName ?? null,
+        reportedImo: sync?.reportedImo ?? null,
+        nameMismatch: !!sync?.reportedName && sync.reportedName !== v.name,
+        imoMismatch: !!sync?.reportedImo && sync.reportedImo !== v.imo,
       };
     });
+  }
+
+  /**
+   * Check-in history, newest first, optionally for one vessel. Joined to
+   * `vessels` with a LEFT join on purpose: rows from vessels office does not
+   * know are the most diagnostic ones in the table and must not be dropped.
+   */
+  async syncHistory(vesselId?: string, limit = 50) {
+    const rows = await this.db
+      .select({
+        id: schema.syncRuns.id,
+        runId: schema.syncRuns.runId,
+        vesselId: schema.syncRuns.vesselId,
+        receivedAt: schema.syncRuns.receivedAt,
+        outcome: schema.syncRuns.outcome,
+        resolvedBundleId: schema.syncRuns.resolvedBundleId,
+        resolvedBundleVersion: schema.syncRuns.resolvedBundleVersion,
+        reportedName: schema.syncRuns.reportedName,
+        reportedImo: schema.syncRuns.reportedImo,
+        note: schema.syncRuns.note,
+        knownVesselName: schema.vessels.name,
+      })
+      .from(schema.syncRuns)
+      .leftJoin(schema.vessels, eq(schema.syncRuns.vesselId, schema.vessels.id))
+      .where(vesselId ? eq(schema.syncRuns.vesselId, vesselId) : undefined)
+      .orderBy(desc(schema.syncRuns.receivedAt))
+      .limit(Math.min(limit, 200));
+
+    return rows.map((r) => ({
+      ...r,
+      // The ship's own name is the only label available for a vessel office
+      // cannot resolve, which is exactly when a label matters most.
+      displayName: r.knownVesselName ?? r.reportedName ?? 'Unknown vessel',
+      nameMismatch: !!r.knownVesselName && !!r.reportedName && r.knownVesselName !== r.reportedName,
+    }));
   }
 
   /** Real config resolution for one vessel — backs sync.pullConfig. */

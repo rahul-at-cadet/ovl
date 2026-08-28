@@ -499,7 +499,17 @@ export class TrpcRouter {
       }),
       now: publicProcedure.mutation(async () => {
         return this.syncService.syncNow();
-      })
+      }),
+      // Cycle-by-cycle history, so a run that failed leaves evidence the
+      // next run cannot overwrite. Same shape office serves for a vessel.
+      history: publicProcedure
+        .input((val: unknown) => {
+          const v = (val ?? {}) as { limit?: number };
+          return { limit: typeof v.limit === 'number' ? v.limit : 50 };
+        })
+        .query(async ({ input }) => {
+          return this.syncService.getHistory(input.limit);
+        })
     }),
     users: router({
       me: this.protectedProcedure.query(async ({ ctx }) => {

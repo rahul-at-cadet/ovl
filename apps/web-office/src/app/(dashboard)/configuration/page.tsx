@@ -379,6 +379,7 @@ function BundlesTab() {
   const { data: preview } = trpc.configBundles.preview.useQuery();
   const { data: assignments } = trpc.configBundles.listAssignments.useQuery();
   const { data: vessels = [] } = trpc.vessels.list.useQuery();
+  const { data: vesselConfigs } = trpc.configBundles.vesselConfigs.useQuery();
   const publishBundle = trpc.configBundles.publish.useMutation({
     onSuccess: () => refetch(),
   });
@@ -395,6 +396,22 @@ function BundlesTab() {
     }
     return map;
   }, [assignments, vessels]);
+
+  // Real per-bundle rollout state. This row used to render a hardcoded
+  // "Pending next sync" for every assigned bundle, so it never changed no
+  // matter how many times a vessel synced — and a vessel that could not
+  // sync at all looked exactly like one that had.
+  const rolloutByBundle = useMemo(() => {
+    const map = new Map<string, { applied: number; total: number }>();
+    for (const row of vesselConfigs ?? []) {
+      if (!row.assignedBundleId) continue;
+      const tally = map.get(row.assignedBundleId) ?? { applied: 0, total: 0 };
+      tally.total += 1;
+      if (row.status === "synced") tally.applied += 1;
+      map.set(row.assignedBundleId, tally);
+    }
+    return map;
+  }, [vesselConfigs]);
 
   const handlePublish = async () => {
     await publishBundle.mutateAsync({ label: label || "New Config Bundle" });
@@ -507,7 +524,25 @@ function BundlesTab() {
                               {s}
                             </span>
                           ))}
-                          <span className="text-xs text-muted-foreground">Pending next sync</span>
+                          {(() => {
+                            const rollout = rolloutByBundle.get(b.id);
+                            if (!rollout || rollout.total === 0) {
+                              return <span className="text-xs text-muted-foreground">No vessels covered</span>;
+                            }
+                            if (rollout.applied === rollout.total) {
+                              return (
+                                <span className="text-xs text-status-ok">
+                                  Running on {rollout.total} vessel{rollout.total === 1 ? "" : "s"}
+                                </span>
+                              );
+                            }
+                            return (
+                              <span className="text-xs text-status-warn">
+                                Running on {rollout.applied} of {rollout.total} vessel
+                                {rollout.total === 1 ? "" : "s"}
+                              </span>
+                            );
+                          })()}
                         </div>
                       ) : (
                         <span className="text-xs text-muted-foreground">Not assigned</span>

@@ -2,9 +2,10 @@ import { Injectable, Inject, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { TrpcService } from '../rpc/trpc.service';
 import { DATABASE_CONNECTION } from '../database/database.module';
-import { isNull, eq, and } from 'drizzle-orm';
+import { isNull, eq, and, desc, sql } from 'drizzle-orm';
 import * as schema from '@ovl/vessel-database';
 import { AuthService } from '../auth/auth.service';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class SyncService {
@@ -12,6 +13,19 @@ export class SyncService {
   private isSyncing = false;
   private lastSuccess: string | null = null;
   private lastError: string | null = null;
+  // Per-phase outcomes. A cycle used to report success whenever it merely
+  // finished: both phases caught their own errors and never rethrew, so
+  // handleCron's success path ran regardless and cleared lastError. A vessel
+  // failing every config pull — wrong shore URL, unknown vessel id — showed
+  // "Sync complete" indefinitely with nothing anywhere to contradict it.
+  private lastPushError: string | null = null;
+  private lastConfigError: string | null = null;
+  // Set when shore answers the check-in but has no bundle for this vessel.
+  // Distinct from an error: the round trip worked, there is simply nothing
+  // assigned, and telling those two apart is the whole point.
+  private lastConfigNotice: string | null = null;
+  private lastPushedCount = 0;
+  private currentRunId: string | null = null;
 
   constructor(
     private readonly trpc: TrpcService,
@@ -25,12 +39,27 @@ export class SyncService {
    * Runs every 30 seconds to push local changes to shore and pull new configs from shore.
    */
   @Cron(CronExpression.EVERY_30_SECONDS)
-  async handleCron() {
+  async handleCron(trigger: 'cron' | 'manual' = 'cron') {
     if (this.isSyncing) return;
     this.isSyncing = true;
 
+    // One id per cycle, minted here and carried to shore on the check-in so
+    // both sides file their half of the same run under the same reference.
+    this.currentRunId = randomUUID();
+    const startedAt = new Date().toISOString();
+    const bundleIdBefore = (await this.readStoredBundle())?.bundleId ?? null;
+
     try {
       this.logger.debug('Starting Sync Cycle...');
+
+      // Both phases still run even when the other fails — a config pull
+      // must not be skipped because an unrelated outbox push broke — but
+      // their failures are now collected rather than discarded, and the
+      // cycle only counts as a success when both actually succeeded.
+      this.lastPushError = null;
+      this.lastConfigError = null;
+      this.lastConfigNotice = null;
+      this.lastPushedCount = 0;
 
       // 1. Upstream Sync (Ship -> Shore)
       await this.pushOutboxEvents();
@@ -38,20 +67,89 @@ export class SyncService {
       // 2. Downstream Sync (Shore -> Ship)
       await this.pullConfiguration();
 
-      this.logger.debug('Sync Cycle Complete');
-      this.lastSuccess = new Date().toISOString();
-      this.lastError = null;
+      const failures = [this.lastPushError, this.lastConfigError].filter(Boolean);
+      if (failures.length > 0) {
+        this.lastError = failures.join(' · ');
+        this.logger.warn(`Sync Cycle finished with errors: ${this.lastError}`);
+      } else {
+        this.logger.debug('Sync Cycle Complete');
+        this.lastSuccess = new Date().toISOString();
+        this.lastError = null;
+      }
     } catch (error: any) {
       this.logger.error(`Sync cycle failed: ${error.message}`);
       this.lastError = error.message;
     } finally {
+      // Recorded in `finally` so a cycle that threw outright still leaves a
+      // row. History that only covers the runs which went well is precisely
+      // the history that could not have caught this class of bug.
+      await this.recordRun(startedAt, trigger, bundleIdBefore);
       this.isSyncing = false;
     }
   }
 
+  /** The stored bundle, or undefined when the vessel holds none. */
+  private async readStoredBundle(): Promise<{ bundleId?: string; versionNo?: number } | undefined> {
+    const row = (
+      await this.db.select().from(schema.configStore).where(eq(schema.configStore.key, 'config_bundle'))
+    )[0];
+    if (!row) return undefined;
+    try {
+      return JSON.parse(row.value);
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async recordRun(startedAt: string, trigger: 'cron' | 'manual', bundleIdBefore: string | null) {
+    const after = await this.readStoredBundle();
+    const outcome = this.lastError
+      ? this.lastPushError && this.lastConfigError
+        ? 'failed'
+        : 'partial'
+      : 'success';
+    try {
+      await this.db.insert(schema.syncRuns).values({
+        id: this.currentRunId ?? randomUUID(),
+        startedAt,
+        finishedAt: new Date().toISOString(),
+        outcome,
+        trigger,
+        pushError: this.lastPushError,
+        configError: this.lastConfigError,
+        configNotice: this.lastConfigNotice,
+        pushedCount: this.lastPushedCount,
+        bundleIdBefore,
+        bundleIdAfter: after?.bundleId ?? null,
+        bundleVersionAfter: after?.versionNo ?? null,
+      });
+      // Keep the log bounded — this table is written every 30 seconds.
+      await this.db.run(
+        sql`DELETE FROM sync_runs WHERE id NOT IN (SELECT id FROM sync_runs ORDER BY started_at DESC LIMIT 200)`,
+      );
+    } catch (err: any) {
+      // History must never be able to break syncing itself.
+      this.logger.error(`Could not record sync run: ${err.message}`);
+    }
+  }
+
+  /** Most recent cycles, newest first — backs the vessel's sync timeline. */
+  async getHistory(limit = 50) {
+    return this.db
+      .select()
+      .from(schema.syncRuns)
+      .orderBy(desc(schema.syncRuns.startedAt))
+      .limit(Math.min(limit, 200));
+  }
+
   async getStatus() {
-    const result = await this.db.select().from(schema.configStore).where(eq(schema.configStore.key, 'vessel_id'));
-    const enrolled = result.length > 0;
+    // One read of the whole store rather than a query per key — the vessel's
+    // identity, the shore URL and the applied bundle all live here.
+    const configRows = await this.db.select().from(schema.configStore);
+    const config: Record<string, string> = {};
+    for (const row of configRows) config[row.key] = row.value;
+
+    const enrolled = !!config['vessel_id'];
 
     // Real outbox depth, not a placeholder: the same isNull(processedAt)
     // filter pushOutboxEvents itself uses to find what still needs
@@ -61,16 +159,58 @@ export class SyncService {
       .from(schema.syncOutbox)
       .where(isNull(schema.syncOutbox.processedAt));
 
+    // What this vessel is actually running, read back from the stored
+    // bundle rather than from whatever the last cycle happened to see.
+    // "Enrolled and syncing but holding no bundle" is a real, reachable
+    // state and the one worth surfacing loudest.
+    let appliedBundleId: string | null = null;
+    let appliedBundleVersion: number | null = null;
+    let appliedAt: string | null = null;
+    const bundleRow = configRows.find((r: { key: string }) => r.key === 'config_bundle');
+    if (bundleRow) {
+      try {
+        const parsed = JSON.parse(bundleRow.value);
+        appliedBundleId = parsed?.bundleId ?? null;
+        appliedBundleVersion = parsed?.versionNo ?? null;
+        appliedAt = bundleRow.updatedAt ?? null;
+      } catch {
+        this.lastConfigError ??= 'Stored config bundle is not readable JSON.';
+      }
+    }
+
     return {
       enrolled,
       lastSuccess: this.lastSuccess,
       lastError: this.lastError,
       pendingCount: pending.length,
+      // Identity, so the vessel can show who it thinks it is and office can
+      // be checked against it. Until now the vessel's own name lived only in
+      // the setup wizard and appeared nowhere else in the app.
+      vesselId: config['vessel_id'] ?? null,
+      vesselName: config['vessel_name'] ?? null,
+      imoNumber: config['imo_number'] ?? config['imoNumber'] ?? null,
+      shoreUrl: config['shore_url'] ?? null,
+      // What shore calls this same vessel, captured on the last successful
+      // check-in. A mismatch is legitimate and permanent — edge.enroll
+      // matches on IMO and ignores the name the vessel sent — so it has to
+      // be shown rather than silently reconciled.
+      officeVesselName: config['office_vessel_name'] ?? null,
+      officeImoNumber: config['office_imo_number'] ?? null,
+      nameMismatch:
+        !!config['office_vessel_name'] &&
+        !!config['vessel_name'] &&
+        config['office_vessel_name'] !== config['vessel_name'],
+      appliedBundleId,
+      appliedBundleVersion,
+      appliedAt,
+      configNotice: this.lastConfigNotice,
+      pushError: this.lastPushError,
+      configError: this.lastConfigError,
     };
   }
 
   async syncNow() {
-    await this.handleCron();
+    await this.handleCron('manual');
     return this.getStatus();
   }
 
@@ -99,6 +239,7 @@ export class SyncService {
         this.logger.log(
           `Successfully pushed ${response.processedCount} events. Marking locally as processed.`,
         );
+        this.lastPushedCount = response.processedCount ?? pendingEvents.length;
 
         // 2. Mark as processed locally so they aren't sent again
         const now = new Date().toISOString();
@@ -110,6 +251,7 @@ export class SyncService {
         }
       }
     } catch (err: any) {
+      this.lastPushError = `Push failed: ${err.message}`;
       this.logger.error(`Failed to push outbox events: ${err.message}`);
     }
   }
@@ -298,7 +440,48 @@ export class SyncService {
       const invalidationCursorRow = (await this.db.select().from(schema.configStore).where(eq(schema.configStore.key, 'invalidation_seq_cursor')))[0];
       const lastInvalidationSeq = invalidationCursorRow?.value;
 
-      const response = await this.trpc.client.sync.pullConfig.query({ vesselId, users, appliedUserCommandIds, lastChatSeq, lastRemarkSeq, lastInvalidationSeq });
+      // The vessel's own name and IMO travel with every check-in so shore
+      // can record what this vessel calls itself. enroll only ever matched
+      // on IMO and discarded the name, so without this office has no way to
+      // know the two sides disagree.
+      const identityRows = await this.db.select().from(schema.configStore);
+      const identity: Record<string, string> = {};
+      for (const row of identityRows) identity[row.key] = row.value;
+
+      const response = await this.trpc.client.sync.pullConfig.query({
+        vesselId,
+        users,
+        appliedUserCommandIds,
+        lastChatSeq,
+        lastRemarkSeq,
+        lastInvalidationSeq,
+        vesselName: identity['vessel_name'] || undefined,
+        imoNumber: identity['imo_number'] || undefined,
+        runId: this.currentRunId || undefined,
+      });
+
+      // Remember shore's own answer so the vessel can display both names and
+      // flag a divergence without needing office to be reachable again.
+      if (response.vessel) {
+        for (const [key, value] of [
+          ['office_vessel_name', response.vessel.name],
+          ['office_imo_number', response.vessel.imo],
+        ] as const) {
+          if (!value) continue;
+          await this.db
+            .insert(schema.configStore)
+            .values({ key, value, updatedAt: response.syncedAt })
+            .onConflictDoUpdate({
+              target: schema.configStore.key,
+              set: { value, updatedAt: response.syncedAt },
+            });
+        }
+        if (response.vessel.name && identity['vessel_name'] && response.vessel.name !== identity['vessel_name']) {
+          this.logger.warn(
+            `Vessel name disagrees with shore: local "${identity['vessel_name']}" vs office "${response.vessel.name}".`,
+          );
+        }
+      }
 
       if (appliedUserCommandIds.length > 0) {
         await this.db.delete(schema.configStore).where(eq(schema.configStore.key, 'pending_user_command_acks'));
@@ -361,9 +544,15 @@ export class SyncService {
       if (response.bundle) {
         // Skip if we've already applied this exact bundle version (avoids redundant local writes every 30s).
         const current = (await this.db.select().from(schema.configStore).where(eq(schema.configStore.key, 'config_bundle')))[0];
-        const currentVersionNo = current ? JSON.parse(current.value)?.versionNo : undefined;
+        const parsedCurrent = current ? JSON.parse(current.value) : undefined;
+        const currentVersionNo = parsedCurrent?.versionNo;
+        const currentBundleId = parsedCurrent?.bundleId;
 
-        if (currentVersionNo !== response.bundle.versionNo) {
+        // Compare the bundle identity too, not just its version number.
+        // versionNo comes from the bundle row's `cursor`, and two bundles
+        // that ever resolve to the same number would otherwise leave the
+        // vessel silently pinned to whichever it stored first.
+        if (currentVersionNo !== response.bundle.versionNo || currentBundleId !== response.bundle.bundleId) {
           await this.db
             .insert(schema.configStore)
             .values({
@@ -380,8 +569,17 @@ export class SyncService {
             });
           this.logger.log(`Applied config bundle ${response.bundle.bundleId} (version ${response.bundle.versionNo}).`);
         }
+      } else {
+        // Shore answered, but resolved no bundle for this vessel — no
+        // assignment covers it, at any scope. Previously this branch did
+        // not exist and the vessel simply carried on with whatever (or
+        // nothing) it already had, indistinguishable from a clean apply.
+        this.lastConfigNotice =
+          'Shore has no config bundle assigned to this vessel. Assign one in Office → Configuration → Assignments.';
+        this.logger.warn(this.lastConfigNotice);
       }
     } catch (err: any) {
+      this.lastConfigError = `Config pull failed: ${err.message}`;
       this.logger.error(`Failed to pull configuration: ${err.message}`);
     }
   }

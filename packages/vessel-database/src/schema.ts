@@ -116,3 +116,26 @@ export const attachments = sqliteTable('attachments', {
   uploadedBy: text('uploaded_by').notNull(),
   syncedAt: text('synced_at'),
 });
+
+// One row per sync cycle, append-only. The vessel previously kept only the
+// *current* outcome in memory (lastSuccess/lastError on SyncService), so a
+// run that failed left no trace once the next one overwrote it — a fortnight
+// of silent failures was indistinguishable from a fortnight of quiet success.
+// `id` is minted by the vessel and travels with the check-in so shore can
+// record its own half of the same run under the same id.
+export const syncRuns = sqliteTable('sync_runs', {
+  id: text('id').primaryKey(), // uuid, correlates with office's sync_runs.run_id
+  startedAt: text('started_at').notNull(),
+  finishedAt: text('finished_at'),
+  // 'success' | 'partial' | 'failed' — partial means one phase worked and
+  // the other did not, which is the case that used to report as success.
+  outcome: text('outcome').notNull(),
+  trigger: text('trigger').notNull(), // 'cron' | 'manual'
+  pushError: text('push_error'),
+  configError: text('config_error'),
+  configNotice: text('config_notice'),
+  pushedCount: integer('pushed_count').notNull().default(0),
+  bundleIdBefore: text('bundle_id_before'),
+  bundleIdAfter: text('bundle_id_after'),
+  bundleVersionAfter: integer('bundle_version_after'),
+});
