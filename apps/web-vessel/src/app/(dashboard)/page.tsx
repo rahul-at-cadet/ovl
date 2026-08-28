@@ -150,8 +150,11 @@ export default function DashboardPage() {
   const syncNowMutation = trpc.sync.now.useMutation();
 
   const allInProgress = reports.filter((r) => r.state === 'draft');
-  const inProgress = allInProgress.slice(0, 5);
-  const recent = reports.filter((r) => r.state !== 'draft').slice(0, 6);
+  // Three, not five: the xl dashboard is one fixed-height screen and the
+  // drafts list was the tallest thing competing for it. "View all" in the
+  // panel header covers the rest.
+  const inProgress = allInProgress.slice(0, 3);
+  const recent = reports.filter((r) => r.state !== 'draft').slice(0, 4);
 
   let isOverdue = false;
   let overdueByStr = '';
@@ -336,8 +339,129 @@ export default function DashboardPage() {
           )}
         </Panel>
 
-        {/* 5 — sync */}
+        {/* 5 — voyage, then recent activity. Voyage sits above the submitted
+            list: it answers "where are we now", and it used to be pinned
+            under the sync panel where it got squeezed to a bare header. */}
         <div className="flex flex-col gap-4 xl:min-h-0">
+        {/* 6 — voyage context */}
+        <Panel title="Active voyage" icon={Ship} className="xl:shrink-0 xl:max-h-64 xl:overflow-y-auto">
+          {voyage ? (
+            <div className="p-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
+              {/* Every field on the voyage summary is optional except
+                  lastReportAt (see vessel/httpapi/voyage.go's voyageSummaryView):
+                  it is derived per request from whatever the vessel has actually
+                  reported, so any of these can legitimately be absent. Each one
+                  renders its own "not reported" state rather than the panel
+                  hiding wholesale, and an unknown field arriving later cannot
+                  break the layout. */}
+              <Field label="Voyage number" value={voyage.voyageNumber} mono />
+              {'imo' in voyage && (
+                <Field label="IMO" value={(voyage as { imo?: string }).imo} mono />
+              )}
+              <div className="min-w-0">
+                <p className="instrument-label">Passage</p>
+                <p className="text-sm text-foreground mt-1 break-words">
+                  {voyage.fromPort || 'Not reported'}{' '}
+                  <span className="text-muted-foreground" aria-label="to">&rarr;</span>{' '}
+                  {voyage.toPort || 'Not reported'}
+                </p>
+                {(voyage.departedAt || voyage.eta) && (
+                  <p className="readout text-xs text-muted-foreground mt-0.5 break-words">
+                    {voyage.departedAt ? `Dep ${fmtDate(voyage.departedAt)}` : ''}
+                    {voyage.departedAt && voyage.eta ? ' \u00b7 ' : ''}
+                    {voyage.eta ? `ETA ${fmtDate(voyage.eta)}` : ''}
+                  </p>
+                )}
+              </div>
+              <div className="min-w-0">
+                <p className="instrument-label">Distance</p>
+                <p className="readout text-sm text-foreground mt-1">
+                  {voyage.distanceSailedNm != null ? `${voyage.distanceSailedNm.toFixed(0)} NM sailed` : 'Not reported'}
+                </p>
+                <p className="readout text-xs text-muted-foreground mt-0.5">
+                  {voyage.distanceRemainingNm != null ? `${voyage.distanceRemainingNm.toFixed(0)} NM remaining` : ''}
+                </p>
+                {voyage.progressPercent != null && (
+                  <div
+                    className="mt-2 h-2 bg-muted border border-border rounded-sm overflow-hidden"
+                    role="progressbar"
+                    aria-valuenow={Math.round(voyage.progressPercent)}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-label="Voyage progress"
+                  >
+                    <div
+                      className="h-full bg-primary"
+                      style={{ width: `${Math.max(0, Math.min(100, voyage.progressPercent))}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+              <Field label="Position" value={voyage.position?.text} mono />
+              {/* Freshness: this whole panel is only as current as the report it
+                  was derived from. */}
+              <Field
+                label="Derived from report at"
+                value={voyage.lastReportAt ? fmtDateTime(voyage.lastReportAt) : undefined}
+                mono
+              />
+            </div>
+          ) : (
+            <p className="p-4 text-sm text-muted-foreground">
+              Voyage details appear here once a report carries voyage fields.
+            </p>
+          )}
+        </Panel>
+
+        {/* Recent activity, lowest priority */}
+        <Panel
+          title="Recently submitted"
+          icon={FileText}
+          className="xl:flex-1 xl:min-h-0"
+          action={
+            <Button
+              variant="ghost"
+              size="sm"
+              render={<Link href="/reports" />}
+              nativeButton={false}
+              className="text-muted-foreground hover:text-foreground shrink-0"
+            >
+              View all
+              <ArrowRight className="w-3.5 h-3.5 ml-1" />
+            </Button>
+          }
+        >
+          {reportsLoading ? (
+            <p className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Loading…
+            </p>
+          ) : recent.length === 0 ? (
+            <p className="p-4 text-sm text-muted-foreground">No reports submitted yet.</p>
+          ) : (
+            <ul className="divide-y divide-border xl:min-h-0 xl:overflow-y-auto">
+              {recent.map((report) => (
+                <li key={report.reportId}>
+                  <Link
+                    href={`/reports/${report.reportId}`}
+                    className="flex items-center justify-between gap-3 px-4 py-3 min-h-12 hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-foreground truncate">{report.schemaName}</span>
+                      <span className="block text-xs text-muted-foreground truncate mt-0.5">{report.createdBy}</span>
+                    </span>
+                    <StatusBadge status={report.state} size="sm" className="shrink-0" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
+        </div>
+
+        {/* 6 — sync, deliberately last and least prominent: operational
+            plumbing, not the reporting work this screen exists for. It
+            still scrolls its own body. */}
         {/* Not shrink-0: this panel grew a config-bundle row, a name-mismatch
             alert and a run history, and the xl column is a fixed-height
             overflow-hidden container. Pinned at its natural height it simply
@@ -450,121 +574,6 @@ export default function DashboardPage() {
           </div>
         </Panel>
 
-        {/* 6 — voyage context */}
-        <Panel title="Active voyage" icon={Ship} className="xl:flex-1 xl:min-h-0 xl:overflow-y-auto">
-          {voyage ? (
-            <div className="p-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
-              {/* Every field on the voyage summary is optional except
-                  lastReportAt (see vessel/httpapi/voyage.go's voyageSummaryView):
-                  it is derived per request from whatever the vessel has actually
-                  reported, so any of these can legitimately be absent. Each one
-                  renders its own "not reported" state rather than the panel
-                  hiding wholesale, and an unknown field arriving later cannot
-                  break the layout. */}
-              <Field label="Voyage number" value={voyage.voyageNumber} mono />
-              {'imo' in voyage && (
-                <Field label="IMO" value={(voyage as { imo?: string }).imo} mono />
-              )}
-              <div className="min-w-0">
-                <p className="instrument-label">Passage</p>
-                <p className="text-sm text-foreground mt-1 break-words">
-                  {voyage.fromPort || 'Not reported'}{' '}
-                  <span className="text-muted-foreground" aria-label="to">&rarr;</span>{' '}
-                  {voyage.toPort || 'Not reported'}
-                </p>
-                {(voyage.departedAt || voyage.eta) && (
-                  <p className="readout text-xs text-muted-foreground mt-0.5 break-words">
-                    {voyage.departedAt ? `Dep ${fmtDate(voyage.departedAt)}` : ''}
-                    {voyage.departedAt && voyage.eta ? ' \u00b7 ' : ''}
-                    {voyage.eta ? `ETA ${fmtDate(voyage.eta)}` : ''}
-                  </p>
-                )}
-              </div>
-              <div className="min-w-0">
-                <p className="instrument-label">Distance</p>
-                <p className="readout text-sm text-foreground mt-1">
-                  {voyage.distanceSailedNm != null ? `${voyage.distanceSailedNm.toFixed(0)} NM sailed` : 'Not reported'}
-                </p>
-                <p className="readout text-xs text-muted-foreground mt-0.5">
-                  {voyage.distanceRemainingNm != null ? `${voyage.distanceRemainingNm.toFixed(0)} NM remaining` : ''}
-                </p>
-                {voyage.progressPercent != null && (
-                  <div
-                    className="mt-2 h-2 bg-muted border border-border rounded-sm overflow-hidden"
-                    role="progressbar"
-                    aria-valuenow={Math.round(voyage.progressPercent)}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-label="Voyage progress"
-                  >
-                    <div
-                      className="h-full bg-primary"
-                      style={{ width: `${Math.max(0, Math.min(100, voyage.progressPercent))}%` }}
-                    />
-                  </div>
-                )}
-              </div>
-              <Field label="Position" value={voyage.position?.text} mono />
-              {/* Freshness: this whole panel is only as current as the report it
-                  was derived from. */}
-              <Field
-                label="Derived from report at"
-                value={voyage.lastReportAt ? fmtDateTime(voyage.lastReportAt) : undefined}
-                mono
-              />
-            </div>
-          ) : (
-            <p className="p-4 text-sm text-muted-foreground">
-              Voyage details appear here once a report carries voyage fields.
-            </p>
-          )}
-        </Panel>
-        </div>
-
-        {/* Recent activity, lowest priority */}
-        <Panel
-          title="Recently submitted"
-          icon={FileText}
-          className="xl:min-h-0"
-          action={
-            <Button
-              variant="ghost"
-              size="sm"
-              render={<Link href="/reports" />}
-              nativeButton={false}
-              className="text-muted-foreground hover:text-foreground shrink-0"
-            >
-              View all
-              <ArrowRight className="w-3.5 h-3.5 ml-1" />
-            </Button>
-          }
-        >
-          {reportsLoading ? (
-            <p className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Loading…
-            </p>
-          ) : recent.length === 0 ? (
-            <p className="p-4 text-sm text-muted-foreground">No reports submitted yet.</p>
-          ) : (
-            <ul className="divide-y divide-border xl:min-h-0 xl:overflow-y-auto">
-              {recent.map((report) => (
-                <li key={report.reportId}>
-                  <Link
-                    href={`/reports/${report.reportId}`}
-                    className="flex items-center justify-between gap-3 px-4 py-3 min-h-12 hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                  >
-                    <span className="min-w-0">
-                      <span className="block text-sm font-medium text-foreground truncate">{report.schemaName}</span>
-                      <span className="block text-xs text-muted-foreground truncate mt-0.5">{report.createdBy}</span>
-                    </span>
-                    <StatusBadge status={report.state} size="sm" className="shrink-0" />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Panel>
       </div>
     </div>
   );
