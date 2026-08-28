@@ -7,6 +7,22 @@ import * as schema from '@ovl/vessel-database';
 import { AuthService } from '../auth/auth.service';
 import { randomUUID } from 'crypto';
 
+/** One recorded sync cycle, as stored in the vessel's `sync_runs` table. */
+export interface SyncRunRecord {
+  id: string;
+  startedAt: string;
+  finishedAt: string | null;
+  outcome: string;
+  trigger: string;
+  pushError: string | null;
+  configError: string | null;
+  configNotice: string | null;
+  pushedCount: number;
+  bundleIdBefore: string | null;
+  bundleIdAfter: string | null;
+  bundleVersionAfter: number | null;
+}
+
 @Injectable()
 export class SyncService {
   private readonly logger = new Logger(SyncService.name);
@@ -133,8 +149,15 @@ export class SyncService {
     }
   }
 
-  /** Most recent cycles, newest first — backs the vessel's sync timeline. */
-  async getHistory(limit = 50) {
+  /**
+   * Most recent cycles, newest first — backs the vessel's sync timeline.
+   *
+   * The return type is spelled out rather than inferred: `db` is typed `any`
+   * here, so an inferred return collapses to `any` and every consumer of this
+   * procedure silently loses its types (the frontend's `.map()` callback then
+   * fails `noImplicitAny` only at `next build`, never in dev).
+   */
+  async getHistory(limit = 50): Promise<SyncRunRecord[]> {
     return this.db
       .select()
       .from(schema.syncRuns)

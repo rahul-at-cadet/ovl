@@ -1914,7 +1914,16 @@ export class TrpcRouter {
       syncHistory: protectedProcedure
         .input((val: unknown) => {
           const v = (val ?? {}) as { vesselId?: string; limit?: number };
-          return { vesselId: v.vesselId, limit: typeof v.limit === 'number' ? v.limit : 50 };
+          // vesselId stays genuinely optional in the returned type. Spelling it
+          // as `vesselId: v.vesselId` would infer `string | undefined` as a
+          // *required* property, forcing every caller to pass it explicitly —
+          // which is what broke the production type check, since next dev
+          // never type-checks and only `next build` catches it.
+          const parsed: { vesselId?: string; limit: number } = {
+            limit: typeof v.limit === 'number' ? v.limit : 50,
+          };
+          if (typeof v.vesselId === 'string' && v.vesselId) parsed.vesselId = v.vesselId;
+          return parsed;
         })
         .query(({ input }) => this.configBundleService.syncHistory(input.vesselId, input.limit)),
     }),
