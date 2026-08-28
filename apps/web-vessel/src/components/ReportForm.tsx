@@ -766,6 +766,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
                                 if (!enumValues || enumValues.length === 0) {
                                   return (
                                     <Input
+                                      id={field.name}
                                       name={controllerField.name}
                                       onBlur={controllerField.onBlur}
                                       ref={controllerField.ref}
@@ -788,7 +789,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
                                     value={controllerField.value ?? ''}
                                     disabled={isLockedEventField}
                                   >
-                                    <SelectTrigger className="bg-card disabled:opacity-100 disabled:bg-muted disabled:cursor-not-allowed">
+                                    <SelectTrigger id={field.name} className="bg-card disabled:opacity-100 disabled:bg-muted disabled:cursor-not-allowed">
                                       <SelectValue placeholder="Select an option" />
                                     </SelectTrigger>
                                     <SelectContent className="bg-popover">
@@ -810,7 +811,8 @@ export function ReportForm({ reportId }: ReportFormProps) {
                               if (field.type === 'date' || field.type === 'dateTime') {
                                 return (
                                   <Input
-                                    name={controllerField.name}
+                                    id={field.name}
+                                      name={controllerField.name}
                                     onBlur={controllerField.onBlur}
                                     ref={controllerField.ref}
                                     value={field.type === 'dateTime' ? dateTimeForInput(String(controllerField.value ?? '')) : (controllerField.value ?? '')}
@@ -824,7 +826,8 @@ export function ReportForm({ reportId }: ReportFormProps) {
                               const isLiveComputed = liveComputedFields.includes(field.name);
                               return (
                                 <Input
-                                  name={controllerField.name}
+                                  id={field.name}
+                                      name={controllerField.name}
                                   onBlur={controllerField.onBlur}
                                   ref={controllerField.ref}
                                   value={controllerField.value ?? ''}
