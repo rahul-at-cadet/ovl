@@ -68,17 +68,25 @@ export function ReportForm({ reportId }: ReportFormProps) {
   // every autosave tick.
   const [activeSection, setActiveSection] = useState<string | null>(null);
 
-  // 1. Fetch Report Draft
-  const { data: report, isLoading: isReportLoading, error: reportError } = trpc.reports.getReport.useQuery({
-    id: reportId
-  });
+  // One request for everything needed to first paint. These used to be
+  // four separate queries, each waiting on the one before it: schema and
+  // field policy need report.schemaName, and the enum lookups need
+  // schema.fields to know which refs to resolve. That three-deep waterfall
+  // costs a round trip per wave — barely noticeable locally, but roughly
+  // 580ms each against a distant office, so the form took about two seconds
+  // to become usable. reports.getFormBundle resolves the chain server-side.
+  const {
+    data: formBundle,
+    isLoading: isBundleLoading,
+    error: bundleError,
+  } = trpc.reports.getFormBundle.useQuery({ id: reportId });
 
-  // 2. Fetch Dynamic Schema
-  const { data: schema, isLoading: isSchemaLoading, error: schemaError } = trpc.reports.getSchema.useQuery({
-    schemaName: report?.schemaName || ''
-  }, {
-    enabled: !!report?.schemaName
-  });
+  const report = formBundle?.report ?? undefined;
+  const schema = formBundle?.schema ?? undefined;
+  const isReportLoading = isBundleLoading;
+  const isSchemaLoading = isBundleLoading;
+  const reportError = bundleError;
+  const schemaError = bundleError;
 
   const { data: telemetry, isLoading: telemetryLoading } = trpc.system.getTelemetry.useQuery(undefined, {
     enabled: !!schema,
@@ -89,10 +97,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
   // reports.getFieldPolicy's own comment for where this data comes from.
   // Hidden fields never render; mandatory ones get a required marker;
   // fields scoped to other event types than this report's own don't show.
-  const { data: fieldPolicy } = trpc.reports.getFieldPolicy.useQuery(
-    { schemaName: report?.schemaName || '' },
-    { enabled: !!report?.schemaName }
-  );
+  const fieldPolicy = formBundle?.fieldPolicy;
   const policy = fieldPolicy?.policy ?? {};
   const policyEvents = fieldPolicy?.events ?? {};
 
@@ -108,16 +113,14 @@ export function ReportForm({ reportId }: ReportFormProps) {
     )],
     [schema]
   );
-  const enumQueries = trpc.useQueries((t) =>
-    enumRefs.map((ref) => t.reports.getEnum({ name: ref }))
-  );
+  // Resolved alongside the schema in the same response, so an enum field
+  // renders as a populated dropdown on first paint rather than after a
+  // second round trip.
   const enumValuesByRef = useMemo(() => {
     const out: Record<string, string[]> = {};
-    enumRefs.forEach((ref, i) => {
-      out[ref] = enumQueries[i]?.data ?? [];
-    });
+    for (const ref of enumRefs) out[ref] = formBundle?.enums?.[ref] ?? [];
     return out;
-  }, [enumRefs, enumQueries]);
+  }, [enumRefs, formBundle]);
 
   const submitReportMutation = trpc.reports.submitReport.useMutation();
   // saveSection and check report through the panel and the save indicator

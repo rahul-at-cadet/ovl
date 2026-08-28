@@ -268,6 +268,78 @@ export class TrpcRouter {
         .query(async ({ input }) => {
           return this.reportsService.getReport(input.id);
         }),
+      /**
+       * Everything the report form needs to first paint, in one round trip.
+       *
+       * The form used to fetch these separately, and each depended on the
+       * one before it: getSchema and getFieldPolicy need report.schemaName,
+       * and the getEnum calls need schema.fields to know which enumRefs to
+       * resolve. That is a three-deep waterfall — cheap on a LAN, but each
+       * wave costs a full round trip, so against a distant office it was
+       * measured at roughly 580ms per wave and about two seconds before the
+       * form was usable. Resolving the chain server-side collapses it to one.
+       *
+       * The individual procedures stay: other callers still use them, and
+       * they are the natural granularity for refetching one piece.
+       */
+      getFormBundle: this.protectedProcedure
+        .input((val: unknown) => {
+          if (!GetReportCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof GetReportSchema>;
+        })
+        .query(async ({ input }) => {
+          const report = await this.reportsService.getReport(input.id);
+          if (!report) {
+            // Same shape as the success path so the client sees one type.
+            return {
+              report: null,
+              schema: null,
+              fieldPolicy: null,
+              enums: {} as Record<string, string[]>,
+            };
+          }
+
+          const formSchema = this.schemaRegistryService.getSchema(report.schemaName);
+
+          // Same lookup reports.getFieldPolicy performs — kept in step with
+          // it deliberately, including the ".json" stripping.
+          let fieldPolicy: { policy: Record<string, string>; prefill: Record<string, string>; events: Record<string, string[]> } =
+            { policy: {}, prefill: {}, events: {} };
+          const bundleRows = await this.db
+            .select()
+            .from(schema.configStore)
+            .where(eq(schema.configStore.key, 'config_bundle'));
+          if (bundleRows.length > 0) {
+            try {
+              const bundle = JSON.parse(bundleRows[0].value);
+              const bare = report.schemaName.replace(/\.json$/, '');
+              const match = (bundle.schemas || []).find((x: any) => x.schemaName === bare);
+              if (match) {
+                fieldPolicy = {
+                  policy: match.policy || {},
+                  prefill: match.prefill || {},
+                  events: match.events || {},
+                };
+              }
+            } catch {
+              // A corrupt stored bundle must not stop the form loading; the
+              // field policy simply comes back empty, exactly as before.
+            }
+          }
+
+          // Only the refs this schema actually references, resolved here so
+          // the client does not need a second wave to discover them.
+          const enums: Record<string, string[]> = {};
+          for (const ref of new Set(
+            (formSchema.fields || [])
+              .filter((f: any) => f.type === 'enum' && f.enumRef)
+              .map((f: any) => f.enumRef as string),
+          )) {
+            enums[ref] = this.schemaRegistryService.resolveEnum(ref) ?? [];
+          }
+
+          return { report, schema: formSchema, fieldPolicy, enums };
+        }),
       saveSection: this.protectedProcedure
         .input((val: unknown) => {
           if (!SaveSectionCompiler.Check(val)) throw new Error('Invalid input');
