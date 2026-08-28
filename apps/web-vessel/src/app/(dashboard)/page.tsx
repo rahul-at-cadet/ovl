@@ -338,8 +338,13 @@ export default function DashboardPage() {
 
         {/* 5 — sync */}
         <div className="flex flex-col gap-4 xl:min-h-0">
-        <Panel title="Synchronisation" icon={RefreshCw} className="shrink-0">
-          <div className="p-4 flex flex-col gap-3">
+        {/* Not shrink-0: this panel grew a config-bundle row, a name-mismatch
+            alert and a run history, and the xl column is a fixed-height
+            overflow-hidden container. Pinned at its natural height it simply
+            overflowed and the extra content was clipped with nothing to
+            scroll. min-h-0 lets it shrink so its own body can scroll instead. */}
+        <Panel title="Synchronisation" icon={RefreshCw} className="min-h-0">
+          <div className="p-4 flex flex-col gap-3 xl:min-h-0 xl:overflow-y-auto">
             <dl className="text-sm">
               <div className="flex items-center justify-between gap-3 py-1.5">
                 <dt className="text-muted-foreground">Local API</dt>
