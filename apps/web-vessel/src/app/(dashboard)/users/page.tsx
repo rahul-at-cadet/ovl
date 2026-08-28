@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@ovl/ui/components/card';
 import { Button } from '@ovl/ui/components/button';
 import { Input } from '@ovl/ui/components/input';
-import { Shield, UserPlus, Search, MoreHorizontal, UserCheck, ShieldAlert, ArrowUpDown, Users as UsersIcon, UserX } from 'lucide-react';
+import { Shield, UserPlus, Search, MoreHorizontal, UserCheck, ShieldAlert, ShieldCheck, ArrowUpDown, Users as UsersIcon, UserX } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@ovl/ui/components/avatar';
 import { CopyField } from '@ovl/ui/components/copy-field';
 import { trpc } from '@/lib/trpc';
@@ -92,7 +92,7 @@ export default function UsersPage() {
     { label: 'Total Crew', value: users.length.toString(), icon: UsersIcon, color: 'text-foreground' },
     { label: 'Active', value: activeCount.toString(), icon: UserCheck, color: 'text-status-ok' },
     { label: 'Inactive', value: inactiveCount.toString(), icon: UserX, color: 'text-muted-foreground' },
-    { label: 'Admin / Master', value: adminCount.toString(), icon: ShieldAlert, color: 'text-status-warn' },
+    { label: 'Admin / Master', value: adminCount.toString(), icon: ShieldCheck, color: 'text-status-warn' },
   ];
 
   if (isMeLoading) {
@@ -253,7 +253,7 @@ export default function UsersPage() {
                       </td>
                       <td className="hidden md:table-cell px-6 py-4">
                         <div className="flex items-center gap-2">
-                          {user.role.includes('Master') || user.role.includes('Admin') ? <ShieldAlert className="w-4 h-4 text-status-warn/80" /> : <Shield className="w-4 h-4 text-muted-foreground" />}
+                          {user.role.includes('Master') || user.role.includes('Admin') ? <ShieldCheck className="w-4 h-4 text-status-warn/80" /> : <Shield className="w-4 h-4 text-muted-foreground" />}
                           <span className="text-foreground font-medium">{user.role}</span>
                         </div>
                       </td>
