@@ -171,7 +171,13 @@ export default function GlobalReportsPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     <Link href={`/reports/${report.id}`}>
-                      <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-primary">
+                      {/* pr-0: this is the trailing cell of a right-aligned
+                          column, and the button's own 10px right padding sat
+                          between the chevron and the cell edge — so the glyphs
+                          stopped 11px short of where the "Action" header text
+                          ends, and the column read as misaligned. Dropping it
+                          puts the chevron flush with the header. */}
+                      <Button variant="ghost" size="sm" className="pr-0 text-muted-foreground hover:text-primary">
                         Audit <ChevronRight className="w-4 h-4 ml-1" />
                       </Button>
                     </Link>
