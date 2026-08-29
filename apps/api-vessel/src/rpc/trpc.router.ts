@@ -183,6 +183,24 @@ const SyncStatusCompiler = TypeCompiler.Compile(SyncStatusSchema);
 
 import { TrpcService } from './trpc.service';
 
+// Every column of `users` except passwordHash. `select()` with no
+// argument returns the whole row, so both users.me and users.list used to
+// hand the caller each account's argon2 hash — offline brute-force
+// material handed to anyone who could reach the endpoint, and to anything
+// that later cached or logged the response. Listing the columns
+// explicitly means a column added later has to be opted in rather than
+// leaking by default.
+const PUBLIC_USER_COLUMNS = {
+  id: schema.users.id,
+  username: schema.users.username,
+  role: schema.users.role,
+  canSubmit: schema.users.canSubmit,
+  mustChangePassword: schema.users.mustChangePassword,
+  active: schema.users.active,
+  createdAt: schema.users.createdAt,
+  updatedAt: schema.users.updatedAt,
+};
+
 @Injectable()
 export class TrpcRouter {
   constructor(
@@ -223,7 +241,19 @@ export class TrpcRouter {
 
     const rows = await this.db.select().from(schema.users).where(eq(schema.users.id, decoded.sub)).limit(1);
     const user = rows[0];
-    if (!user || !user.active) {
+    // Distinguish "this token is for an account this vessel has never
+    // heard of" from "the account exists and has been deactivated".
+    // Reporting both as "Account is inactive" sent people looking for a
+    // disabled account that was in fact perfectly active: every vessel
+    // falls back to the same JWT_SECRET default, and browser cookies are
+    // scoped by host rather than port, so a session from one vessel on
+    // localhost is offered to every other vessel on localhost. The token
+    // verifies, the user id then matches nobody here, and the crew is
+    // told their account is inactive.
+    if (!user) {
+      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Session belongs to a different vessel' });
+    }
+    if (!user.active) {
       throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Account is inactive' });
     }
 
@@ -585,11 +615,11 @@ export class TrpcRouter {
     }),
     users: router({
       me: this.protectedProcedure.query(async ({ ctx }) => {
-        const usersList = await this.db.select().from(schema.users).where(eq(schema.users.id, ctx.user.sub));
+        const usersList = await this.db.select(PUBLIC_USER_COLUMNS).from(schema.users).where(eq(schema.users.id, ctx.user.sub));
         return usersList[0] || null;
       }),
       list: this.protectedProcedure.query(async () => {
-        const usersList = await this.db.select().from(schema.users);
+        const usersList = await this.db.select(PUBLIC_USER_COLUMNS).from(schema.users);
         return usersList;
       }),
       changePassword: this.protectedProcedure
