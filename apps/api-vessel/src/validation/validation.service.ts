@@ -9,6 +9,7 @@ import { validationConfigFor } from './config';
 import { evaluateFieldRules } from './field-rules';
 import { evaluatePlausibilityRules } from './plausibility';
 import { evaluateContinuity } from './precheck';
+import { policyStateForEvent } from './policy';
 import { revalidate } from './cascade';
 import { evaluateRegulatoryReadiness, ProfileReadiness } from './regulatory';
 import { Finding, FieldEvents, FieldPolicy, ValidationConfig, ValidationReport } from './types';
@@ -131,9 +132,22 @@ export class ValidationService {
 
     const chain = await this.getCommittedChain(row.schemaName);
 
+    // Resolve each field's effective policy state once, so the
+    // plausibility pass can skip fields the crew cannot see. Fields the
+    // schema doesn't define aren't hidden by anything, so they default to
+    // visible rather than being silently dropped.
+    const schemaFieldsByName = new Map(ovdSchema.fields.map((f) => [f.name, f]));
+    const isFieldHidden = (fieldName: string): boolean => {
+      const f = schemaFieldsByName.get(fieldName);
+      if (!f) return false;
+      return (
+        policyStateForEvent(policy, f.name, f.schemaMandatory, f.relevance, events, r.eventType) === 'hidden'
+      );
+    };
+
     const findings = [
       ...evaluateFieldRules(r, ovdSchema.fields, policy, events),
-      ...evaluatePlausibilityRules(r, config),
+      ...evaluatePlausibilityRules(r, config, isFieldHidden),
       ...evaluateContinuity(r, chain, config),
     ];
 

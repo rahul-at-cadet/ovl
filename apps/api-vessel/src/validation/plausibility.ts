@@ -125,7 +125,15 @@ function positionRules(r: ValidationReport, cfg: ValidationConfig): Finding[] {
   const lonDeg = fieldFloat(r, 'Longitude_Degree');
   const lonEW = fieldString(r, 'Longitude_East_West');
 
-  if (atSeaMoving && (latDeg === undefined || lonDeg === undefined || latNS === undefined || lonEW === undefined)) {
+  // A blank string is "not filled in", not "filled in with an invalid
+  // value". The Go original (and this port before it) tested only for a
+  // missing key, so a hemisphere stored as "" counted as *present* here
+  // and as an invalid letter below — reporting `hemisphere must be "N" or
+  // "S"` on a field the crew had simply never touched.
+  const latNSMissing = fieldIsEmpty(r, 'Latitude_North_South');
+  const lonEWMissing = fieldIsEmpty(r, 'Longitude_East_West');
+
+  if (atSeaMoving && (latDeg === undefined || lonDeg === undefined || latNSMissing || lonEWMissing)) {
     findings.push({
       ruleId: RULE_POSITION_REQUIRED,
       severity: configSeverity(cfg, RULE_POSITION_REQUIRED, 'warning'),
@@ -147,7 +155,7 @@ function positionRules(r: ValidationReport, cfg: ValidationConfig): Finding[] {
   if (latMin !== undefined && (latMin < 0 || latMin >= 60)) {
     findings.push(consistency('Latitude_Minutes', 'latitude minutes must be between 0 and 60'));
   }
-  if (latNS !== undefined && latNS !== 'N' && latNS !== 'S') {
+  if (!latNSMissing && latNS !== undefined && latNS !== 'N' && latNS !== 'S') {
     findings.push(consistency('Latitude_North_South', 'latitude hemisphere must be "N" or "S"'));
   }
   if (lonDeg !== undefined && (lonDeg < 0 || lonDeg > 180)) {
@@ -157,7 +165,7 @@ function positionRules(r: ValidationReport, cfg: ValidationConfig): Finding[] {
   if (lonMin !== undefined && (lonMin < 0 || lonMin >= 60)) {
     findings.push(consistency('Longitude_Minutes', 'longitude minutes must be between 0 and 60'));
   }
-  if (lonEW !== undefined && lonEW !== 'E' && lonEW !== 'W') {
+  if (!lonEWMissing && lonEW !== undefined && lonEW !== 'E' && lonEW !== 'W') {
     findings.push(consistency('Longitude_East_West', 'longitude hemisphere must be "E" or "W"'));
   }
 
@@ -166,12 +174,29 @@ function positionRules(r: ValidationReport, cfg: ValidationConfig): Finding[] {
 
 // Ports ovl/pkg/validation/plausibility.go's EvaluatePlausibilityRules.
 // Order matters for output ordering (matches the Go source's call order).
-export function evaluatePlausibilityRules(r: ValidationReport, cfg: ValidationConfig): Finding[] {
-  return [
+//
+// `isFieldHidden` makes this pass policy-aware, which the Go original is
+// not. evaluateFieldRules already skips fields the active policy hides
+// (see field-rules.ts's `if (state === 'hidden') continue`), but these
+// plausibility rules used to run regardless, so a config bundle that hid
+// a field could still raise an error against it — an error with no
+// control on screen to clear it, leaving the report permanently
+// unsubmittable. That is not hypothetical: hiding the Position section
+// stranded reports on `latitude hemisphere must be "N" or "S"`, because
+// Latitude_North_South only ever renders inside the compound widget owned
+// by the (now hidden) Latitude_Degree field. Findings that name no field
+// are always kept — they describe the report as a whole, not one input.
+export function evaluatePlausibilityRules(
+  r: ValidationReport,
+  cfg: ValidationConfig,
+  isFieldHidden: (fieldName: string) => boolean = () => false,
+): Finding[] {
+  const findings = [
     ...timeBucketSum(r, cfg),
     ...impliedSpeed(r, cfg),
     ...noDistanceStationary(r, cfg),
     ...consumptionSchemeExclusivity(r, cfg),
     ...positionRules(r, cfg),
   ];
+  return findings.filter((f) => !f.field || !isFieldHidden(f.field));
 }
