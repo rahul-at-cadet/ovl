@@ -182,7 +182,19 @@ export default function ReportsPage() {
                   </TableHead>
                   <TableHead className="hidden lg:table-cell text-muted-foreground font-medium">Voyage</TableHead>
                   <TableHead className="text-muted-foreground font-medium">State</TableHead>
-                  <TableHead className="text-right text-muted-foreground font-medium pr-4">Action</TableHead>
+                  {/* The row action ends in a chevron the header has no counterpart
+                      for, so matching the box edges still left the word "View"
+                      sitting ~20px inside the word "Action" — which is what
+                      reads as misaligned. Rather than nudge the header by a
+                      hard-coded amount (which breaks the moment the icon or
+                      label changes), the header carries the same chevron,
+                      hidden. The two words then line up by construction. */}
+                  <TableHead className="text-right text-muted-foreground font-medium pr-4">
+                    <span className="inline-flex items-center gap-2">
+                      Action
+                      <ChevronRight className="w-4 h-4 ml-1 invisible" aria-hidden="true" />
+                    </span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -233,7 +245,7 @@ export default function ReportsPage() {
                           nativeButton={false}
                           className="text-muted-foreground hover:text-primary pr-0"
                         >
-                          View <ChevronRight className="w-4 h-4 ml-1" />
+                          View<ChevronRight className="w-4 h-4 ml-1" />
                         </Button>
                       </TableCell>
                     </TableRow>
