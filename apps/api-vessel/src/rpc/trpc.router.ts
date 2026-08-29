@@ -1,4 +1,5 @@
 import { Injectable, Inject } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { initTRPC } from '@trpc/server';
 import { Type, Static } from '@sinclair/typebox';
 import { TypeCompiler } from '@sinclair/typebox/compiler';
@@ -213,6 +214,11 @@ export class TrpcRouter {
     private readonly syncService: SyncService,
     private readonly authService: AuthService,
     private readonly notificationsService: NotificationsService,
+    // Verification goes through the same JwtService that signs, so both
+    // sides use this vessel's own secret (see auth/jwt-secret.ts). They
+    // used to read process.env.JWT_SECRET independently and fall back to
+    // a constant shared by every vessel.
+    private readonly jwtService: JwtService,
     @Inject(DATABASE_CONNECTION)
     private readonly db: BetterSQLite3Database<typeof schema>,
   ) {}
@@ -234,7 +240,7 @@ export class TrpcRouter {
 
     let decoded: any;
     try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET || 'vessel-edge-secret-key-123');
+      decoded = this.jwtService.verify(token);
     } catch {
       throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid token' });
     }
@@ -243,13 +249,16 @@ export class TrpcRouter {
     const user = rows[0];
     // Distinguish "this token is for an account this vessel has never
     // heard of" from "the account exists and has been deactivated".
-    // Reporting both as "Account is inactive" sent people looking for a
-    // disabled account that was in fact perfectly active: every vessel
-    // falls back to the same JWT_SECRET default, and browser cookies are
-    // scoped by host rather than port, so a session from one vessel on
-    // localhost is offered to every other vessel on localhost. The token
-    // verifies, the user id then matches nobody here, and the crew is
-    // told their account is inactive.
+    // Reporting both as "Account is inactive" sent people hunting for a
+    // disabled account that was in fact perfectly active.
+    //
+    // Vessels now sign with their own secret (auth/jwt-secret.ts), so a
+    // token from another vessel fails signature checking and never gets
+    // this far. This branch still matters: a token outlives the account
+    // it names (deleted user, restored-from-backup database, a vessel
+    // re-provisioned onto the same host), and saying which of the two
+    // happened is the difference between a five-minute fix and a hunt
+    // through a user list where every account is active.
     if (!user) {
       throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Session belongs to a different vessel' });
     }
@@ -656,7 +665,7 @@ export class TrpcRouter {
             let authed = false;
             if (token) {
               try {
-                jwt.verify(token, process.env.JWT_SECRET || 'vessel-edge-secret-key-123');
+                this.jwtService.verify(token);
                 authed = true;
               } catch {
                 authed = false;
