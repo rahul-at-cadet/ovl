@@ -11,6 +11,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@ovl/ui/components/avatar';
 import { Sheet, SheetContent, SheetTrigger } from '@ovl/ui/components/sheet';
 import { ThemeToggle } from '@ovl/ui/components/theme-toggle';
 import { CadetlabsLogo } from '@ovl/ui/components/cadetlabs-logo';
+import { TenantViewBanner } from './TenantViewBanner';
 import { trpc } from '@/lib/trpc';
 import { useCurrentUser } from '@/lib/useCurrentUser';
 
@@ -345,6 +346,12 @@ export function AppShell({ children }: AppShellProps) {
             </div>
           </div>
         </header>
+
+        {/* Which tenant a platform super admin is inside, and in which mode.
+            Renders nothing for everyone else. It sits between the header and
+            the scroll area deliberately: inside <main> it would scroll away,
+            and the whole point is that it cannot be missed. */}
+        <TenantViewBanner />
 
         {/* Page Content */}
         <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto p-4 lg:p-8">

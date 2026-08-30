@@ -256,31 +256,6 @@ export default function TenantsPage() {
         </Card>
       )}
 
-      {capabilities?.viewing && (
-        <Card className="bg-card border-primary/30 rounded-md">
-          <CardContent className="py-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-start gap-2.5">
-              <Eye className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-              <p className="text-xs text-muted-foreground">
-                <span className="text-foreground font-medium">
-                  Viewing {capabilities.viewing.name}.
-                </span>{' '}
-                Fleet Overview, Reports, Vessels and Users are showing that tenant&apos;s data.
-              </p>
-            </div>
-            <Button
-              variant="outline"
-              className="h-8 text-xs shrink-0"
-              disabled={stopViewingMutation.isPending}
-              onClick={() => stopViewingMutation.mutate()}
-            >
-              <EyeOff className="w-3.5 h-3.5 mr-1.5" />
-              Stop viewing
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
       {(pendingCount > 0 || driftedCount > 0) && (
         <Card className="bg-card border-border rounded-md">
           <CardContent className="py-3 flex flex-wrap items-center justify-between gap-3">
