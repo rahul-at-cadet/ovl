@@ -23,6 +23,8 @@ import {
 } from '@ovl/ui/components/dropdown-menu';
 
 import { CopyField } from '@ovl/ui/components/copy-field';
+import { OneTimeSecret } from '@ovl/ui/components/one-time-secret';
+import { ConfirmDialog } from '@ovl/ui/components/confirm-dialog';
 import { trpc } from '@/lib/trpc';
 
 // Mirrors apps/api-office/src/users/dto/create-user.dto.ts's UserRole
@@ -430,50 +432,43 @@ export default function UsersPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!resetTarget} onOpenChange={(open) => { if (!open) { setResetTarget(null); setResetPasswordGenerated(''); } }}>
-        <DialogContent className="sm:max-w-[425px] bg-background border-border text-foreground">
-          <DialogHeader>
-            <DialogTitle className="text-foreground">Reset Password</DialogTitle>
-          </DialogHeader>
-
-          {!resetPasswordGenerated ? (
-            <div className="py-4">
-              <p className="text-sm text-foreground mb-4">
-                This will generate a new temporary password for <span className="font-medium">{resetTarget?.username}</span> and
-                invalidate their current one. They will be required to change it on next login.
-              </p>
-              {resetPasswordMutation.error && (
-                <p className="text-sm text-status-critical mb-4">{resetPasswordMutation.error.message}</p>
-              )}
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setResetTarget(null)} className="bg-transparent border-border text-foreground hover:bg-muted hover:text-foreground">
-                  Cancel
-                </Button>
-                <Button
-                  onClick={() => resetTarget && resetPasswordMutation.mutate({ id: resetTarget.id })}
-                  disabled={resetPasswordMutation.isPending}
-                  variant="destructive"
-                >
-                  {resetPasswordMutation.isPending ? 'Resetting...' : 'Confirm Reset'}
-                </Button>
-              </DialogFooter>
-            </div>
-          ) : (
-            <div className="py-4">
-              <div className="bg-card border border-border rounded-md p-4 mt-2">
-                <p className="text-sm text-muted-foreground mb-1 font-medium uppercase tracking-wider text-xs">New Temporary Password</p>
-                <CopyField value={resetPasswordGenerated} />
-              </div>
-              <p className="text-xs text-muted-foreground mt-4">
-                Please provide this password to the user. It will only be shown once.
-              </p>
-              <DialogFooter className="mt-6">
-                <Button onClick={() => setResetTarget(null)} className="bg-primary hover:bg-primary/90 text-primary-foreground">Done</Button>
-              </DialogFooter>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Both halves of this dialog — the confirmation and the one-time
+          password — now come from shared components, so the office and vessel
+          apps cannot drift apart again and the footer is placed correctly by
+          construction. */}
+      <ConfirmDialog
+        open={!!resetTarget}
+        onOpenChange={(open) => {
+          if (!open) {
+            setResetTarget(null);
+            setResetPasswordGenerated('');
+            resetPasswordMutation.reset();
+          }
+        }}
+        title="Reset Password"
+        description={
+          <>
+            This will generate a new temporary password for{' '}
+            <span className="font-medium text-foreground">{resetTarget?.username}</span> and
+            invalidate their current one. They will be required to change it on next login.
+          </>
+        }
+        error={resetPasswordMutation.error?.message ?? null}
+        confirmLabel="Confirm Reset"
+        pendingLabel="Resetting..."
+        confirmVariant="destructive"
+        pending={resetPasswordMutation.isPending}
+        onConfirm={() => resetTarget && resetPasswordMutation.mutate({ id: resetTarget.id })}
+        result={
+          resetPasswordGenerated ? (
+            <OneTimeSecret
+              value={resetPasswordGenerated}
+              label="New temporary password"
+              warning="Provide this to the user. It is only shown once."
+            />
+          ) : null
+        }
+      />
     </div>
   );
 }
