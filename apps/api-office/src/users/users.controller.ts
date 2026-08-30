@@ -16,6 +16,8 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserRolesDto, ChangePasswordDto } from './dto/update-user.dto';
 import { AuthGuard } from '../auth/auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
+import { Actor } from '../audit/audit-actor.decorator';
+import type { AuditActor } from '../audit/audit.service';
 import type { LocalUser } from '../auth/supertokens.service';
 
 /** Throws if the authenticated user does not have the 'admin' role. */
@@ -70,10 +72,11 @@ export class UsersController {
   @HttpCode(HttpStatus.CREATED)
   createUser(
     @CurrentUser() me: LocalUser,
+    @Actor() actor: AuditActor,
     @Body(new ValidationPipe({ whitelist: true })) dto: CreateUserDto,
   ) {
     requireAdmin(me);
-    return this.usersService.createUser(dto);
+    return this.usersService.createUser(dto, actor);
   }
 
   /**
@@ -83,11 +86,12 @@ export class UsersController {
   @Patch(':id/roles')
   updateUserRoles(
     @CurrentUser() me: LocalUser,
+    @Actor() actor: AuditActor,
     @Param('id') id: string,
     @Body(new ValidationPipe({ whitelist: true })) dto: UpdateUserRolesDto,
   ) {
     requireAdmin(me);
-    return this.usersService.updateUserRoles(id, dto);
+    return this.usersService.updateUserRoles(id, dto, actor);
   }
 
   /**
@@ -96,9 +100,13 @@ export class UsersController {
    */
   @Post(':id/deactivate')
   @HttpCode(HttpStatus.OK)
-  deactivateUser(@CurrentUser() me: LocalUser, @Param('id') id: string) {
+  deactivateUser(
+    @CurrentUser() me: LocalUser,
+    @Actor() actor: AuditActor,
+    @Param('id') id: string,
+  ) {
     requireAdmin(me);
-    return this.usersService.deactivateUser(id);
+    return this.usersService.deactivateUser(id, actor);
   }
 
   /**
@@ -107,9 +115,13 @@ export class UsersController {
    */
   @Post(':id/reactivate')
   @HttpCode(HttpStatus.OK)
-  reactivateUser(@CurrentUser() me: LocalUser, @Param('id') id: string) {
+  reactivateUser(
+    @CurrentUser() me: LocalUser,
+    @Actor() actor: AuditActor,
+    @Param('id') id: string,
+  ) {
     requireAdmin(me);
-    return this.usersService.reactivateUser(id);
+    return this.usersService.reactivateUser(id, actor);
   }
 
   /**
@@ -119,9 +131,13 @@ export class UsersController {
    */
   @Post(':id/reset-password')
   @HttpCode(HttpStatus.OK)
-  resetUserPassword(@CurrentUser() me: LocalUser, @Param('id') id: string) {
+  resetUserPassword(
+    @CurrentUser() me: LocalUser,
+    @Actor() actor: AuditActor,
+    @Param('id') id: string,
+  ) {
     requireAdmin(me);
-    return this.usersService.resetUserPassword(id);
+    return this.usersService.resetUserPassword(id, actor);
   }
 
   /**
@@ -131,12 +147,14 @@ export class UsersController {
   @Patch('me/password')
   changePassword(
     @CurrentUser() me: LocalUser,
+    @Actor() actor: AuditActor,
     @Body(new ValidationPipe({ whitelist: true })) dto: ChangePasswordDto,
   ) {
     return this.usersService.changeOwnPassword(
       me.id,
       dto.currentPassword,
       dto.newPassword,
+      actor,
     );
   }
 }

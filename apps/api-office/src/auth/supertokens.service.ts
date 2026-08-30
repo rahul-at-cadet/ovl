@@ -1,6 +1,8 @@
 import { Injectable, Inject, Optional } from '@nestjs/common';
 import { tryCurrentTenant } from '../tenancy/tenant-context';
 import { TenantDbService } from '../tenancy/tenant-db.service';
+import { TenantRegistryService } from '../tenancy/tenant-registry.service';
+import { AuditService } from '../audit/audit.service';
 
 /** Whether tenant schemas are in play; see the signup override below. */
 const multiTenancyEnabled = process.env.MULTI_TENANCY_ENABLED === 'true';
@@ -27,6 +29,32 @@ export interface AuthModuleConfig {
   apiKey?: string;
 }
 
+
+/**
+ * The address and user agent behind a SuperTokens API call.
+ *
+ * SuperTokens wraps the framework's request, so neither is available directly.
+ * `getHeaderValue` is part of its public BaseRequest interface; the underlying
+ * Express request is not, which is why reaching it is guarded rather than
+ * typed — a shape change on their side should cost a null IP, not a failed
+ * sign-in.
+ */
+function requestFacts(input: { options?: { req?: unknown } }): {
+  ip: string | null;
+  userAgent: string | null;
+} {
+  const req = input.options?.req as
+    | { getHeaderValue?: (key: string) => string | undefined; original?: { ip?: string } }
+    | undefined;
+  let userAgent: string | null = null;
+  try {
+    userAgent = req?.getHeaderValue?.('user-agent') ?? null;
+  } catch {
+    userAgent = null;
+  }
+  return { ip: req?.original?.ip ?? null, userAgent };
+}
+
 export type LocalUser = typeof schema.users.$inferSelect;
 
 @Injectable()
@@ -37,6 +65,11 @@ export class SupertokensService {
     @Inject(ConfigInjectionToken) private config: AuthModuleConfig,
     @Inject('DATABASE_CONNECTION') db: NodePgDatabase<typeof schema>,
     @Optional() @Inject(TenantDbService) private readonly tenantDb?: TenantDbService,
+    // Optional because both arrive with TenancyModule, which is only
+    // registered when MULTI_TENANCY_ENABLED is set. Without them the app
+    // authenticates exactly as before and simply records nothing.
+    @Optional() @Inject(AuditService) private readonly audit?: AuditService,
+    @Optional() @Inject(TenantRegistryService) private readonly registry?: TenantRegistryService,
   ) {
     this.db = db;
 
@@ -86,6 +119,38 @@ export class SupertokensService {
 
                 return response;
               },
+
+              /**
+               * Sign-in is the event an audit log exists for first.
+               *
+               * Both outcomes are recorded. A failed sign-in on its own is
+               * noise; a run of them against one address is the signal, and a
+               * log that keeps only successes cannot show one.
+               *
+               * The /auth routes are excluded from TenantMiddleware — they
+               * answer before any tenant exists to resolve — so the tenant is
+               * looked up here from the identity rather than read off the
+               * request context, which would be empty.
+               */
+              signInPOST: async (input) => {
+                const response = await originalImplementation.signInPOST!(input);
+                const email = input.formFields.find((f) => f.id === 'email')?.value;
+
+                if (response.status === 'OK') {
+                  await this.recordAuth('auth.login', 'success', input, {
+                    userId: response.user.id,
+                    email: response.user.emails[0] ?? (typeof email === 'string' ? email : null),
+                  });
+                } else {
+                  await this.recordAuth('auth.login', 'failure', input, {
+                    userId: null,
+                    email: typeof email === 'string' ? email : null,
+                    reason: response.status,
+                  });
+                }
+
+                return response;
+              },
             }),
           },
         }),
@@ -96,8 +161,56 @@ export class SupertokensService {
           // The frontend SuperTokens SDK will automatically send st-access-token
           // as a header on subsequent requests.
           getTokenTransferMethod: () => 'header',
+          override: {
+            apis: (originalImplementation) => ({
+              ...originalImplementation,
+
+              // Read before the sign-out, because afterwards there is no
+              // session left to say whose it was.
+              signOutPOST: async (input) => {
+                const userId = input.session?.getUserId() ?? null;
+                const response = await originalImplementation.signOutPOST!(input);
+                await this.recordAuth('auth.logout', 'success', input, { userId, email: null });
+                return response;
+              },
+            }),
+          },
         }),
       ],
+    });
+  }
+
+  /**
+   * One place where an authentication event becomes an audit row.
+   *
+   * Private, and taking the SuperTokens API input directly, so the two call
+   * sites in the constructor cannot drift apart on where the address, the user
+   * agent or the tenant come from.
+   *
+   * A failed sign-in has no user id — the whole point is that the credentials
+   * did not resolve to one — so the address it was attempted from and the
+   * address it names are all the row has to work with.
+   */
+  private async recordAuth(
+    event: 'auth.login' | 'auth.logout',
+    outcome: 'success' | 'failure',
+    input: { options?: { req?: unknown } },
+    who: { userId: string | null; email: string | null; reason?: string },
+  ): Promise<void> {
+    if (!this.audit) return;
+
+    const tenant = who.userId ? await this.registry?.forUser(who.userId).catch(() => null) : null;
+
+    await this.audit.record({
+      event,
+      outcome,
+      actorUserId: who.userId,
+      actorEmail: who.email,
+      subject: who.email ?? who.userId,
+      tenantId: tenant?.tenantId ?? null,
+      tenantSlug: tenant?.slug ?? null,
+      detail: who.reason ? { reason: who.reason } : {},
+      ...requestFacts(input),
     });
   }
 

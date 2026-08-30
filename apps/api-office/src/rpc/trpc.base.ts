@@ -3,6 +3,7 @@ import * as trpcExpress from '@trpc/server/adapters/express';
 import * as crypto from 'crypto';
 import Session from 'supertokens-node/recipe/session';
 import { tryCurrentTenant } from '../tenancy/tenant-context';
+import type { AuditActor } from '../audit/audit.service';
 
 /**
  * Shared tRPC primitives for the office API.
@@ -138,5 +139,23 @@ export function auditMeta(ctx: Context): {
   return {
     ip: ctx.req.ip ?? null,
     userAgent: typeof userAgent === 'string' ? userAgent : null,
+  };
+}
+
+/**
+ * The same facts as `auditMeta`, plus who the caller is.
+ *
+ * The id is the SuperTokens one, from the session the `isAuthed` middleware
+ * has already verified — matching what the REST side's `@Actor()` decorator
+ * produces, so one log can be read across both transports.
+ */
+export function auditActor(
+  ctx: Context & { session?: { getUserId(): string } },
+  email?: string | null,
+): AuditActor {
+  return {
+    userId: ctx.session?.getUserId() ?? null,
+    email: email ?? null,
+    ...auditMeta(ctx),
   };
 }

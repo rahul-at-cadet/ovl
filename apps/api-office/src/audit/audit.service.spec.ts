@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { Pool } from 'pg';
+import supertokens from 'supertokens-node';
 import { AuditService } from './audit.service';
 import { resolveTenancyOptions } from '../tenancy/tenancy.constants';
 
@@ -50,13 +51,18 @@ const statements = (client: FakeClient): string[] =>
 
 describe('AuditService', () => {
   let errorSpy: jest.SpyInstance;
+  let getUserSpy: jest.SpyInstance;
 
   beforeEach(() => {
     errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    getUserSpy = jest
+      .spyOn(supertokens, 'getUser')
+      .mockResolvedValue({ emails: ['someone@example.test'] } as never);
   });
 
   afterEach(() => {
     errorSpy.mockRestore();
+    getUserSpy.mockRestore();
   });
 
   describe('record', () => {
@@ -93,6 +99,42 @@ describe('AuditService', () => {
       );
       // Column order in the INSERT: tenant_id, tenant_slug, event, event_class.
       expect(insert?.[1][3]).toBe('impersonation');
+    });
+
+    it('fills in the actor email so the row survives the account being deleted', async () => {
+      const { pool, clients } = fakePool();
+
+      await build(pool).record({ event: 'user.deactivated', actorUserId: 'admin-1' });
+
+      const insert = clients[0].query.mock.calls.find((call) =>
+        String(call[0]).includes('INSERT INTO platform.audit_events'),
+      );
+      // Column order: ..., actor_user_id, actor_email, ...
+      expect(insert?.[1][6]).toBe('someone@example.test');
+    });
+
+    it('keeps an email the caller supplied rather than looking one up', async () => {
+      const { pool } = fakePool();
+
+      await build(pool).record({
+        event: 'user.deactivated',
+        actorUserId: 'admin-1',
+        actorEmail: 'known@example.test',
+      });
+
+      expect(getUserSpy).not.toHaveBeenCalled();
+    });
+
+    it('still records the event when the identity provider cannot be reached', async () => {
+      getUserSpy.mockRejectedValue(new Error('supertokens down'));
+      const { pool, clients } = fakePool();
+
+      await build(pool).record({ event: 'user.deactivated', actorUserId: 'admin-1' });
+
+      const insert = clients[0].query.mock.calls.find((call) =>
+        String(call[0]).includes('INSERT INTO platform.audit_events'),
+      );
+      expect(insert?.[1][6]).toBeNull();
     });
 
     it('drops an unclassified event rather than guessing its retention', async () => {

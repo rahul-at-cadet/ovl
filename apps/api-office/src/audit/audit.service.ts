@@ -1,11 +1,13 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Pool, escapeIdentifier, type PoolClient } from 'pg';
+import supertokens from 'supertokens-node';
 import {
   AUDIT_EVENT_CLASSES,
   type AuditEventClass,
   type AuditOutcome,
 } from '@ovl/database';
 import { PG_POOL, TENANCY_OPTIONS, type ResolvedTenancyOptions } from '../tenancy/tenancy.constants';
+import { tryCurrentTenant } from '../tenancy/tenant-context';
 
 const WRITER_ROLE = 'audit_writer';
 const READER_ROLE = 'audit_reader';
@@ -13,13 +15,13 @@ const READER_ROLE = 'audit_reader';
 /** Which retention tier an event falls into. See platform-bootstrap.sql. */
 export const AUDIT_CLASS_OF: Record<string, AuditEventClass> = {
   'auth.login': 'auth',
-  'auth.login_failed': 'auth',
   'auth.logout': 'auth',
   'auth.password_changed': 'auth',
 
   'user.created': 'admin',
   'user.roles_changed': 'admin',
   'user.deactivated': 'admin',
+  'user.deleted': 'admin',
   'user.reactivated': 'admin',
   'user.password_reset': 'admin',
   'tenant.provisioned': 'admin',
@@ -64,6 +66,19 @@ export interface AuditRequestMeta {
   requestId?: string | null;
 }
 
+/**
+ * Who is doing it, for services that act on someone other than the caller.
+ *
+ * `UsersService.deactivateUser(id)` knows the subject and not the actor, and
+ * the difference between "this account was deactivated" and "this account was
+ * deactivated by that administrator" is the whole value of the row.
+ */
+export interface AuditActor extends AuditRequestMeta {
+  userId?: string | null;
+  email?: string | null;
+  isSuperAdmin?: boolean;
+}
+
 export interface AuditQuery {
   /** Restrict to one tenant. A tenant admin reading their own log always sets this. */
   tenantId?: string | null;
@@ -97,6 +112,7 @@ export interface AuditQuery {
 @Injectable()
 export class AuditService {
   private readonly logger = new Logger(AuditService.name);
+  private readonly emailCache = new Map<string, string | null>();
 
   constructor(
     @Inject(PG_POOL) private readonly pool: Pool,
@@ -123,6 +139,26 @@ export class AuditService {
       return;
     }
 
+    // The tenant is genuinely ambient — TenantMiddleware resolves it once per
+    // request and every service below reads it from the async context — so an
+    // event inside a tenant request need not be told which tenant it is in.
+    // An explicit value always wins; impersonation events set one before the
+    // context exists.
+    const inferred =
+      input.tenantId === undefined && input.tenantSlug === undefined
+        ? tryCurrentTenant()
+        : null;
+    const tenantId = input.tenantId ?? inferred?.tenantId ?? null;
+    const tenantSlug = input.tenantSlug ?? inferred?.slug ?? null;
+
+    // Filled in here rather than at each call site, because a call site that
+    // forgets is a row that becomes unreadable the moment the account is
+    // deleted — which is exactly the row an auditor comes looking for. The
+    // identity provider answers this for a tenant user and a super admin
+    // alike, and needs no tenant context to do it.
+    const actorEmail =
+      input.actorEmail ?? (input.actorUserId ? await this.resolveEmail(input.actorUserId) : null);
+
     let client: PoolClient | undefined;
     let bound = false;
     try {
@@ -137,13 +173,13 @@ export class AuditService {
             subject, detail, request_id, ip, user_agent)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13)`,
         [
-          input.tenantId ?? null,
-          input.tenantSlug ?? null,
+          tenantId,
+          tenantSlug,
           input.event,
           eventClass,
           input.outcome ?? 'success',
           input.actorUserId ?? null,
-          input.actorEmail ?? null,
+          actorEmail,
           input.actorIsSuperAdmin ?? false,
           input.subject ?? null,
           JSON.stringify(input.detail ?? {}),
@@ -158,10 +194,34 @@ export class AuditService {
     } catch (error) {
       this.logger.error(
         `Failed to record audit event ${input.event} (actor ${input.actorUserId ?? 'unknown'}, ` +
-          `tenant ${input.tenantSlug ?? 'none'}): ${String(error)}`,
+          `tenant ${tenantSlug ?? 'none'}): ${String(error)}`,
         error instanceof Error ? error.stack : undefined,
       );
       if (client) await this.rollbackAndRelease(client, bound);
+    }
+  }
+
+  /**
+   * The email behind a SuperTokens id.
+   *
+   * Cached for the process lifetime: an identity's address changes about as
+   * often as never, and without a cache a burst of administrative activity
+   * would put one call to the identity provider on every audited action.
+   * A stale entry is harmless — the row records the address at the time it
+   * was written, which is what an audit trail is supposed to do.
+   */
+  private async resolveEmail(userId: string): Promise<string | null> {
+    const cached = this.emailCache.get(userId);
+    if (cached !== undefined) return cached;
+    try {
+      const user = await supertokens.getUser(userId);
+      const email = user?.emails[0] ?? null;
+      this.emailCache.set(userId, email);
+      return email;
+    } catch {
+      // Never fatal: a row with no email is worse than one with, and far
+      // better than no row at all.
+      return null;
     }
   }
 

@@ -6,6 +6,7 @@ import {
   edgeProcedure,
   router,
   createCallerFactory,
+  auditActor,
   type Context,
 } from './trpc.base';
 
@@ -694,28 +695,22 @@ export class TrpcRouter {
           if (!UpdateOfficeUserCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof UpdateOfficeUserSchema>;
         })
-        .mutation(async ({ input }) => {
+        // Delegates to UsersService rather than writing this table directly.
+        // It used to do the latter, which meant the office UI's own edit
+        // dialog — the way roles actually get changed — bypassed every rule
+        // and every audit event the service applies.
+        .mutation(({ input, ctx }) => {
           const { id, ...updates } = input;
-          const updatedUser = await withTenantDb(this.tenantDb, (db) =>
-            db
-              .update(schema.users)
-              .set({ ...updates, updatedAt: new Date().toISOString() })
-              .where(eq(schema.users.id, id))
-              .returning(),
-          );
-          return updatedUser[0];
+          return this.usersService.updateUser(id, updates, auditActor(ctx));
         }),
       delete: protectedProcedure
         .input((val: unknown) => {
           if (!DeleteOfficeUserCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof DeleteOfficeUserSchema>;
         })
-        .mutation(async ({ input }) => {
-          await withTenantDb(this.tenantDb, (db) =>
-            db.delete(schema.users).where(eq(schema.users.id, input.id)),
-          );
-          return { success: true };
-        }),
+        .mutation(({ input, ctx }) =>
+          this.usersService.deleteUser(input.id, auditActor(ctx)),
+        ),
       // Delegates to UsersService rather than reimplementing here — it
       // provisions a real SuperTokens login (not just this table's own
       // row), which needs the SuperTokens SDK calls that already live
@@ -768,14 +763,14 @@ export class TrpcRouter {
               message: 'Admin login required to create users.',
             });
           }
-          return this.usersService.createUser(input);
+          return this.usersService.createUser(input, auditActor(ctx, localUser.username));
         }),
       resetPassword: protectedProcedure
         .input((val: unknown) => {
           if (!ResetOfficeUserPasswordCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof ResetOfficeUserPasswordSchema>;
         })
-        .mutation(({ input }) => this.usersService.resetUserPassword(input.id)),
+        .mutation(({ input, ctx }) => this.usersService.resetUserPassword(input.id, auditActor(ctx))),
     }),
     fieldPolicies: router({
       get: protectedProcedure
