@@ -18,12 +18,44 @@ function toSafeUser(u: LocalUser): SafeUser {
 }
 
 /** Generates a cryptographically random temporary password */
+/**
+ * A temporary password that SuperTokens will actually accept.
+ *
+ * Its default policy requires at least one letter and at least one number.
+ * Drawing every character independently from one mixed alphabet does not
+ * guarantee either: with this alphabet and 12 characters, a fifth of all draws
+ * contained no digit at all, so roughly one in five user creations and
+ * password resets failed with PASSWORD_POLICY_VIOLATED_ERROR — intermittently,
+ * which is what made it look like an unrelated flake rather than a generator
+ * bug.
+ *
+ * One character is therefore reserved from each required class up front, the
+ * rest are drawn freely, and the result is shuffled so the guaranteed
+ * characters do not always land in the same positions.
+ *
+ * Ambiguous glyphs (I, l, O, 0, 1) are excluded throughout, because these are
+ * read off a screen and typed by hand.
+ */
 function randomPassword(length = 12): string {
-  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$';
-  const bytes = require('crypto').randomBytes(length);
-  return Array.from(bytes as Buffer)
-    .map((b: number) => chars[b % chars.length])
-    .join('');
+  const upper = 'ABCDEFGHJKMNPQRSTUVWXYZ';
+  const lower = 'abcdefghjkmnpqrstuvwxyz';
+  const digits = '23456789';
+  const symbols = '!@#$';
+  const all = upper + lower + digits + symbols;
+
+  const { randomInt } = require('crypto') as typeof import('crypto');
+  const pick = (set: string) => set[randomInt(set.length)];
+
+  const required = [pick(upper), pick(lower), pick(digits)];
+  const rest = Array.from({ length: Math.max(0, length - required.length) }, () => pick(all));
+  const chars = [...required, ...rest];
+
+  // Fisher-Yates, so the guaranteed upper/lower/digit are not always first.
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join('');
 }
 
 @Injectable()
