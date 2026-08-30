@@ -121,8 +121,18 @@ export default function GlobalReportsPage() {
                   </TableCell>
                 </TableRow>
               ) : filteredReports.length > 0 ? (
+                // align-top on the cells: the Vessel column is two lines (name
+                // over IMO) while every other column is one, and the default
+                // align-middle centres that taller block — leaving the bold
+                // vessel name ~7px above the report id, type, status and date,
+                // which reads as the row being out of line with its headers.
+                // Topping them out lines every first line up. py-3 keeps the
+                // row height.
                 filteredReports.map((report: any) => (
-                  <TableRow key={report.id} className="border-border hover:bg-muted transition-colors group">
+                  <TableRow
+                    key={report.id}
+                    className="border-border hover:bg-muted transition-colors group [&>td]:align-top [&>td]:py-3"
+                  >
                   <TableCell className="hidden md:table-cell font-medium text-foreground font-mono text-sm">
                     {report.id}
                   </TableCell>
@@ -161,7 +171,13 @@ export default function GlobalReportsPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     <Link href={`/reports/${report.id}`}>
-                      <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-primary">
+                      {/* pr-0: this is the trailing cell of a right-aligned
+                          column, and the button's own 10px right padding sat
+                          between the chevron and the cell edge — so the glyphs
+                          stopped 11px short of where the "Action" header text
+                          ends, and the column read as misaligned. Dropping it
+                          puts the chevron flush with the header. */}
+                      <Button variant="ghost" size="sm" className="pr-0 text-muted-foreground hover:text-primary">
                         Audit <ChevronRight className="w-4 h-4 ml-1" />
                       </Button>
                     </Link>

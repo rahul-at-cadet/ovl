@@ -132,28 +132,28 @@ export default function SetupPage() {
           <CardContent className="space-y-6 pt-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">Vessel Name</Label>
+                <Label htmlFor="setup-vessel-name" className="text-xs font-semibold text-foreground uppercase tracking-wider">Vessel Name</Label>
                 <div className="relative">
                   <Ship className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input disabled={setupStatus?.isConfigured} value={vesselName} onChange={e => setVesselName(e.target.value)} placeholder="e.g. Seawise Giant" className="pl-9 bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10 disabled:opacity-70" />
+                  <Input disabled={setupStatus?.isConfigured} id="setup-vessel-name" value={vesselName} onChange={e => setVesselName(e.target.value)} placeholder="e.g. Seawise Giant" className="pl-9 bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10 disabled:opacity-70" />
                 </div>
               </div>
               <div className="space-y-2">
-                <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">IMO Number</Label>
-                <Input disabled={setupStatus?.isConfigured} value={imoNumber} onChange={e => setImoNumber(e.target.value)} placeholder="e.g. 7381154" className="bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10 font-mono tracking-wider disabled:opacity-70" />
+                <Label htmlFor="setup-imo-number" className="text-xs font-semibold text-foreground uppercase tracking-wider">IMO Number</Label>
+                <Input disabled={setupStatus?.isConfigured} id="setup-imo-number" value={imoNumber} onChange={e => setImoNumber(e.target.value)} placeholder="e.g. 7381154" className="bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10 font-mono tracking-wider disabled:opacity-70" />
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">Shore Uplink URL</Label>
+                <Label htmlFor="setup-shore-url" className="text-xs font-semibold text-foreground uppercase tracking-wider">Shore Uplink URL</Label>
                 <div className="relative">
                   <Globe className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input disabled={setupStatus?.isConfigured} value={shoreUrl} onChange={e => setShoreUrl(e.target.value)} className="pl-9 bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10 font-mono disabled:opacity-70" />
+                  <Input disabled={setupStatus?.isConfigured} id="setup-shore-url" value={shoreUrl} onChange={e => setShoreUrl(e.target.value)} className="pl-9 bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10 font-mono disabled:opacity-70" />
                 </div>
               </div>
               <div className="space-y-2">
-                <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">Office API Key</Label>
-                <Input disabled={setupStatus?.isConfigured} type="password" placeholder="ovl_prod_..." value={apiKey} onChange={e => setApiKey(e.target.value)} className="bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10 font-mono disabled:opacity-70" />
+                <Label htmlFor="setup-api-key" className="text-xs font-semibold text-foreground uppercase tracking-wider">Office API Key</Label>
+                <Input disabled={setupStatus?.isConfigured} type="password" placeholder="ovl_prod_..." id="setup-api-key" value={apiKey} onChange={e => setApiKey(e.target.value)} className="bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10 font-mono disabled:opacity-70" />
               </div>
             </div>
           </CardContent>
@@ -193,16 +193,16 @@ export default function SetupPage() {
           </CardHeader>
           <CardContent className="space-y-4 pt-6">
             <div className="space-y-2">
-              <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">Username</Label>
-              <Input value={username} onChange={e => setUsername(e.target.value)} className="bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10" />
+              <Label htmlFor="setup-username" className="text-xs font-semibold text-foreground uppercase tracking-wider">Username</Label>
+              <Input id="setup-username" value={username} onChange={e => setUsername(e.target.value)} className="bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10" />
             </div>
             <div className="space-y-2">
-              <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">Password</Label>
-              <Input type="password" value={password} onChange={e => setPassword(e.target.value)} className="bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10" />
+              <Label htmlFor="setup-password" className="text-xs font-semibold text-foreground uppercase tracking-wider">Password</Label>
+              <Input type="password" id="setup-password" value={password} onChange={e => setPassword(e.target.value)} className="bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10" />
             </div>
             <div className="space-y-2">
-              <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">Confirm Password</Label>
-              <Input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10" />
+              <Label htmlFor="setup-confirm-password" className="text-xs font-semibold text-foreground uppercase tracking-wider">Confirm Password</Label>
+              <Input type="password" id="setup-confirm-password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10" />
               {confirmPassword.length > 0 && confirmPassword !== password ? (
                 <p className="text-xs text-status-critical">Passwords don&apos;t match</p>
               ) : null}

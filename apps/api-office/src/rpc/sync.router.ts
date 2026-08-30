@@ -8,10 +8,11 @@ import { edgeProcedure, router, requireCatalogue, requireTenant } from './trpc.b
 import { withEdgeTenant } from './tenant-scope';
 import { runAsSystemForTenant } from '../tenancy/tenant-context';
 import { EdgeTenantResolverService } from '../tenancy/edge-tenant-resolver.service';
-import { TenantDbService } from '../tenancy/tenant-db.service';
+import { TenantDbService, type TenantDatabase } from '../tenancy/tenant-db.service';
 import { TenantCatalogService } from '../form-catalogue/tenant-catalog.service';
 import { ConfigBundleService } from '../config/config-bundle/config-bundle.service';
 import { VesselUsersService } from '../vessels/vessel-users.service';
+import { ComplianceService } from '../config/compliance/compliance.service';
 import { continuityConfigFor, revalidate, type ContinuityReport, type Severity } from '../config/logic/continuity';
 import { effectiveSeverities } from '../config/logic/compliance';
 
@@ -31,6 +32,7 @@ export interface SyncRouterDeps {
   db: NodePgDatabase<typeof schema>;
   configBundleService: ConfigBundleService;
   vesselUsersService: VesselUsersService;
+  complianceService: ComplianceService;
   edgeTenants?: EdgeTenantResolverService;
   tenantDb?: TenantDbService;
   tenantCatalog?: TenantCatalogService;
@@ -59,6 +61,13 @@ const PushEventsCompiler = TypeCompiler.Compile(PushEventsSchema);
 const PullConfigInputSchema = Type.Object({
   vesselId: Type.String(),
   lastSyncAt: Type.Optional(Type.String()),
+  // What the vessel calls itself. Optional so a vessel on an older build
+  // still checks in normally; office simply has nothing to compare against.
+  vesselName: Type.Optional(Type.String()),
+  imoNumber: Type.Optional(Type.String()),
+  // The vessel's own id for this sync cycle, so both sides file their half
+  // of one run under the same reference.
+  runId: Type.Optional(Type.String()),
   // Architecture 9.3/12.4's remote user administration, piggybacked on
   // this same check-in rather than a dedicated RPC (mirrors
   // ovl/office/syncservice's SyncStatus fields of the same names): the
@@ -89,6 +98,47 @@ const PullConfigInputSchema = Type.Object({
 const PullConfigInputCompiler = TypeCompiler.Compile(PullConfigInputSchema);
 
 /**
+ * Shore's half of one sync run, written into the calling vessel's own tenant
+ * schema. Never allowed to break a check-in: history is diagnostic, and a
+ * vessel must still sync if recording it fails.
+ *
+ * `db` is passed in rather than resolved here so the caller decides which
+ * transaction the row belongs to. That matters for the `unknownVessel` case:
+ * withEdgeTenant runs its callback in a transaction that rolls back when the
+ * procedure throws, so a row written alongside the throw would vanish — which
+ * is exactly the trace this table exists to keep.
+ */
+async function recordSyncRun(
+  db: TenantDatabase,
+  run: {
+    runId: string | null;
+    vesselId: string;
+    outcome: 'served' | 'noBundle' | 'unknownVessel';
+    resolvedBundleId?: string | null;
+    resolvedBundleVersion?: number | null;
+    reportedName: string | null;
+    reportedImo: string | null;
+    note?: string | null;
+  },
+) {
+  try {
+    await db.insert(schema.syncRuns).values({
+      runId: run.runId,
+      vesselId: run.vesselId,
+      receivedAt: new Date().toISOString(),
+      outcome: run.outcome,
+      resolvedBundleId: run.resolvedBundleId ?? null,
+      resolvedBundleVersion: run.resolvedBundleVersion ?? null,
+      reportedName: run.reportedName,
+      reportedImo: run.reportedImo,
+      note: run.note ?? null,
+    });
+  } catch (err: any) {
+    console.error(`Could not record sync run for vessel ${run.vesselId}:`, err?.message ?? err);
+  }
+}
+
+/**
  * Re-checks every report in (vesselId, schemaName)'s chain against the
  * continuity rules (architecture 8.3) after a report version lands —
  * ports office/syncservice/cascade.go's runCascade near-verbatim. Any
@@ -100,6 +150,7 @@ const PullConfigInputCompiler = TypeCompiler.Compile(PullConfigInputSchema);
  */
 async function runCascade(
 db: NodePgDatabase<typeof schema>,
+complianceService: ComplianceService,
 vesselId: string,
 schemaName: string,
 ): Promise<void> {
@@ -141,7 +192,7 @@ schemaName: string,
   const vesselRows = await db.select().from(schema.vessels).where(eq(schema.vessels.id, vesselId)).limit(1);
   const vesselGroups = (vesselRows[0]?.groups as string[] | null) ?? [];
 
-  const assignments = await this.complianceService.listRuleSeverities();
+  const assignments = await complianceService.listRuleSeverities();
   const cfg = continuityConfigFor(bareSchemaName);
   cfg.severities = effectiveSeverities(assignments, vesselId, vesselGroups) as Record<string, Severity>;
 
@@ -292,7 +343,7 @@ export const createSyncRouter = (deps: () => SyncRouterDeps) =>
                 // (resolving the continuity config), not for the chain
                 // query itself, which must match what's in the column.
                 try {
-                  await runCascade(db, input.vesselId, payload.schemaName || 'unknown');
+                  await runCascade(db, deps().complianceService, input.vesselId, payload.schemaName || 'unknown');
                 } catch (err: any) {
                   console.error(`Cascade revalidation failed for vessel ${input.vesselId}:`, err);
                 }
@@ -362,8 +413,29 @@ export const createSyncRouter = (deps: () => SyncRouterDeps) =>
         if (!PullConfigInputCompiler.Check(val)) throw new Error('Invalid input');
         return val as Static<typeof PullConfigInputSchema>;
       })
-      .query(async ({ input, ctx }) =>
-        withEdgeTenant(deps(), ctx, async (db) => {
+      .query(async ({ input, ctx }) => {
+        const result = await withEdgeTenant(deps(), ctx, async (db) => {
+          // Check the vessel is actually registered before touching
+          // vessel_sync_status. That table has an FK onto vessels, so an
+          // unknown id used to surface as a raw Postgres foreign-key
+          // violation from deep inside the insert — which the vessel then
+          // swallowed, leaving "sync complete" and no bundle. A vessel
+          // holding an id that shore has never heard of (office database
+          // rebuilt after enrolment, vessel restored from a backup) needs
+          // to be told to re-enrol, not handed a constraint error.
+          //
+          // Reported as a value rather than thrown from in here: this
+          // transaction has to commit before the attempt can be recorded,
+          // and throwing would roll that record back with it.
+          const knownVessel = (
+            await db
+              .select()
+              .from(schema.vessels)
+              .where(eq(schema.vessels.id, input.vesselId))
+              .limit(1)
+          )[0];
+          if (!knownVessel) return { unknownVessel: true as const };
+
           const bundle = await deps().configBundleService.resolveForVessel(input.vesselId);
           const syncedAt = new Date().toISOString();
 
@@ -373,6 +445,8 @@ export const createSyncRouter = (deps: () => SyncRouterDeps) =>
               lastSeenAt: syncedAt,
               appliedBundleId: bundle?.bundleId ?? '',
               appliedBundleVersion: bundle?.versionNo ?? 0,
+              reportedName: input.vesselName ?? null,
+              reportedImo: input.imoNumber ?? null,
             })
             .onConflictDoUpdate({
               target: schema.vesselSyncStatus.vesselId,
@@ -380,8 +454,21 @@ export const createSyncRouter = (deps: () => SyncRouterDeps) =>
                 lastSeenAt: syncedAt,
                 appliedBundleId: bundle?.bundleId ?? '',
                 appliedBundleVersion: bundle?.versionNo ?? 0,
+                reportedName: input.vesselName ?? null,
+                reportedImo: input.imoNumber ?? null,
               },
             });
+
+          await recordSyncRun(db, {
+            runId: input.runId ?? null,
+            vesselId: input.vesselId,
+            outcome: bundle ? 'served' : 'noBundle',
+            resolvedBundleId: bundle?.bundleId ?? null,
+            resolvedBundleVersion: bundle?.versionNo ?? null,
+            reportedName: input.vesselName ?? null,
+            reportedImo: input.imoNumber ?? null,
+            note: bundle ? null : 'No bundle assignment covers this vessel.',
+          });
 
           // Piggybacked on this same check-in rather than a dedicated RPC —
           // see VesselUsersService.handleCheckIn's own comment.
@@ -437,11 +524,40 @@ export const createSyncRouter = (deps: () => SyncRouterDeps) =>
           return {
             bundle,
             syncedAt,
+            // Shore's own record of this vessel, echoed back so the ship can
+            // display both names and flag a divergence locally.
+            vessel: { id: knownVessel.id, name: knownVessel.name, imo: knownVessel.imo },
             userCommands,
             chatMessages,
             remarks,
             invalidationNotices,
           };
+        });
+
+        if ('unknownVessel' in result) {
+          // Recorded in its own transaction, after the one above committed.
+          // A vessel office cannot identify is exactly the case that used to
+          // vanish without trace, so the attempt itself is the thing worth
+          // keeping — sync_runs has no FK onto vessels precisely so this
+          // insert can succeed.
+          await withEdgeTenant(deps(), ctx, (db) =>
+            recordSyncRun(db, {
+              runId: input.runId ?? null,
+              vesselId: input.vesselId,
+              outcome: 'unknownVessel',
+              reportedName: input.vesselName ?? null,
+              reportedImo: input.imoNumber ?? null,
+              note: 'Vessel id is not registered with this office.',
+            }),
+          );
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message:
+              `Vessel ${input.vesselId} is not registered with this office. ` +
+              `Re-enrol the vessel from its setup screen.`,
+          });
+        }
+
+        return result;
       }),
-      ),
     });

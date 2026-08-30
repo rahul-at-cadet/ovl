@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@ovl/ui/components/card';
 import { Button } from '@ovl/ui/components/button';
 import { Input } from '@ovl/ui/components/input';
-import { Shield, UserPlus, Search, UserCheck, ShieldAlert, Edit, Trash2, Check } from 'lucide-react';
+import { Shield, UserPlus, Search, UserCheck, ShieldAlert, ShieldCheck, Edit, Trash2, Check } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@ovl/ui/components/avatar';
 import {
   Dialog,
@@ -212,7 +212,11 @@ export default function UsersPage() {
                       </td>
                       <td className="hidden md:table-cell px-4 py-2.5">
                         <div className="flex items-center gap-2">
-                          {isAdmin ? <ShieldAlert className="w-4 h-4 text-status-warn/80" /> : <Shield className="w-4 h-4 text-muted-foreground" />}
+                          {/* ShieldCheck, not ShieldAlert: this marks a privileged account, which is
+                              a normal state. A shield-with-exclamation is the app's vocabulary for
+                              "something needs attention" (see the login and force-password-change
+                              screens) and made every admin row read as a fault. */}
+                          {isAdmin ? <ShieldCheck className="w-4 h-4 text-status-warn/80" /> : <Shield className="w-4 h-4 text-muted-foreground" />}
                           <span className="text-foreground font-medium capitalize">{displayRole}</span>
                         </div>
                       </td>

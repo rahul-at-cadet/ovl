@@ -150,12 +150,12 @@ export default function SettingsPage() {
                 </CardHeader>
                 <CardContent className="space-y-6 pt-6">
                   <div className="space-y-2 max-w-md">
-                    <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">Company Name</Label>
-                    <Input defaultValue="Oceanic Vanguard Lines (OVL)" className="bg-card border-border text-foreground text-sm h-10" />
+                    <Label htmlFor="company-name" className="text-xs font-semibold text-foreground uppercase tracking-wider">Company Name</Label>
+                    <Input id="company-name" defaultValue="Oceanic Vanguard Lines (OVL)" className="bg-card border-border text-foreground text-sm h-10" />
                   </div>
                   <div className="space-y-2 max-w-md">
-                    <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">Default Timezone</Label>
-                    <Input defaultValue="UTC (Coordinated Universal Time)" className="bg-card border-border text-foreground text-sm h-10" />
+                    <Label htmlFor="default-timezone" className="text-xs font-semibold text-foreground uppercase tracking-wider">Default Timezone</Label>
+                    <Input id="default-timezone" defaultValue="UTC (Coordinated Universal Time)" className="bg-card border-border text-foreground text-sm h-10" />
                   </div>
                 </CardContent>
                 <CardFooter className="bg-card border-t border-border p-4 flex justify-end">

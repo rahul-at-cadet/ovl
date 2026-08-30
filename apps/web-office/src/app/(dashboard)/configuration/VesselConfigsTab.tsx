@@ -19,8 +19,21 @@ const STATUS_CLASS: Record<string, string> = {
   outOfDate: "text-status-critical bg-status-critical/10",
 };
 
+const RUN_CLASS: Record<string, string> = {
+  served: "text-status-ok",
+  noBundle: "text-status-warn",
+  unknownVessel: "text-status-critical",
+};
+
+const RUN_LABEL: Record<string, string> = {
+  served: "Served",
+  noBundle: "No bundle",
+  unknownVessel: "Unknown vessel",
+};
+
 export function VesselConfigsTab() {
   const { data: rows, isLoading } = trpc.configBundles.vesselConfigs.useQuery();
+  const { data: history = [] } = trpc.configBundles.syncHistory.useQuery({ limit: 25 });
 
   return (
     <div className="space-y-6">
@@ -42,6 +55,7 @@ export function VesselConfigsTab() {
               <TableHeader>
                 <TableRow className="border-border hover:bg-transparent">
                   <TableHead>Vessel</TableHead>
+                  <TableHead>Reported by ship</TableHead>
                   <TableHead>IMO</TableHead>
                   <TableHead>Bundle</TableHead>
                   <TableHead>Active Since</TableHead>
@@ -52,7 +66,26 @@ export function VesselConfigsTab() {
                 {rows?.map((r) => (
                   <TableRow key={r.vesselId} className="border-border hover:bg-muted/50">
                     <TableCell className="font-medium text-foreground">{r.vesselName}</TableCell>
-                    <TableCell className="text-muted-foreground font-mono text-xs">{r.imo}</TableCell>
+                    {/* What the ship calls itself on its own check-ins. enroll
+                        matches vessels by IMO and keeps office's name, so the two
+                        can diverge permanently — showing both is the only way
+                        anyone finds out. */}
+                    <TableCell className="text-xs">
+                      {r.reportedName ? (
+                        <span className={r.nameMismatch ? "text-status-warn font-medium" : "text-muted-foreground"}>
+                          {r.reportedName}
+                          {r.nameMismatch && " — differs"}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">Not reported yet</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground font-mono text-xs">
+                      {r.imo}
+                      {r.imoMismatch && (
+                        <span className="block text-status-critical">ship reports {r.reportedImo}</span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-muted-foreground">{r.assignedBundleLabel || "—"}</TableCell>
                     <TableCell className="text-muted-foreground">
                       {r.activeSince ? new Date(r.activeSince).toLocaleString() : "—"}
@@ -62,6 +95,61 @@ export function VesselConfigsTab() {
                         {STATUS_LABEL[r.status] ?? r.status}
                       </span>
                     </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Shore-side check-in log. Unlike the table above, which shows only
+          current state, this keeps every attempt — including check-ins from
+          vessels office cannot identify, which previously left no trace at
+          all and are the clearest signal that a ship needs re-enrolling. */}
+      <Card className="bg-card border-border">
+        <CardHeader>
+          <CardTitle className="text-foreground text-base">Check-in History</CardTitle>
+          <CardDescription>Every sync attempt received, newest first.</CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          {history.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground border-dashed border-border rounded-md">
+              <Ship className="w-8 h-8 mx-auto mb-3 opacity-50" />
+              <p>No check-ins recorded yet</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow className="border-border hover:bg-transparent">
+                  <TableHead>Received</TableHead>
+                  <TableHead>Vessel</TableHead>
+                  <TableHead>Outcome</TableHead>
+                  <TableHead>Bundle served</TableHead>
+                  <TableHead>Detail</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {history.map((run) => (
+                  <TableRow key={run.id} className="border-border hover:bg-muted/50">
+                    <TableCell className="text-muted-foreground text-xs whitespace-nowrap">
+                      {new Date(run.receivedAt).toLocaleString()}
+                    </TableCell>
+                    <TableCell className="text-foreground text-xs">
+                      {run.displayName}
+                      {run.nameMismatch && (
+                        <span className="block text-status-warn">ship says “{run.reportedName}”</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <span className={`text-xs font-medium ${RUN_CLASS[run.outcome] ?? ""}`}>
+                        {RUN_LABEL[run.outcome] ?? run.outcome}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground font-mono text-xs whitespace-nowrap">
+                      {run.resolvedBundleId ? `v${run.resolvedBundleVersion}` : "—"}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-xs">{run.note || "—"}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

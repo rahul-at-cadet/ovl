@@ -40,9 +40,15 @@ export function ScopeSelector({ scope, onChange, vessels, allowFleet = true }: S
   // sits directly above the Field Policy tab's large virtualized table, and
   // mounting/unmounting a Base UI Select's floating tree in that context
   // was hanging the whole tab (a runaway re-render loop, not just jank).
+  // Fluid, not fixed. This picker is used both on the full-width Field Policy
+  // tab and inside the "Assign a Bundle" dialog, so hard widths (w-40 + w-56 +
+  // a 16px gap = 400px) overflowed the narrower container and, once wrapped,
+  // left ragged rows of mismatched selects. Each field now grows to share the
+  // row, is capped so it never stretches absurdly wide on the full-width tab,
+  // and wraps to its own line only when the container is genuinely too narrow.
   return (
-    <div className="flex items-end gap-4">
-      <div className="space-y-1">
+    <div className="flex flex-wrap items-end gap-4">
+      <div className="space-y-1 flex-1 min-w-[9rem] max-w-[15rem]">
         <label className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">Scope</label>
         <select
           value={scope.type}
@@ -50,7 +56,7 @@ export function ScopeSelector({ scope, onChange, vessels, allowFleet = true }: S
             const val = e.target.value as ScopeType;
             onChange(val === "fleet" ? { type: "fleet" } : { type: val, key: "" });
           }}
-          className="w-40 bg-background border border-border text-foreground rounded-md h-9 px-2 text-sm"
+          className="w-full bg-background border border-border text-foreground rounded-md h-9 px-2 text-sm"
         >
           {typeOptions.map((t) => (
             <option key={t} value={t}>
@@ -61,12 +67,12 @@ export function ScopeSelector({ scope, onChange, vessels, allowFleet = true }: S
       </div>
 
       {scope.type === "group" && (
-        <div className="space-y-1">
+        <div className="space-y-1 flex-1 min-w-[9rem] max-w-[15rem]">
           <label className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">Group</label>
           <select
             value={scope.key || ""}
             onChange={(e) => e.target.value && onChange({ type: "group", key: e.target.value })}
-            className="w-48 bg-background border border-border text-foreground rounded-md h-9 px-2 text-sm"
+            className="w-full bg-background border border-border text-foreground rounded-md h-9 px-2 text-sm"
           >
             <option value="" disabled>
               {groups.length ? "Select group" : "No groups defined"}
@@ -81,12 +87,12 @@ export function ScopeSelector({ scope, onChange, vessels, allowFleet = true }: S
       )}
 
       {scope.type === "vessel" && (
-        <div className="space-y-1">
+        <div className="space-y-1 flex-1 min-w-[9rem] max-w-[15rem]">
           <label className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">Vessel</label>
           <select
             value={scope.key || ""}
             onChange={(e) => e.target.value && onChange({ type: "vessel", key: e.target.value })}
-            className="w-56 bg-background border border-border text-foreground rounded-md h-9 px-2 text-sm"
+            className="w-full bg-background border border-border text-foreground rounded-md h-9 px-2 text-sm"
           >
             <option value="" disabled>
               {vessels.length ? "Select vessel" : "No vessels"}

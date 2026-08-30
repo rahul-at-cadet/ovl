@@ -1,4 +1,5 @@
 import { Injectable, Inject } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { initTRPC } from '@trpc/server';
 import { Type, Static } from '@sinclair/typebox';
 import { TypeCompiler } from '@sinclair/typebox/compiler';
@@ -183,6 +184,24 @@ const SyncStatusCompiler = TypeCompiler.Compile(SyncStatusSchema);
 
 import { TrpcService } from './trpc.service';
 
+// Every column of `users` except passwordHash. `select()` with no
+// argument returns the whole row, so both users.me and users.list used to
+// hand the caller each account's argon2 hash — offline brute-force
+// material handed to anyone who could reach the endpoint, and to anything
+// that later cached or logged the response. Listing the columns
+// explicitly means a column added later has to be opted in rather than
+// leaking by default.
+const PUBLIC_USER_COLUMNS = {
+  id: schema.users.id,
+  username: schema.users.username,
+  role: schema.users.role,
+  canSubmit: schema.users.canSubmit,
+  mustChangePassword: schema.users.mustChangePassword,
+  active: schema.users.active,
+  createdAt: schema.users.createdAt,
+  updatedAt: schema.users.updatedAt,
+};
+
 @Injectable()
 export class TrpcRouter {
   constructor(
@@ -195,6 +214,11 @@ export class TrpcRouter {
     private readonly syncService: SyncService,
     private readonly authService: AuthService,
     private readonly notificationsService: NotificationsService,
+    // Verification goes through the same JwtService that signs, so both
+    // sides use this vessel's own secret (see auth/jwt-secret.ts). They
+    // used to read process.env.JWT_SECRET independently and fall back to
+    // a constant shared by every vessel.
+    private readonly jwtService: JwtService,
     @Inject(DATABASE_CONNECTION)
     private readonly db: BetterSQLite3Database<typeof schema>,
   ) {}
@@ -216,14 +240,29 @@ export class TrpcRouter {
 
     let decoded: any;
     try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET || 'vessel-edge-secret-key-123');
+      decoded = this.jwtService.verify(token);
     } catch {
       throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid token' });
     }
 
     const rows = await this.db.select().from(schema.users).where(eq(schema.users.id, decoded.sub)).limit(1);
     const user = rows[0];
-    if (!user || !user.active) {
+    // Distinguish "this token is for an account this vessel has never
+    // heard of" from "the account exists and has been deactivated".
+    // Reporting both as "Account is inactive" sent people hunting for a
+    // disabled account that was in fact perfectly active.
+    //
+    // Vessels now sign with their own secret (auth/jwt-secret.ts), so a
+    // token from another vessel fails signature checking and never gets
+    // this far. This branch still matters: a token outlives the account
+    // it names (deleted user, restored-from-backup database, a vessel
+    // re-provisioned onto the same host), and saying which of the two
+    // happened is the difference between a five-minute fix and a hunt
+    // through a user list where every account is active.
+    if (!user) {
+      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Session belongs to a different vessel' });
+    }
+    if (!user.active) {
       throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Account is inactive' });
     }
 
@@ -267,6 +306,78 @@ export class TrpcRouter {
         })
         .query(async ({ input }) => {
           return this.reportsService.getReport(input.id);
+        }),
+      /**
+       * Everything the report form needs to first paint, in one round trip.
+       *
+       * The form used to fetch these separately, and each depended on the
+       * one before it: getSchema and getFieldPolicy need report.schemaName,
+       * and the getEnum calls need schema.fields to know which enumRefs to
+       * resolve. That is a three-deep waterfall — cheap on a LAN, but each
+       * wave costs a full round trip, so against a distant office it was
+       * measured at roughly 580ms per wave and about two seconds before the
+       * form was usable. Resolving the chain server-side collapses it to one.
+       *
+       * The individual procedures stay: other callers still use them, and
+       * they are the natural granularity for refetching one piece.
+       */
+      getFormBundle: this.protectedProcedure
+        .input((val: unknown) => {
+          if (!GetReportCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof GetReportSchema>;
+        })
+        .query(async ({ input }) => {
+          const report = await this.reportsService.getReport(input.id);
+          if (!report) {
+            // Same shape as the success path so the client sees one type.
+            return {
+              report: null,
+              schema: null,
+              fieldPolicy: null,
+              enums: {} as Record<string, string[]>,
+            };
+          }
+
+          const formSchema = this.schemaRegistryService.getSchema(report.schemaName);
+
+          // Same lookup reports.getFieldPolicy performs — kept in step with
+          // it deliberately, including the ".json" stripping.
+          let fieldPolicy: { policy: Record<string, string>; prefill: Record<string, string>; events: Record<string, string[]> } =
+            { policy: {}, prefill: {}, events: {} };
+          const bundleRows = await this.db
+            .select()
+            .from(schema.configStore)
+            .where(eq(schema.configStore.key, 'config_bundle'));
+          if (bundleRows.length > 0) {
+            try {
+              const bundle = JSON.parse(bundleRows[0].value);
+              const bare = report.schemaName.replace(/\.json$/, '');
+              const match = (bundle.schemas || []).find((x: any) => x.schemaName === bare);
+              if (match) {
+                fieldPolicy = {
+                  policy: match.policy || {},
+                  prefill: match.prefill || {},
+                  events: match.events || {},
+                };
+              }
+            } catch {
+              // A corrupt stored bundle must not stop the form loading; the
+              // field policy simply comes back empty, exactly as before.
+            }
+          }
+
+          // Only the refs this schema actually references, resolved here so
+          // the client does not need a second wave to discover them.
+          const enums: Record<string, string[]> = {};
+          for (const ref of new Set(
+            (formSchema.fields || [])
+              .filter((f: any) => f.type === 'enum' && f.enumRef)
+              .map((f: any) => f.enumRef as string),
+          )) {
+            enums[ref] = this.schemaRegistryService.resolveEnum(ref) ?? [];
+          }
+
+          return { report, schema: formSchema, fieldPolicy, enums };
         }),
       saveSection: this.protectedProcedure
         .input((val: unknown) => {
@@ -499,15 +610,25 @@ export class TrpcRouter {
       }),
       now: publicProcedure.mutation(async () => {
         return this.syncService.syncNow();
-      })
+      }),
+      // Cycle-by-cycle history, so a run that failed leaves evidence the
+      // next run cannot overwrite. Same shape office serves for a vessel.
+      history: publicProcedure
+        .input((val: unknown) => {
+          const v = (val ?? {}) as { limit?: number };
+          return { limit: typeof v.limit === 'number' ? v.limit : 50 };
+        })
+        .query(async ({ input }) => {
+          return this.syncService.getHistory(input.limit);
+        })
     }),
     users: router({
       me: this.protectedProcedure.query(async ({ ctx }) => {
-        const usersList = await this.db.select().from(schema.users).where(eq(schema.users.id, ctx.user.sub));
+        const usersList = await this.db.select(PUBLIC_USER_COLUMNS).from(schema.users).where(eq(schema.users.id, ctx.user.sub));
         return usersList[0] || null;
       }),
       list: this.protectedProcedure.query(async () => {
-        const usersList = await this.db.select().from(schema.users);
+        const usersList = await this.db.select(PUBLIC_USER_COLUMNS).from(schema.users);
         return usersList;
       }),
       changePassword: this.protectedProcedure
@@ -544,7 +665,7 @@ export class TrpcRouter {
             let authed = false;
             if (token) {
               try {
-                jwt.verify(token, process.env.JWT_SECRET || 'vessel-edge-secret-key-123');
+                this.jwtService.verify(token);
                 authed = true;
               } catch {
                 authed = false;

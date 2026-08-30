@@ -15,6 +15,20 @@
       "when": 1787490880332,
       "tag": "0001_small_vanisher",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787899739588,
+      "tag": "0002_add_vessel_reported_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1787902254093,
+      "tag": "0003_add_sync_runs",
+      "breakpoints": true
     }
   ]
 }

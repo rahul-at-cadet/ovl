@@ -128,12 +128,15 @@ export class SchemaRegistryService implements OnModuleInit {
   }
 
   // Curated enumRef files (e.g. bunker-report's Fuel_Type field pointing
-  // at "fuel-types") — ported from the original's pkg/schema.ResolveEnum,
-  // same {"values":[{"code": "..."}, ...]} shape, code-only resolution.
-  // An enumRef with no matching file here (e.g. "offshore-modes", which
-  // uses an incompatible document shape) is left unresolved and the
-  // frontend falls back to unrestricted text entry, matching the
-  // original's behavior for enums with no generic resolver.
+  // at "fuel-types") — ported from the original's pkg/schema.ResolveEnum.
+  //
+  // Two document shapes exist in the curated set. Most list {code,label}
+  // under `values`. offshore-modes instead lists {highLevelMode,
+  // reportingMode} under `modes`, where reportingMode is the code an officer
+  // actually picks and highLevelMode is only a grouping. Reading `values`
+  // alone left that one unresolved, so log-abstract's Activity_Mode fell
+  // through to unrestricted text entry and collected free text instead of a
+  // controlled vocabulary.
   private loadEnums() {
     const enumsDir = path.join(process.cwd(), 'src', 'schemas', 'enums');
     if (!fs.existsSync(enumsDir)) {
@@ -145,10 +148,21 @@ export class SchemaRegistryService implements OnModuleInit {
     for (const file of files) {
       try {
         const content = fs.readFileSync(path.join(enumsDir, file), 'utf8');
-        const doc: { enumName?: string; values: { code: string }[] } = JSON.parse(content);
+        const doc: {
+          enumName?: string;
+          values?: { code: string }[];
+          modes?: { highLevelMode?: string; reportingMode: string }[];
+        } = JSON.parse(content);
         const name = doc.enumName || file.replace(/\.json$/, '');
-        this.enums.set(name, doc.values.map((v) => v.code));
-        this.logger.log(`Loaded enum: ${name} (${doc.values.length} codes)`);
+        const codes = doc.values?.map((v) => v.code) ?? doc.modes?.map((m) => m.reportingMode);
+        if (!codes || codes.length === 0) {
+          // Better a warning than a silent free-text fallback: an enum file
+          // present but unreadable is a packaging mistake, not a design.
+          this.logger.warn(`Enum ${name} declares no resolvable codes; leaving it unresolved.`);
+          continue;
+        }
+        this.enums.set(name, codes);
+        this.logger.log(`Loaded enum: ${name} (${codes.length} codes)`);
       } catch (err: any) {
         this.logger.error(`Failed to load enum ${file}: ${err.message}`);
       }

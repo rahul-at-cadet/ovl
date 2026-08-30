@@ -188,12 +188,14 @@ export default function SettingsPage() {
                 <CardContent className="space-y-6 pt-6">
                   <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">Sync Interval (Minutes)</Label>
-                      <Input type="number" value={syncInterval} onChange={e => setSyncInterval(e.target.value)} className="bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10" />
+                      <Label htmlFor="sync-interval" className="text-xs font-semibold text-foreground uppercase tracking-wider">Sync Interval (Minutes)</Label>
+                      <Input type="number" id="sync-interval"
+                      value={syncInterval} onChange={e => setSyncInterval(e.target.value)} className="bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10" />
                     </div>
                     <div className="space-y-2">
-                      <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">Max Bandwidth (Kbps)</Label>
-                      <Input type="number" value={maxBandwidth} onChange={e => setMaxBandwidth(e.target.value)} className="bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10" />
+                      <Label htmlFor="max-bandwidth" className="text-xs font-semibold text-foreground uppercase tracking-wider">Max Bandwidth (Kbps)</Label>
+                      <Input type="number" id="max-bandwidth"
+                      value={maxBandwidth} onChange={e => setMaxBandwidth(e.target.value)} className="bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10" />
                     </div>
                   </div>
                   <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 pt-4 mt-4 border-t border-border">
@@ -252,20 +254,22 @@ export default function SettingsPage() {
                 </CardHeader>
                 <CardContent className="pt-6 space-y-4">
                   <div className="space-y-2">
-                    <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">Base URL</Label>
+                    <Label htmlFor="sensor-base-url" className="text-xs font-semibold text-foreground uppercase tracking-wider">Base URL</Label>
                     <Input
                       type="text"
                       placeholder="https://sensors.example.vessel:8443"
+                      id="sensor-base-url"
                       value={sensorBaseUrl}
                       onChange={(e) => setSensorBaseUrl(e.target.value)}
                       className="bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">API Key</Label>
+                    <Label htmlFor="sensor-api-key" className="text-xs font-semibold text-foreground uppercase tracking-wider">API Key</Label>
                     <Input
                       type="password"
                       placeholder={sensorSource?.configured ? sensorSource.apiKey : 'Enter API key'}
+                      id="sensor-api-key"
                       value={sensorApiKey}
                       onChange={(e) => setSensorApiKey(e.target.value)}
                       className="bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10"
@@ -318,20 +322,22 @@ export default function SettingsPage() {
                 </CardHeader>
                 <CardContent className="pt-6 space-y-4">
                   <div className="space-y-2">
-                    <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">Base URL</Label>
+                    <Label htmlFor="vms-base-url" className="text-xs font-semibold text-foreground uppercase tracking-wider">Base URL</Label>
                     <Input
                       type="text"
                       placeholder="https://vms.example.com"
+                      id="vms-base-url"
                       value={vmsBaseUrl}
                       onChange={(e) => setVmsBaseUrl(e.target.value)}
                       className="bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">API Key</Label>
+                    <Label htmlFor="vms-api-key" className="text-xs font-semibold text-foreground uppercase tracking-wider">API Key</Label>
                     <Input
                       type="password"
                       placeholder={vmsSource?.configured ? `Enter a new key to change it (currently ${vmsSource.apiKey})` : 'Enter API key'}
+                      id="vms-api-key"
                       value={vmsApiKey}
                       onChange={(e) => setVmsApiKey(e.target.value)}
                       className="bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10"

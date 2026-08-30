@@ -231,6 +231,14 @@ export const vesselSyncStatus = pgTable("vessel_sync_status", {
 	appliedBundleId: text("applied_bundle_id").default('').notNull(),
 	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
 	appliedBundleVersion: bigint("applied_bundle_version", { mode: "number" }).default(0).notNull(),
+	// What the vessel calls itself, as sent on its own check-in. Office's
+	// `vessels.name` is the shore-authored name and the two can legitimately
+	// diverge: edge.enroll matches an existing vessel by IMO and ignores the
+	// name the vessel sent, so renaming either side never propagates. Storing
+	// the vessel's own answer is what makes that divergence visible instead of
+	// silent. Nullable because a vessel running an older build never sends it.
+	reportedName: text("reported_name"),
+	reportedImo: text("reported_imo"),
 },
 (table) => {
 	return {
@@ -583,5 +591,42 @@ export const reportVersions = pgTable("report_versions", {
 			name: "report_versions_vessel_id_fkey"
 		}).onDelete("cascade"),
 		reportVersionsPkey: primaryKey({ columns: [table.vesselId, table.reportId, table.versionNo], name: "report_versions_pkey"}),
+	}
+});
+/**
+ * Shore's half of a sync run — one row per vessel check-in, append-only.
+ *
+ * Deliberately has NO foreign key onto `vessels`. Recording a check-in from
+ * a vessel office has never heard of is the single most valuable thing this
+ * table does: that exact case (a vessel holding an id from a rebuilt office
+ * database) produced a constraint violation the vessel then swallowed, and
+ * left no evidence anywhere on either side. An unknown vessel must be able
+ * to leave a trace.
+ *
+ * `tenantId` is carried from the outset even though it is a constant today.
+ * This is append-only history; back-filling a discriminator onto it later is
+ * far more expensive than reserving the column now, and the multi-tenancy
+ * work moves this data onto per-tenant schemas.
+ */
+export const syncRuns = pgTable("sync_runs", {
+	id: uuid("id").primaryKey().defaultRandom().notNull(),
+	tenantId: text("tenant_id").default('default').notNull(),
+	// The vessel's own run id, so the two sides describe one event. Nullable
+	// because a vessel on an older build does not send one.
+	runId: text("run_id"),
+	vesselId: uuid("vessel_id").notNull(),
+	receivedAt: timestamp("received_at", { withTimezone: true, mode: 'string' }).notNull(),
+	// 'served' | 'noBundle' | 'unknownVessel'
+	outcome: text("outcome").notNull(),
+	resolvedBundleId: text("resolved_bundle_id"),
+	resolvedBundleVersion: bigint("resolved_bundle_version", { mode: "number" }),
+	reportedName: text("reported_name"),
+	reportedImo: text("reported_imo"),
+	note: text("note"),
+},
+(table) => {
+	return {
+		ixSyncRunsVesselReceived: index("ix_sync_runs_vessel_received").using("btree", table.vesselId.asc().nullsLast(), table.receivedAt.desc().nullsFirst()),
+		ixSyncRunsTenantReceived: index("ix_sync_runs_tenant_received").using("btree", table.tenantId.asc().nullsLast(), table.receivedAt.desc().nullsFirst()),
 	}
 });

@@ -144,13 +144,17 @@ export default function DashboardPage() {
   const { data: voyage } = trpc.system.getActiveVoyage.useQuery();
   const { data: setupStatus } = trpc.setup.status.useQuery();
   const { data: syncStatus } = trpc.sync.status.useQuery();
+  const { data: syncHistory = [] } = trpc.sync.history.useQuery({ limit: 8 });
   const { data: settings } = trpc.settings.get.useQuery();
   const { data: suggestions } = trpc.reports.listEventSuggestions.useQuery({ schemaName: 'log-abstract' });
   const syncNowMutation = trpc.sync.now.useMutation();
 
   const allInProgress = reports.filter((r) => r.state === 'draft');
-  const inProgress = allInProgress.slice(0, 5);
-  const recent = reports.filter((r) => r.state !== 'draft').slice(0, 6);
+  // Three, not five: the xl dashboard is one fixed-height screen and the
+  // drafts list was the tallest thing competing for it. "View all" in the
+  // panel header covers the rest.
+  const inProgress = allInProgress.slice(0, 3);
+  const recent = reports.filter((r) => r.state !== 'draft').slice(0, 4);
 
   let isOverdue = false;
   let overdueByStr = '';
@@ -177,8 +181,21 @@ export default function DashboardPage() {
     <div className="flex flex-col gap-4 pb-4 xl:pb-0 xl:h-[calc(100vh_-_88px)] xl:overflow-hidden">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shrink-0">
         <div className="min-w-0">
-          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground">Terminal Dashboard</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Local edge reporting and synchronisation.</p>
+          {/* The ship's own identity. It was captured during setup and then
+              shown nowhere else in the app, so a crew member had no way to
+              confirm which vessel this terminal was reporting as. */}
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground truncate">
+            {syncStatus?.vesselName || 'Terminal Dashboard'}
+          </h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {syncStatus?.imoNumber ? (
+              <>
+                IMO {syncStatus.imoNumber} · Local edge reporting and synchronisation.
+              </>
+            ) : (
+              'Local edge reporting and synchronisation.'
+            )}
+          </p>
         </div>
         <Button
           render={<Link href="/reports/new" />}
@@ -322,49 +339,12 @@ export default function DashboardPage() {
           )}
         </Panel>
 
-        {/* 5 — sync */}
+        {/* 5 — voyage, then recent activity. Voyage sits above the submitted
+            list: it answers "where are we now", and it used to be pinned
+            under the sync panel where it got squeezed to a bare header. */}
         <div className="flex flex-col gap-4 xl:min-h-0">
-        <Panel title="Synchronisation" icon={RefreshCw} className="shrink-0">
-          <div className="p-4 flex flex-col gap-3">
-            <dl className="text-sm">
-              <div className="flex items-center justify-between gap-3 py-1.5">
-                <dt className="text-muted-foreground">Local API</dt>
-                <dd>
-                  <StatusBadge
-                    role={online ? 'ok' : 'critical'}
-                    label={online ? 'Connected' : 'Disconnected'}
-                    size="sm"
-                  />
-                </dd>
-              </div>
-              <div className="flex items-center justify-between gap-3 py-1.5">
-                <dt className="text-muted-foreground">Queued for shore</dt>
-                <dd className="readout text-foreground font-medium">{pending}</dd>
-              </div>
-              <div className="flex items-start justify-between gap-3 py-1.5">
-                <dt className="text-muted-foreground shrink-0">Last success</dt>
-                <dd className="readout text-xs text-foreground text-right break-words">
-                  {syncStatus?.lastSuccess ? new Date(syncStatus.lastSuccess).toLocaleString() : 'Never'}
-                </dd>
-              </div>
-            </dl>
-            <Button
-              onClick={() => syncNowMutation.mutate()}
-              disabled={syncNowMutation.isPending || !syncStatus?.enrolled}
-              className="w-full justify-center"
-            >
-              {syncNowMutation.isPending ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <RefreshCw className="w-4 h-4 mr-2" />
-              )}
-              {syncNowMutation.isPending ? 'Syncing…' : 'Sync now'}
-            </Button>
-          </div>
-        </Panel>
-
         {/* 6 — voyage context */}
-        <Panel title="Active voyage" icon={Ship} className="xl:flex-1 xl:min-h-0 xl:overflow-y-auto">
+        <Panel title="Active voyage" icon={Ship} className="xl:shrink-0 xl:max-h-64 xl:overflow-y-auto">
           {voyage ? (
             <div className="p-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
               {/* Every field on the voyage summary is optional except
@@ -432,13 +412,12 @@ export default function DashboardPage() {
             </p>
           )}
         </Panel>
-        </div>
 
         {/* Recent activity, lowest priority */}
         <Panel
           title="Recently submitted"
           icon={FileText}
-          className="xl:min-h-0"
+          className="xl:flex-1 xl:min-h-0"
           action={
             <Button
               variant="ghost"
@@ -478,6 +457,128 @@ export default function DashboardPage() {
             </ul>
           )}
         </Panel>
+        </div>
+
+        {/* 6 — sync, deliberately last and least prominent: operational
+            plumbing, not the reporting work this screen exists for. It
+            still scrolls its own body. */}
+        {/* Not shrink-0: this panel grew a config-bundle row, a name-mismatch
+            alert and a run history, and the xl column is a fixed-height
+            overflow-hidden container. Pinned at its natural height it simply
+            overflowed and the extra content was clipped with nothing to
+            scroll. min-h-0 lets it shrink so its own body can scroll instead. */}
+        <Panel title="Synchronisation" icon={RefreshCw} className="min-h-0">
+          <div className="p-4 flex flex-col gap-3 xl:flex-1 xl:min-h-0 xl:overflow-y-auto">
+            <dl className="text-sm">
+              <div className="flex items-center justify-between gap-3 py-1.5">
+                <dt className="text-muted-foreground">Local API</dt>
+                <dd>
+                  <StatusBadge
+                    role={online ? 'ok' : 'critical'}
+                    label={online ? 'Connected' : 'Disconnected'}
+                    size="sm"
+                  />
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-3 py-1.5">
+                <dt className="text-muted-foreground">Queued for shore</dt>
+                <dd className="readout text-foreground font-medium">{pending}</dd>
+              </div>
+              <div className="flex items-start justify-between gap-3 py-1.5">
+                <dt className="text-muted-foreground shrink-0">Last success</dt>
+                <dd className="readout text-xs text-foreground text-right break-words">
+                  {syncStatus?.lastSuccess ? new Date(syncStatus.lastSuccess).toLocaleString() : 'Never'}
+                </dd>
+              </div>
+              {/* Which config bundle this vessel is actually running. Without
+                  it, "sync succeeded" and "sync succeeded but shore sent no
+                  configuration" looked identical from here. */}
+              <div className="flex items-start justify-between gap-3 py-1.5">
+                <dt className="text-muted-foreground shrink-0">Config bundle</dt>
+                <dd className="readout text-xs text-right break-words">
+                  {syncStatus?.appliedBundleId ? (
+                    <span className="text-foreground">
+                      v{syncStatus.appliedBundleVersion}
+                      <span className="block text-muted-foreground">
+                        {syncStatus.appliedBundleId.slice(0, 8)}…
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="text-status-warn">None received</span>
+                  )}
+                </dd>
+              </div>
+            </dl>
+
+            {syncStatus?.nameMismatch && (
+              <Alert tone="warn" title="Name differs from office">
+                This terminal is set up as “{syncStatus.vesselName}”, but office
+                records it as “{syncStatus.officeVesselName}”. Reports still sync
+                correctly — the names are simply out of step.
+              </Alert>
+            )}
+
+            {syncStatus?.configNotice && (
+              <Alert tone="warn" title="No configuration assigned">
+                {syncStatus.configNotice}
+              </Alert>
+            )}
+
+            {/* Cycle history. Current state alone could never show that a run
+                had failed — the next run overwrote it — which is how a long
+                run of silent failures stayed invisible. */}
+            {syncHistory.length > 0 && (
+              <div className="border-t border-border pt-3">
+                <p className="instrument-label mb-2">Recent syncs</p>
+                <ul className="flex flex-col gap-1">
+                  {syncHistory.map((run) => {
+                    const tone =
+                      run.outcome === 'success'
+                        ? 'text-status-ok'
+                        : run.outcome === 'partial'
+                          ? 'text-status-warn'
+                          : 'text-status-critical';
+                    const problem = run.configError || run.pushError || run.configNotice;
+                    return (
+                      <li key={run.id} className="flex items-start justify-between gap-3 text-xs">
+                        <span className="readout text-muted-foreground shrink-0">
+                          {new Date(run.startedAt).toLocaleTimeString()}
+                        </span>
+                        <span className="min-w-0 flex-1 text-right">
+                          <span className={`font-medium ${tone}`}>{run.outcome}</span>
+                          {run.trigger === 'manual' && (
+                            <span className="text-muted-foreground"> · manual</span>
+                          )}
+                          {problem && (
+                            <span className="block text-muted-foreground break-words">{problem}</span>
+                          )}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+            {/* mt-auto so the action hugs the bottom of the panel instead of
+                floating directly under the readouts with dead space beneath
+                it. When the body does overflow — mismatch alert plus a run
+                history — there is no free space to absorb, so it simply
+                stays last and scrolls with the rest. */}
+            <Button
+              onClick={() => syncNowMutation.mutate()}
+              disabled={syncNowMutation.isPending || !syncStatus?.enrolled}
+              className="w-full justify-center xl:mt-auto"
+            >
+              {syncNowMutation.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4 mr-2" />
+              )}
+              {syncNowMutation.isPending ? 'Syncing…' : 'Sync now'}
+            </Button>
+          </div>
+        </Panel>
+
       </div>
     </div>
   );

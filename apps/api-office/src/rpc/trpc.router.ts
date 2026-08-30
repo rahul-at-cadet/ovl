@@ -336,6 +336,7 @@ export class TrpcRouter {
       db: this.db,
       configBundleService: this.configBundleService,
       vesselUsersService: this.vesselUsersService,
+      complianceService: this.complianceService,
       edgeTenants: this.edgeTenants,
       tenantDb: this.tenantDb,
       tenantCatalog: this.tenantCatalog,
@@ -946,6 +947,24 @@ export class TrpcRouter {
         .mutation(({ input }) => this.configBundleService.assign(input.scope as Scope, input.bundleId)),
       listAssignments: protectedProcedure.query(() => this.configBundleService.listAssignments()),
       vesselConfigs: protectedProcedure.query(() => this.configBundleService.vesselConfigs()),
+      // Shore-side sync history. Optionally narrowed to one vessel; without a
+      // filter it is the fleet's check-in log, which is where an unknown
+      // vessel repeatedly failing to enrol becomes visible.
+      syncHistory: protectedProcedure
+        .input((val: unknown) => {
+          const v = (val ?? {}) as { vesselId?: string; limit?: number };
+          // vesselId stays genuinely optional in the returned type. Spelling it
+          // as `vesselId: v.vesselId` would infer `string | undefined` as a
+          // *required* property, forcing every caller to pass it explicitly —
+          // which is what broke the production type check, since next dev
+          // never type-checks and only `next build` catches it.
+          const parsed: { vesselId?: string; limit: number } = {
+            limit: typeof v.limit === 'number' ? v.limit : 50,
+          };
+          if (typeof v.vesselId === 'string' && v.vesselId) parsed.vesselId = v.vesselId;
+          return parsed;
+        })
+        .query(({ input }) => this.configBundleService.syncHistory(input.vesselId, input.limit)),
     }),
     compliance: router({
       ruleCatalog: protectedProcedure.query(() => this.complianceService.ruleCatalog()),

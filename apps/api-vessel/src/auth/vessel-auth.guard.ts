@@ -34,7 +34,14 @@ export class VesselAuthGuard implements CanActivate {
 
     const rows = await this.db.select().from(schema.users).where(eq(schema.users.id, decoded.sub)).limit(1);
     const user = rows[0];
-    if (!user || !user.active) {
+    // See the matching check in trpc.router.ts's isAuthed: a token for a
+    // user this vessel does not have is a different failure from a
+    // deactivated account, and saying so saves a pointless hunt through
+    // the user list.
+    if (!user) {
+      throw new UnauthorizedException('Session belongs to a different vessel');
+    }
+    if (!user.active) {
       throw new UnauthorizedException('Account is inactive');
     }
 

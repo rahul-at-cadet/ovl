@@ -1,22 +1,38 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AppController } from './app.controller';
-import { AppService } from './app.service';
+import { TrpcService } from './rpc/trpc.service';
 
+/**
+ * This spec previously asserted `getHello()` returned the string
+ * "Hello World!" — the untouched Nest scaffold. The controller had since been
+ * rewritten to inject TrpcService and return a shore ping, so the test failed
+ * on dependency resolution and, had it resolved, would have asserted the wrong
+ * shape anyway. It now covers what the route actually does.
+ */
 describe('AppController', () => {
   let appController: AppController;
+  const pingResponse = { message: 'Pong received from Office API', timestamp: '2026-01-01T00:00:00Z' };
 
   beforeEach(async () => {
     const app: TestingModule = await Test.createTestingModule({
       controllers: [AppController],
-      providers: [AppService],
+      providers: [
+        {
+          provide: TrpcService,
+          useValue: { client: { ping: { query: async () => pingResponse } } },
+        },
+      ],
     }).compile();
 
     appController = app.get<AppController>(AppController);
   });
 
   describe('root', () => {
-    it('should return "Hello World!"', () => {
-      expect(appController.getHello()).toBe('Hello World!');
+    it('identifies itself and passes the office ping through', async () => {
+      const result = await appController.getHello();
+
+      expect(result.message).toBe('Hello from Vessel API!');
+      expect(result.officePingResponse).toEqual(pingResponse);
     });
   });
 });
