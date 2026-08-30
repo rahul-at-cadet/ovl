@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@ovl/
 import { Input } from '@ovl/ui/components/input';
 import { Label } from '@ovl/ui/components/label';
 import { Button } from '@ovl/ui/components/button';
-import { CadetlabsLogo } from '@/components/layout/CadetlabsLogo';
+import { CadetlabsLogo } from '@ovl/ui/components/cadetlabs-logo';
 import { trpc } from '@/lib/trpc';
 import { API_ORIGIN } from '@/lib/api-origin';
 

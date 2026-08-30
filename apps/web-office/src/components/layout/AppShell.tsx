@@ -10,7 +10,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@ovl/ui/components/popo
 import { Avatar, AvatarFallback, AvatarImage } from '@ovl/ui/components/avatar';
 import { Sheet, SheetContent, SheetTrigger } from '@ovl/ui/components/sheet';
 import { ThemeToggle } from '@ovl/ui/components/theme-toggle';
-import { CadetlabsLogo } from '@/components/layout/CadetlabsLogo';
+import { CadetlabsLogo } from '@ovl/ui/components/cadetlabs-logo';
 import { trpc } from '@/lib/trpc';
 import { useCurrentUser } from '@/lib/useCurrentUser';
 

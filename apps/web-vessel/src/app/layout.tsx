@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { TRPCProvider } from "@/components/providers/trpc-provider";
 import { ToastProvider, Toaster } from "@ovl/ui/components/toast";
-import { ThemeProvider } from "@/components/providers/theme-provider";
+import { ThemeProvider } from '@ovl/ui/components/theme-provider';
 
 /*
  * IBM Plex Sans + Mono, replacing Inter.

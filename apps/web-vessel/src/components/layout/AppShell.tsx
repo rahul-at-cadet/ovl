@@ -7,7 +7,7 @@ import { LayoutDashboard, FileText, Settings, Users, Ship, Bell, Menu, LogOut, L
 import { Button } from '@ovl/ui/components/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@ovl/ui/components/popover';
 import { ThemeToggle } from '@ovl/ui/components/theme-toggle';
-import { CadetlabsLogo } from '@/components/layout/CadetlabsLogo';
+import { CadetlabsLogo } from '@ovl/ui/components/cadetlabs-logo';
 import { trpc } from '@/lib/trpc';
 import { ChangePasswordDialog } from '@/components/ChangePasswordDialog';
 import { API_ORIGIN } from '@/lib/api-origin';
