@@ -55,6 +55,12 @@ import { PlatformDbService } from '../tenancy/platform-db.service';
 import { tryCurrentTenant, runAsSystemForTenant } from '../tenancy/tenant-context';
 import { EdgeTenantResolverService } from '../tenancy/edge-tenant-resolver.service';
 import { TenantDbService } from '../tenancy/tenant-db.service';
+import { withTenantDb } from './tenant-scope';
+import { createTenantsRouter } from './tenants.router';
+import { TenantRegistryService } from '../tenancy/tenant-registry.service';
+import { TenantProvisioningService } from '../tenancy/tenant-provisioning.service';
+import { TenantMigrationRunnerService } from '../tenancy/tenant-migration-runner.service';
+import { TenantSelectionService } from '../tenancy/tenant-selection.service';
 
 
 
@@ -274,6 +280,10 @@ export class TrpcRouter {
     @Optional() @Inject(PlatformDbService) private readonly platformDb?: PlatformDbService,
     @Optional() @Inject(EdgeTenantResolverService) private readonly edgeTenants?: EdgeTenantResolverService,
     @Optional() @Inject(TenantDbService) private readonly tenantDb?: TenantDbService,
+    @Optional() @Inject(TenantRegistryService) private readonly tenantRegistry?: TenantRegistryService,
+    @Optional() @Inject(TenantProvisioningService) private readonly tenantProvisioning?: TenantProvisioningService,
+    @Optional() @Inject(TenantMigrationRunnerService) private readonly tenantMigrations?: TenantMigrationRunnerService,
+    @Optional() @Inject(TenantSelectionService) private readonly tenantSelection?: TenantSelectionService,
   ) {}
 
   /** Throws unless the catalogue is wired up. */
@@ -380,6 +390,16 @@ export class TrpcRouter {
      * role holds only SELECT on the catalogue, so that is enforced below the
      * application rather than by these checks alone.
      */
+    // Platform tenant administration, gated on super admin. Extracted to
+    // tenants.router.ts.
+    tenants: createTenantsRouter(() => ({
+      platformDb: this.platformDb,
+      registry: this.tenantRegistry,
+      provisioning: this.tenantProvisioning,
+      migrations: this.tenantMigrations,
+      selection: this.tenantSelection,
+    })),
+
     catalogue: router({
       /** What the current caller may do — drives which UI is offered. */
       whoami: protectedProcedure.query(async ({ ctx }) => {
@@ -651,8 +671,16 @@ export class TrpcRouter {
     })),
 
     users: router({
+      // Office users live in their tenant's schema, so this has to read
+      // through the tenant pool. It read `this.db` — the legacy shared pool
+      // pointed at `public` — which stayed empty once users moved, so the
+      // Users screen showed "no users" for every tenant that had them.
       list: protectedProcedure.query(async () => {
-        const officeUsers = await this.db.select().from(schema.users);
+        const officeUsers = await withTenantDb(
+          this.tenantDb,
+          (db) => db.select().from(schema.users),
+          { readOnly: true },
+        );
         return officeUsers.map(u => ({
           id: u.id,
           username: u.username,
@@ -668,10 +696,13 @@ export class TrpcRouter {
         })
         .mutation(async ({ input }) => {
           const { id, ...updates } = input;
-          const updatedUser = await this.db.update(schema.users).set({
-            ...updates,
-            updatedAt: new Date().toISOString(),
-          }).where(eq(schema.users.id, id)).returning();
+          const updatedUser = await withTenantDb(this.tenantDb, (db) =>
+            db
+              .update(schema.users)
+              .set({ ...updates, updatedAt: new Date().toISOString() })
+              .where(eq(schema.users.id, id))
+              .returning(),
+          );
           return updatedUser[0];
         }),
       delete: protectedProcedure
@@ -680,7 +711,9 @@ export class TrpcRouter {
           return val as Static<typeof DeleteOfficeUserSchema>;
         })
         .mutation(async ({ input }) => {
-          await this.db.delete(schema.users).where(eq(schema.users.id, input.id));
+          await withTenantDb(this.tenantDb, (db) =>
+            db.delete(schema.users).where(eq(schema.users.id, input.id)),
+          );
           return { success: true };
         }),
       // Delegates to UsersService rather than reimplementing here — it
@@ -861,6 +894,15 @@ export class TrpcRouter {
       // web/office's SetupAdmin screen. publicProcedure: this has to be
       // checkable before anyone can possibly have a session yet.
       status: publicProcedure.query(async () => {
+        // Multi-tenant deployments have no "first admin" step at all: a
+        // tenant is provisioned together with its own admin, in its own
+        // schema. The legacy check below reads `public.users`, which stays
+        // empty forever once users live on tenant schemas — so leaving it to
+        // answer here pinned hasAnyUser to false and made the login page
+        // render the first-time setup form in place of the sign-in form,
+        // permanently. Nobody could sign in to a multi-tenant office at all.
+        if (this.platformDb) return { hasAnyUser: true };
+
         const rows = await this.db.select({ id: schema.users.id }).from(schema.users).limit(1);
         return { hasAnyUser: rows.length > 0 };
       }),

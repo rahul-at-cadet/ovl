@@ -26,6 +26,7 @@ import { TenantRegistryService } from './tenant-registry.service';
 import { TenantDbService } from './tenant-db.service';
 import { TenantCacheService } from './tenant-cache.service';
 import { TenantConcurrencyService } from './tenant-concurrency.service';
+import { TenantSelectionService } from './tenant-selection.service';
 import { TenantProvisioningService } from './tenant-provisioning.service';
 import { PlatformDbService } from './platform-db.service';
 import { SuperAdminService } from './super-admin.service';
@@ -111,6 +112,7 @@ export class TenancyModule implements NestModule, OnApplicationShutdown {
         TenantDbService,
         TenantCacheService,
         TenantProvisioningService,
+        TenantSelectionService,
         PlatformDbService,
         SuperAdminService,
         TenantMigrationRunnerService,
@@ -127,6 +129,7 @@ export class TenancyModule implements NestModule, OnApplicationShutdown {
         TenantDbService,
         TenantCacheService,
         TenantProvisioningService,
+        TenantSelectionService,
         PlatformDbService,
         SuperAdminService,
         TenantMigrationRunnerService,

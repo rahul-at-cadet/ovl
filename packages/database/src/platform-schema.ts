@@ -131,6 +131,22 @@ export const superAdmins = platform.table('super_admins', {
 export type SuperAdminRow = typeof superAdmins.$inferSelect;
 
 /**
+ * Which tenant a super admin is currently viewing.
+ *
+ * A super admin has no tenant of their own but can look into any of them, so
+ * the choice has to be recorded server-side against their identity rather than
+ * sent with each request — see TenantMiddleware on why a caller may never
+ * nominate its own tenant.
+ */
+export const superAdminTenantSelection = platform.table('super_admin_tenant_selection', {
+	supertokensUserId: text('supertokens_user_id').primaryKey().notNull(),
+	tenantId: uuid('tenant_id').notNull(),
+	selectedAt: timestamp('selected_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+});
+
+export type SuperAdminTenantSelectionRow = typeof superAdminTenantSelection.$inferSelect;
+
+/**
  * Which tenant a vessel's API key belongs to.
  *
  * Edge traffic authenticates with a bearer token rather than a session, so

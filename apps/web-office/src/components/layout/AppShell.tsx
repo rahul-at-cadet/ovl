@@ -4,7 +4,7 @@ import { ReactNode, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import Session, { signOut } from 'supertokens-auth-react/recipe/session';
-import { LayoutDashboard, Database, Ship, Users, Settings, Bell, Menu, LogOut, Sliders, AlertTriangle, MessageSquare, CloudDownload, Briefcase } from 'lucide-react';
+import { LayoutDashboard, Database, Ship, Users, Settings, Bell, Menu, LogOut, Sliders, AlertTriangle, MessageSquare, CloudDownload, Briefcase, Building2 } from 'lucide-react';
 import { Button } from '@ovl/ui/components/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@ovl/ui/components/popover';
 import { Avatar, AvatarFallback, AvatarImage } from '@ovl/ui/components/avatar';
@@ -101,6 +101,13 @@ export function AppShell({ children }: AppShellProps) {
     markReadMutation.mutate({ ids: unreadIds });
   }
 
+  // Tenant administration sits above a single organisation, so the link only
+  // appears for platform super admins. Hiding it is presentation, not
+  // security — every procedure behind it re-checks server-side.
+  const { data: tenantAccess } = trpc.tenants.capabilities.useQuery(undefined, {
+    enabled: sessionChecked,
+  });
+
   const navItems = [
     { href: '/', label: 'Fleet Overview', icon: LayoutDashboard },
     { href: '/reports', label: 'Incoming Reports', icon: Database },
@@ -108,6 +115,9 @@ export function AppShell({ children }: AppShellProps) {
     { href: '/vessels', label: 'Vessel Management', icon: Ship },
     { href: '/configuration', label: 'Fleet Configuration', icon: Sliders },
     { href: '/users', label: 'Users & Roles', icon: Users },
+    ...(tenantAccess?.isSuperAdmin
+      ? [{ href: '/tenants', label: 'Tenant Management', icon: Building2 }]
+      : []),
     { href: '/settings', label: 'Global Settings', icon: Settings },
   ];
 

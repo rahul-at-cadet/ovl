@@ -1,6 +1,13 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
-import { tenants, tenantUsers, type PlatformDatabase, type TenantStatus } from '@ovl/database';
+import {
+  tenants,
+  tenantUsers,
+  superAdmins,
+  superAdminTenantSelection,
+  type PlatformDatabase,
+  type TenantStatus,
+} from '@ovl/database';
 import { PLATFORM_DB, TENANCY_OPTIONS, type ResolvedTenancyOptions } from './tenancy.constants';
 import {
   assertValidTenantRoleName,
@@ -65,8 +72,43 @@ export class TenantRegistryService {
       .where(eq(tenantUsers.supertokensUserId, supertokensUserId))
       .limit(1);
 
-    const descriptor = this.toDescriptor(rows[0]);
-    if (descriptor) this.writeCache(this.byUserId, supertokensUserId, descriptor);
+    if (rows[0]) {
+      const descriptor = this.toDescriptor(rows[0]);
+      if (descriptor) this.writeCache(this.byUserId, supertokensUserId, descriptor);
+      return descriptor;
+    }
+
+    // No membership of their own. A platform super admin is the one identity
+    // for which that is normal rather than an error: they sit above every
+    // tenant and view whichever one they have selected.
+    //
+    // Read here rather than accepted from the request for the reason this
+    // method's own comment gives — the tenant must come from the session and
+    // nothing the caller can influence. A super admin nominating a tenant is
+    // legitimate, but the nomination is stored server-side, and the join to
+    // super_admins below means a revoked super admin's stale selection stops
+    // resolving immediately.
+    const selected = await this.platformDb
+      .select({
+        id: tenants.id,
+        slug: tenants.slug,
+        schemaName: tenants.schemaName,
+        roleName: tenants.roleName,
+        status: tenants.status,
+      })
+      .from(superAdminTenantSelection)
+      .innerJoin(
+        superAdmins,
+        eq(superAdminTenantSelection.supertokensUserId, superAdmins.supertokensUserId),
+      )
+      .innerJoin(tenants, eq(superAdminTenantSelection.tenantId, tenants.id))
+      .where(eq(superAdminTenantSelection.supertokensUserId, supertokensUserId))
+      .limit(1);
+
+    const descriptor = this.toDescriptor(selected[0]);
+    // Deliberately not cached: a super admin switching tenant must take effect
+    // on the next request, not after a TTL, or they spend the cache window
+    // looking at the tenant they just navigated away from.
     return descriptor;
   }
 
@@ -118,7 +160,7 @@ export class TenantRegistryService {
   }
 
   /** Every tenant, whatever its status. For the migration runner and admin tooling. */
-  async list(): Promise<Array<TenantDescriptor & { status: TenantStatus }>> {
+  async list(): Promise<Array<TenantDescriptor & { status: TenantStatus; name: string }>> {
     const rows = await this.platformDb.select().from(tenants).orderBy(tenants.slug);
     return rows.map((row) => ({
       tenantId: row.id,
@@ -126,6 +168,10 @@ export class TenantRegistryService {
       schemaName: row.schemaName,
       roleName: row.roleName,
       status: row.status as TenantStatus,
+      // Listed alongside the descriptor rather than added to TenantDescriptor
+      // itself: that type is what gets bound into SQL, and the display name is
+      // explicitly never used to build a statement.
+      name: row.name,
     }));
   }
 

@@ -101,6 +101,23 @@ CREATE TABLE IF NOT EXISTS platform.super_admins (
     created_by          text
 );
 
+-- Which tenant a super admin is currently looking at.
+--
+-- A super admin has no tenant of their own — they sit above every tenant — but
+-- they can view any tenant's users, vessels and reports. Which one they are
+-- viewing has to live somewhere the server controls: TenantMiddleware resolves
+-- the tenant from the authenticated session and from nothing the caller sends,
+-- precisely so that nominating a tenant cannot become a way around
+-- authentication. A super admin nominating one is legitimate, so the choice is
+-- recorded here, server-side, against their identity — and ovl_api may read it
+-- but not write it, exactly like super_admins itself.
+CREATE TABLE IF NOT EXISTS platform.super_admin_tenant_selection (
+    supertokens_user_id text PRIMARY KEY
+        REFERENCES platform.super_admins (supertokens_user_id) ON DELETE CASCADE,
+    tenant_id           uuid NOT NULL REFERENCES platform.tenants (id) ON DELETE CASCADE,
+    selected_at         timestamp with time zone NOT NULL DEFAULT now()
+);
+
 -- Which tenant a vessel's API key belongs to.
 --
 -- Edge (vessel) traffic authenticates with a bearer token, not a session, so
@@ -182,6 +199,7 @@ $$;
 -- role: enough to answer "which schema does this user belong to?", nothing more.
 GRANT USAGE ON SCHEMA platform TO ovl_api;
 GRANT SELECT ON platform.tenants, platform.tenant_users, platform.super_admins,
+                platform.super_admin_tenant_selection,
                 platform.edge_credentials TO ovl_api;
 
 -- Deliberately NOT granted: any privilege on `public`, or on any tenant schema.
@@ -224,7 +242,8 @@ $$;
 -- Provisioning writes the registry; ovl_api only reads it.
 GRANT USAGE ON SCHEMA platform TO ovl_admin;
 GRANT SELECT, INSERT, UPDATE, DELETE ON platform.tenants, platform.tenant_users, platform.tenant_migrations,
-       platform.super_admins, platform.edge_credentials TO ovl_admin;
+       platform.super_admins, platform.super_admin_tenant_selection,
+       platform.edge_credentials TO ovl_admin;
 
 -- ---------------------------------------------------------------------------
 -- 5. Master form-schema catalogue

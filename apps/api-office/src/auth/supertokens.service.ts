@@ -105,6 +105,17 @@ export class SupertokensService {
    * Looks up the local Postgres user record using the SuperTokens userId
    * stored in the session's access token payload.
    */
+  /**
+   * The SuperTokens identity itself, with no tenant lookup.
+   *
+   * Needed for the one caller that has no tenant to look in: a platform super
+   * admin, whose profile cannot live in a tenant schema because they belong to
+   * no tenant.
+   */
+  async getSupertokensUser(stUserId: string) {
+    return supertokens.getUser(stUserId);
+  }
+
   async getLocalUser(stUserId: string): Promise<LocalUser | null> {
     // The SuperTokens userId maps to the email, which is the username in our DB
     const stUser = await supertokens.getUser(stUserId);
