@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import { ADMIN_PG_POOL } from './tenancy.constants';
 import { TenantRegistryService } from './tenant-registry.service';
 import { PlatformDbService } from './platform-db.service';
+import { AuditService, type AuditRequestMeta } from '../audit/audit.service';
 
 /** What a super admin is currently looking at, and what they may do there. */
 export interface TenantView {
@@ -57,6 +58,7 @@ export class TenantSelectionService {
     @Optional() @Inject(ADMIN_PG_POOL) private readonly adminPool: Pool | null,
     private readonly registry: TenantRegistryService,
     private readonly platform: PlatformDbService,
+    private readonly audit: AuditService,
   ) {}
 
   get enabled(): boolean {
@@ -101,10 +103,22 @@ export class TenantSelectionService {
   }
 
   /** Switches the mode for the tenant already in view. */
-  async setMode(supertokensUserId: string, mode: 'read' | 'write'): Promise<TenantView | null> {
+  async setMode(
+    supertokensUserId: string,
+    mode: 'read' | 'write',
+    meta: AuditRequestMeta = {},
+  ): Promise<TenantView | null> {
     const pool = this.requirePool();
+    const before = await this.current(supertokensUserId);
 
     if (!(await this.platform.isSuperAdmin(supertokensUserId))) {
+      await this.audit.record({
+        event: 'impersonation.mode_changed',
+        outcome: 'failure',
+        actorUserId: supertokensUserId,
+        detail: { requestedMode: mode, reason: 'not a super admin' },
+        ...meta,
+      });
       throw new Error('Only a platform super admin may change access mode.');
     }
 
@@ -118,7 +132,27 @@ export class TenantSelectionService {
 
     this.registry.invalidate();
     this.logger.warn(`Super admin ${supertokensUserId} switched to ${mode} mode`);
-    return this.current(supertokensUserId);
+
+    const after = await this.current(supertokensUserId);
+    // The single most important row in the log: write mode is unrestricted
+    // inside the tenant, so the record that it was entered — by whom, in
+    // whose tenant, and until when — is the whole control on it.
+    await this.audit.record({
+      event: 'impersonation.mode_changed',
+      actorUserId: supertokensUserId,
+      actorEmail: await this.platform.superAdminEmail(supertokensUserId),
+      actorIsSuperAdmin: true,
+      tenantSlug: after?.slug ?? before?.slug ?? null,
+      tenantId: await this.tenantIdForSlug(after?.slug ?? before?.slug),
+      subject: after?.slug ?? before?.slug ?? null,
+      detail: {
+        from: before?.mode ?? 'read',
+        to: after?.mode ?? mode,
+        writeExpiresAt: after?.writeExpiresAt ?? null,
+      },
+      ...meta,
+    });
+    return after;
   }
 
   /**
@@ -129,10 +163,27 @@ export class TenantSelectionService {
    * subsequent request of theirs reads, so it is the last place the check can
    * still matter.
    */
-  async select(supertokensUserId: string, slug: string): Promise<{ slug: string }> {
+  async select(
+    supertokensUserId: string,
+    slug: string,
+    meta: AuditRequestMeta = {},
+  ): Promise<{ slug: string }> {
     const pool = this.requirePool();
+    const previous = await this.current(supertokensUserId);
 
     if (!(await this.platform.isSuperAdmin(supertokensUserId))) {
+      // A non-super-admin reaching this far is the event worth keeping, so it
+      // is recorded before the throw rather than only appearing as a 403 in
+      // an access log that ages out in days.
+      await this.audit.record({
+        event: 'impersonation.started',
+        outcome: 'failure',
+        actorUserId: supertokensUserId,
+        tenantSlug: slug,
+        subject: slug,
+        detail: { reason: 'not a super admin' },
+        ...meta,
+      });
       throw new Error('Only a platform super admin may select a tenant to view.');
     }
 
@@ -155,17 +206,55 @@ export class TenantSelectionService {
     // keeps seeing the previous tenant until the TTL expires.
     this.registry.invalidate();
     this.logger.log(`Super admin ${supertokensUserId} is now viewing tenant ${slug}`);
+
+    await this.audit.record({
+      event: 'impersonation.started',
+      actorUserId: supertokensUserId,
+      actorEmail: await this.platform.superAdminEmail(supertokensUserId),
+      actorIsSuperAdmin: true,
+      tenantId: tenant.tenantId,
+      tenantSlug: slug,
+      subject: slug,
+      // Recorded because switching tenants is also an exit from the previous
+      // one, and a log that shows only entries leaves the operator apparently
+      // inside two tenants at once.
+      detail: { previousTenant: previous?.slug ?? null, mode: 'read' },
+      ...meta,
+    });
     return { slug };
   }
 
   /** Returns the super admin to having no tenant in view. */
-  async clear(supertokensUserId: string): Promise<void> {
+  async clear(supertokensUserId: string, meta: AuditRequestMeta = {}): Promise<void> {
     const pool = this.requirePool();
+    // Read before the delete: afterwards there is nothing left to say which
+    // tenant the operator was in, which is the one fact the row needs.
+    const previous = await this.current(supertokensUserId);
+
     await pool.query(
       `DELETE FROM platform.super_admin_tenant_selection WHERE supertokens_user_id = $1`,
       [supertokensUserId],
     );
     this.registry.invalidate();
+
+    await this.audit.record({
+      event: 'impersonation.stopped',
+      actorUserId: supertokensUserId,
+      actorEmail: await this.platform.superAdminEmail(supertokensUserId),
+      actorIsSuperAdmin: true,
+      tenantId: await this.tenantIdForSlug(previous?.slug),
+      tenantSlug: previous?.slug ?? null,
+      subject: previous?.slug ?? null,
+      detail: { modeAtExit: previous?.mode ?? null },
+      ...meta,
+    });
+  }
+
+  /** Slug to tenant id, for audit rows. Null when there was no tenant in view. */
+  private async tenantIdForSlug(slug: string | undefined | null): Promise<string | null> {
+    if (!slug) return null;
+    const tenant = await this.registry.forSlug(slug);
+    return tenant?.tenantId ?? null;
   }
 
   private requirePool(): Pool {

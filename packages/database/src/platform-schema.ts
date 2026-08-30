@@ -151,6 +151,84 @@ export const superAdminTenantSelection = platform.table('super_admin_tenant_sele
 export type SuperAdminTenantSelectionRow = typeof superAdminTenantSelection.$inferSelect;
 
 /**
+ * Retention, in months, by event class.
+ *
+ * Enforced in the database — a BEFORE INSERT trigger stamps `retainUntil` from
+ * these periods, so a writer cannot choose its own retention. Repeated here
+ * only so application code can say what it is about to do; the numbers that
+ * actually govern the row live in platform-bootstrap.sql.
+ */
+export const AUDIT_RETENTION_MONTHS = {
+	auth: 12,
+	admin: 24,
+	impersonation: 36,
+} as const;
+
+export const AUDIT_EVENT_CLASSES = ['auth', 'admin', 'impersonation'] as const;
+export type AuditEventClass = (typeof AUDIT_EVENT_CLASSES)[number];
+
+export const AUDIT_OUTCOMES = ['success', 'failure'] as const;
+export type AuditOutcome = (typeof AUDIT_OUTCOMES)[number];
+
+/**
+ * The append-only record of who did what, and in whose tenant.
+ *
+ * Append-only is a property of the grants rather than of this definition:
+ * `audit_writer` holds INSERT and not SELECT, `audit_reader` holds SELECT and
+ * not INSERT, and no role holds UPDATE or DELETE. Drizzle will happily
+ * generate an `update()` against this table; Postgres will refuse it.
+ *
+ * It sits in `platform` and not in each tenant schema so that an operator who
+ * can reach a tenant's data cannot reach the log of their own visit, and so
+ * that archiving a tenant does not erase what was done inside it.
+ */
+export const auditEvents = platform.table(
+	'audit_events',
+	{
+		id: uuid('id').primaryKey().defaultRandom().notNull(),
+		at: timestamp('at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+
+		/** NULL for events that precede any tenant, such as a super admin's sign-in. */
+		tenantId: uuid('tenant_id'),
+		/** Kept alongside tenantId so the row stays readable after a tenant is destroyed. */
+		tenantSlug: text('tenant_slug'),
+
+		/** Dotted name, e.g. `impersonation.mode_changed`. */
+		event: text('event').notNull(),
+		/** One of AUDIT_EVENT_CLASSES. Drives retention and nothing else. */
+		eventClass: text('event_class').notNull(),
+		/** One of AUDIT_OUTCOMES. Failures are rows, never omissions. */
+		outcome: text('outcome').default('success').notNull(),
+
+		actorUserId: text('actor_user_id'),
+		/** Denormalised: the row must stay legible after the identity is deleted. */
+		actorEmail: text('actor_email'),
+		actorIsSuperAdmin: boolean('actor_is_super_admin').default(false).notNull(),
+
+		/** What was acted on — a user id, a tenant slug, an API key label. */
+		subject: text('subject'),
+		detail: jsonb('detail').notNull().default({}),
+
+		requestId: text('request_id'),
+		ip: text('ip'),
+		userAgent: text('user_agent'),
+
+		/** Stamped by a database trigger from eventClass. Never sent by a writer. */
+		retainUntil: timestamp('retain_until', { withTimezone: true, mode: 'string' }).notNull(),
+	},
+	(table) => {
+		return {
+			auditEventsAtIdx: index('audit_events_at_idx').on(table.at),
+			auditEventsTenantAtIdx: index('audit_events_tenant_at_idx').on(table.tenantId, table.at),
+			auditEventsActorAtIdx: index('audit_events_actor_at_idx').on(table.actorUserId, table.at),
+			auditEventsRetainUntilIdx: index('audit_events_retain_until_idx').on(table.retainUntil),
+		};
+	},
+);
+
+export type AuditEventRow = typeof auditEvents.$inferSelect;
+
+/**
  * Which tenant a vessel's API key belongs to.
  *
  * Edge traffic authenticates with a bearer token rather than a session, so

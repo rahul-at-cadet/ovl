@@ -120,3 +120,23 @@ export function requireTenant() {
   }
   return tenant;
 }
+
+/**
+ * The request facts an audit row needs and a service cannot know.
+ *
+ * `req.ip` honours Express's `trust proxy` setting, so behind the nginx in
+ * deploy/ it is the client address rather than the proxy's — provided that
+ * setting is on. Where it is not, this records the hop in front, which is
+ * still more useful than recording nothing and is why the value is stored as
+ * text rather than as `inet`.
+ */
+export function auditMeta(ctx: Context): {
+  ip: string | null;
+  userAgent: string | null;
+} {
+  const userAgent = ctx.req.headers['user-agent'];
+  return {
+    ip: ctx.req.ip ?? null,
+    userAgent: typeof userAgent === 'string' ? userAgent : null,
+  };
+}

@@ -9,6 +9,7 @@ import { TrpcModule } from './rpc/trpc.module';
 import { ReportsModule } from './reports/reports.module';
 import { TenancyModule } from './tenancy/tenancy.module';
 import { FormCatalogueModule } from './form-catalogue/form-catalogue.module';
+import { AuditModule } from './audit/audit.module';
 
 /**
  * Multi-tenancy is opt-in while the migration from the single shared schema is
@@ -44,6 +45,8 @@ const tenancyImports = multiTenancyEnabled
       // Depends on PlatformDbService and TenantDbService, so it only makes
       // sense once TenancyModule is registered.
       FormCatalogueModule,
+      // Same: it writes platform.audit_events through TenancyModule's pool.
+      AuditModule,
     ]
   : [];
 

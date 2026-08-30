@@ -72,6 +72,22 @@ export class PlatformDbService {
     return value;
   }
 
+  /**
+   * The email recorded for a super admin, for the audit log.
+   *
+   * Read from `platform.super_admins` rather than from SuperTokens: an audit
+   * row must stay legible after the identity it names is deleted, and this is
+   * the copy that survives. Returns null for anyone who is not a super admin.
+   */
+  async superAdminEmail(supertokensUserId: string): Promise<string | null> {
+    const rows = await this.platformDb
+      .select({ email: superAdmins.email })
+      .from(superAdmins)
+      .where(eq(superAdmins.supertokensUserId, supertokensUserId))
+      .limit(1);
+    return rows[0]?.email ?? null;
+  }
+
   invalidateSuperAdmins(): void {
     this.superAdminCache.clear();
   }

@@ -472,6 +472,172 @@ GRANT SELECT ON
     platform.form_enums, platform.form_enum_versions, platform.form_enum_values
     TO ovl_api;
 
+-- ---------------------------------------------------------------------------
+-- 9. The audit log
+--
+-- Write mode lets a platform operator change a customer's live data with the
+-- customer's own privileges. Nothing constrains what they may change while
+-- that window is open, which makes this table the control on it: the record of
+-- who entered whose tenant, in which mode, and what they did there.
+--
+-- It lives in `platform` rather than in each tenant schema for three reasons.
+-- A super admin acting before any tenant is selected has no tenant schema to
+-- write into. An operator who could reach a tenant's data could otherwise
+-- reach the log of their own visit. And a tenant that is later archived should
+-- not take the record of what was done inside it with it.
+--
+-- Append-only is enforced by grants, not by convention. `audit_writer` holds
+-- INSERT and nothing else — not even SELECT, so a compromised write path
+-- cannot read the log back out. `audit_reader` holds SELECT and nothing else.
+-- No role anywhere holds UPDATE or DELETE; the only way a row ever leaves is
+-- purge_expired_audit_events() below, which can only remove rows that are
+-- already past their retention.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS platform.audit_events (
+    id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    at            timestamp with time zone NOT NULL DEFAULT now(),
+
+    -- Which tenant the event concerns; NULL for platform-level events that
+    -- precede any tenant, such as a super admin's own sign-in.
+    --
+    -- ON DELETE SET NULL, never CASCADE: destroying a tenant must not destroy
+    -- the record of what was done inside it, which is exactly when that record
+    -- matters most. `tenant_slug` is stored alongside so the row stays
+    -- readable after the tenant it names is gone.
+    tenant_id     uuid REFERENCES platform.tenants (id) ON DELETE SET NULL,
+    tenant_slug   text,
+
+    -- Dotted name, e.g. 'impersonation.mode_changed'. Free text rather than an
+    -- enum: a deployment running an older binary must still be able to store
+    -- an event a newer one emits, and an audit log that rejects unknown events
+    -- loses precisely the events worth having.
+    event         text NOT NULL,
+
+    -- Drives retention, and only that. Three classes because the retention
+    -- periods are three: authentication 12 months, administrative change 24,
+    -- impersonation 36.
+    event_class   text NOT NULL
+        CONSTRAINT audit_events_class_check
+        CHECK (event_class IN ('auth', 'admin', 'impersonation')),
+
+    -- Failures are the entries that matter most — a run of failed sign-ins is
+    -- the signal — so they are first-class rows, not omissions.
+    outcome       text NOT NULL DEFAULT 'success'
+        CONSTRAINT audit_events_outcome_check
+        CHECK (outcome IN ('success', 'failure')),
+
+    -- Who did it. The email is denormalised on purpose: an audit row must stay
+    -- legible after the identity it names has been deleted.
+    actor_user_id        text,
+    actor_email          text,
+    actor_is_super_admin boolean NOT NULL DEFAULT false,
+
+    -- What it was done to: a user id, a tenant slug, an API key label.
+    subject       text,
+
+    -- Anything event-specific. Deliberately schemaless — the alternative is a
+    -- migration every time an event learns a new field, which in practice
+    -- means the field is not recorded.
+    detail        jsonb NOT NULL DEFAULT '{}'::jsonb,
+
+    request_id    text,
+    ip            text,
+    user_agent    text,
+
+    -- When this row becomes eligible for deletion. Set by the trigger below,
+    -- never by the caller: retention that the writer can choose is retention
+    -- that a compromised writer can set to zero.
+    retain_until  timestamp with time zone NOT NULL
+);
+
+CREATE OR REPLACE FUNCTION platform.audit_events_set_retention()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $fn$
+BEGIN
+    NEW.retain_until := NEW.at + CASE NEW.event_class
+        WHEN 'auth'          THEN interval '12 months'
+        WHEN 'admin'         THEN interval '24 months'
+        WHEN 'impersonation' THEN interval '36 months'
+    END;
+    RETURN NEW;
+END;
+$fn$;
+
+DROP TRIGGER IF EXISTS audit_events_set_retention ON platform.audit_events;
+CREATE TRIGGER audit_events_set_retention
+    BEFORE INSERT ON platform.audit_events
+    FOR EACH ROW EXECUTE FUNCTION platform.audit_events_set_retention();
+
+-- The tenant-facing view reads (tenant_id, at); the platform-wide one reads
+-- (at); "everything this operator did" reads (actor_user_id, at). The last
+-- index is for the purge, which would otherwise scan the whole table.
+CREATE INDEX IF NOT EXISTS audit_events_at_idx
+    ON platform.audit_events (at DESC);
+CREATE INDEX IF NOT EXISTS audit_events_tenant_at_idx
+    ON platform.audit_events (tenant_id, at DESC);
+CREATE INDEX IF NOT EXISTS audit_events_actor_at_idx
+    ON platform.audit_events (actor_user_id, at DESC);
+CREATE INDEX IF NOT EXISTS audit_events_retain_until_idx
+    ON platform.audit_events (retain_until);
+
+-- The only path by which an audit row is ever removed.
+--
+-- SECURITY DEFINER so that DELETE on the table can stay ungranted: the
+-- privilege lives in this function, and the function can only delete what has
+-- already outlived its retention. Run it from a scheduled job.
+CREATE OR REPLACE FUNCTION platform.purge_expired_audit_events()
+RETURNS bigint
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = platform, pg_temp
+AS $fn$
+DECLARE
+    removed bigint;
+BEGIN
+    DELETE FROM platform.audit_events WHERE retain_until <= now();
+    GET DIAGNOSTICS removed = ROW_COUNT;
+    RETURN removed;
+END;
+$fn$;
+
+REVOKE ALL ON FUNCTION platform.purge_expired_audit_events() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION platform.purge_expired_audit_events() TO ovl_admin;
+
+-- Same dormant-membership pattern as platform_publisher and edge_registrar:
+-- ovl_api is a member of both roles, NOINHERIT keeps both inert, and each
+-- applies only inside a transaction that has explicitly assumed it.
+--
+-- Two roles rather than one because writing and reading the log are different
+-- privileges held by different code paths. The request path writes; only a
+-- super admin, or a tenant admin looking at their own tenant's events, reads.
+
+SELECT format('CREATE ROLE %I NOLOGIN', 'audit_writer')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'audit_writer')
+\gexec
+
+GRANT USAGE ON SCHEMA platform TO audit_writer;
+GRANT INSERT ON platform.audit_events TO audit_writer;
+GRANT audit_writer TO ovl_api;
+GRANT audit_writer TO ovl_admin;
+
+SELECT format('CREATE ROLE %I NOLOGIN', 'audit_reader')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'audit_reader')
+\gexec
+
+GRANT USAGE ON SCHEMA platform TO audit_reader;
+GRANT SELECT ON platform.audit_events TO audit_reader;
+-- The reader needs the registry too: an audit view names tenants, and joining
+-- to platform.tenants under this role must not fall back on ovl_api's grants,
+-- which are dormant while a role is assumed.
+GRANT SELECT ON platform.tenants TO audit_reader;
+GRANT audit_reader TO ovl_api;
+GRANT audit_reader TO ovl_admin;
+
+-- Deliberately NOT granted: SELECT to audit_writer, and UPDATE or DELETE to
+-- anyone at all.
+
 COMMIT;
 
 -- ---------------------------------------------------------------------------

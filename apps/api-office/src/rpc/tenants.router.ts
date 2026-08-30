@@ -1,7 +1,7 @@
 import { TRPCError } from '@trpc/server';
 import { Type, Static } from '@sinclair/typebox';
 import { TypeCompiler } from '@sinclair/typebox/compiler';
-import { protectedProcedure, router } from './trpc.base';
+import { auditMeta, protectedProcedure, router } from './trpc.base';
 import { TenantRegistryService } from '../tenancy/tenant-registry.service';
 import { TenantProvisioningService } from '../tenancy/tenant-provisioning.service';
 import { TenantMigrationRunnerService } from '../tenancy/tenant-migration-runner.service';
@@ -331,7 +331,7 @@ export function createTenantsRouter(deps: () => TenantsRouterDeps) {
       .mutation(async ({ input, ctx }) => {
         const userId = await requireSuperAdmin(ctx);
         const selection = require(deps().selection, 'Tenant viewing');
-        return selection.select(userId, input.slug);
+        return selection.select(userId, input.slug, auditMeta(ctx));
       }),
 
     /**
@@ -349,14 +349,14 @@ export function createTenantsRouter(deps: () => TenantsRouterDeps) {
       .mutation(async ({ input, ctx }) => {
         const userId = await requireSuperAdmin(ctx);
         const selection = require(deps().selection, 'Tenant viewing');
-        return selection.setMode(userId, input.mode);
+        return selection.setMode(userId, input.mode, auditMeta(ctx));
       }),
 
     /** Returns this super admin to having no tenant in view. */
     stopViewing: protectedProcedure.mutation(async ({ ctx }) => {
       const userId = await requireSuperAdmin(ctx);
       const selection = require(deps().selection, 'Tenant viewing');
-      await selection.clear(userId);
+      await selection.clear(userId, auditMeta(ctx));
       return { cleared: true };
     }),
 
