@@ -12,7 +12,6 @@ import {
 import { TenantRegistryService, type TenantDescriptor } from './tenant-registry.service';
 import { runAsSystemForTenant } from './tenant-context';
 import { UsersService } from '../users/users.service';
-import supertokens from 'supertokens-node';
 import { TenantMigrationRunnerService } from './tenant-migration-runner.service';
 
 export interface ProvisionTenantInput {
@@ -79,40 +78,35 @@ export class TenantProvisioningService {
    * would let it be recovered later, which is the point.
    *
    * Runs inside the tenant's own context, so the profile lands in that tenant's
-   * schema. The platform mapping is written afterwards, because until it exists
-   * the account has no way to resolve a tenant at sign-in.
+   * schema — and so `UsersService.createUser` writes the platform mapping for
+   * the tenant this context names.
+   *
+   * That mapping used to be written here instead, on the admin pool, because
+   * `createUser` did not write it at all. It does now, for every account rather
+   * than only this one, which was the bug: an office admin creating a colleague
+   * produced an identity that authenticated and then resolved to no tenant.
+   * Repeating the INSERT here would be idempotent and pointless — worse, it
+   * would hide a broken grant on the path every *other* account takes, since
+   * provisioning would keep succeeding while ordinary creation failed.
    */
   async createFirstAdmin(
     tenant: TenantDescriptor,
     username: string,
   ): Promise<FirstAdminResult> {
-    const pool = this.requirePool();
+    // Not used here any more, but still required: provisioning stays disabled
+    // in a process with no admin connection, and creating a tenant's first
+    // administrator is provisioning.
+    this.requirePool();
 
     const created = await runAsSystemForTenant({ ...tenant, requestId: 'provision-admin' }, () =>
       this.users.createUser({ username, roles: ['admin'] as never }),
     );
 
-    const stUser = await supertokens.listUsersByAccountInfo('public', { email: username });
-    const supertokensUserId = stUser[0]?.id;
-    if (!supertokensUserId) {
-      throw new Error(
-        `Created a local profile for ${username} but found no SuperTokens identity to map it to.`,
-      );
-    }
-
-    await pool.query(
-      `INSERT INTO platform.tenant_users (supertokens_user_id, tenant_id)
-       VALUES ($1, $2)
-       ON CONFLICT (supertokens_user_id) DO UPDATE SET tenant_id = EXCLUDED.tenant_id`,
-      [supertokensUserId, tenant.tenantId],
-    );
-    this.registry.invalidate();
-
     this.logger.log(`Created first admin ${username} for tenant ${tenant.slug}`);
     return {
       username,
       temporaryPassword: created.temporaryPassword,
-      supertokensUserId,
+      supertokensUserId: created.supertokensUserId,
     };
   }
 

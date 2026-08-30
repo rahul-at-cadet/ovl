@@ -1,10 +1,12 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException, Inject, Optional } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException, Inject, Optional } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import * as schema from '@ovl/database';
 import * as argon2 from 'argon2';
 import EmailPassword from 'supertokens-node/recipe/emailpassword';
 import supertokens from 'supertokens-node';
 import { TenantDbService } from '../tenancy/tenant-db.service';
+import { TenantMembershipService } from '../tenancy/tenant-membership.service';
+import { currentTenant } from '../tenancy/tenant-context';
 import { AuditService, type AuditActor } from '../audit/audit.service';
 import type { LocalUser } from '../auth/supertokens.service';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -61,8 +63,11 @@ function randomPassword(length = 12): string {
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     private readonly tenantDb: TenantDbService,
+    private readonly membership: TenantMembershipService,
     // Optional because AuditModule ships with TenancyModule and is registered
     // only when multi-tenancy is on. Without it these methods behave exactly
     // as before and record nothing.
@@ -136,11 +141,49 @@ export class UsersService {
    * admin-initiated server-side EmailPassword.signUp call — so the local
    * row here carries the admin's own chosen roles instead of that
    * default, exactly once, right after the identity is created.
+   *
+   * ## Three writes, not two
+   *
+   * A usable account under multi-tenancy needs a SuperTokens identity, a
+   * profile row in the tenant's schema, and a row in
+   * `platform.tenant_users` saying which tenant that identity belongs to.
+   * Only the first two were written here, and the missing third was not a
+   * visible failure: the account was created, the admin was shown a
+   * temporary password, and the person could sign in with it. What they
+   * could not do was anything afterwards. `TenantRegistryService.forUser`
+   * reads that table and nothing else, so they resolved to no tenant;
+   * AuthGuard then found no local profile — `getLocalUser` needs a tenant
+   * to know where to look — and rejected them, while every tRPC procedure
+   * calling `requireTenant()` threw FORBIDDEN. Live, that presented as a
+   * dashboard of empty placeholder stats and a 401 from
+   * `POST /trpc/users.create` that the SuperTokens frontend interceptor
+   * misread as an expired session and retried ten times.
+   *
+   * Only `TenantProvisioningService` wrote that table — once when a tenant
+   * is provisioned, once for its first admin — so every account an office
+   * admin created afterwards, through the UI or the API, was born broken.
+   *
+   * ## Ordering
+   *
+   * The membership write is deliberately *after* the tenant transaction
+   * commits rather than inside it, for the reason
+   * TenantMembershipService's own comment gives: it needs a second
+   * connection, and taking one while holding a tenant transaction is the
+   * pool-exhaustion deadlock TenantDbService warns about. That leaves a
+   * window where the profile exists and the mapping does not, which is
+   * exactly today's bug — so a failure there deletes the profile again
+   * rather than returning an account that cannot work. What survives is
+   * the orphaned SuperTokens identity, the same residue the
+   * EMAIL_ALREADY_EXISTS branch below already describes.
    */
   async createUser(
     dto: CreateUserDto,
     actor: AuditActor = {},
-  ): Promise<{ user: SafeUser; temporaryPassword: string }> {
+  ): Promise<{ user: SafeUser; temporaryPassword: string; supertokensUserId: string }> {
+    // Read before the transaction opens, so the failure when there is no
+    // tenant is "no tenant context" rather than a half-created account.
+    const tenant = currentTenant();
+
     const result = await this.tenantDb.withTenant(async (db) => {
       // Check for duplicate username
       const existing = await db
@@ -185,8 +228,38 @@ export class UsersService {
         })
         .returning();
 
-      return { user: toSafeUser(created), temporaryPassword };
+      // The primary SuperTokens user id, which is what a session reports and
+      // therefore what TenantRegistryService.forUser is keyed on.
+      return {
+        user: toSafeUser(created),
+        temporaryPassword,
+        supertokensUserId: signUpResult.user.id,
+      };
   });
+
+    // The third write. Without it the two above produce an account that
+    // authenticates and then resolves to no tenant — see this method's own
+    // doc comment.
+    try {
+      await this.membership.register(result.supertokensUserId, tenant.tenantId);
+    } catch (error) {
+      // An account with no membership is worse than no account: it looks
+      // created, hands the admin a password, and fails on every request the
+      // person makes afterwards. Undo the profile so the failure is honest.
+      // Best-effort — if this fails too, the original error is still the one
+      // worth reporting.
+      await this.tenantDb
+        .withTenant((db) => db.delete(schema.users).where(eq(schema.users.id, result.user.id)))
+        .catch((cleanupError) => {
+          this.logger.error(
+            `Failed to roll back the profile for ${dto.username} after its tenant ` +
+              `membership could not be written. That account exists in ` +
+              `${tenant.slug} with no platform.tenant_users row and cannot be used: ` +
+              String(cleanupError),
+          );
+        });
+      throw error;
+    }
 
     // After the transaction, not inside it: the audit write is on its own
     // connection anyway, and a record of a creation that then rolled back

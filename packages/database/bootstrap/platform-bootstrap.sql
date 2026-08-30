@@ -638,6 +638,47 @@ GRANT audit_reader TO ovl_admin;
 -- Deliberately NOT granted: SELECT to audit_writer, and UPDATE or DELETE to
 -- anyone at all.
 
+-- ---------------------------------------------------------------------------
+-- 10. The role that records tenant membership
+--
+-- Creating a user writes two places: the profile row in the tenant's own
+-- schema, and the platform mapping that says which tenant that identity
+-- belongs to. Without the second, the account authenticates and then resolves
+-- to no tenant at all — it can sign in, and every request after that is
+-- rejected, because TenantRegistryService.forUser reads this table and finds
+-- nothing.
+--
+-- Section 3 gives ovl_api SELECT here and no more, which is correct for
+-- resolution and insufficient for creation. The privilege is therefore held by
+-- a role of its own, exactly as edge_registrar and audit_writer are: ovl_api is
+-- a member, NOINHERIT keeps the membership inert, and it applies only inside a
+-- transaction that has explicitly assumed it while enrolling a new account.
+--
+-- The mapping matters as much as edge_credentials does, and for the same
+-- reason. It decides which schema an identity reaches, so a request path able
+-- to write it at will could move an account onto another operator's tenant.
+-- Narrow, dormant and deliberate is the point.
+--
+-- INSERT and UPDATE, not DELETE. Enrolling an account and moving one between
+-- tenants are both things the API does; unmapping an identity entirely is
+-- offboarding, which stays with ovl_admin (section 4).
+-- ---------------------------------------------------------------------------
+
+SELECT format('CREATE ROLE %I NOLOGIN', 'tenant_membership_writer')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tenant_membership_writer')
+\gexec
+
+GRANT USAGE ON SCHEMA platform TO tenant_membership_writer;
+GRANT SELECT, INSERT, UPDATE ON platform.tenant_users TO tenant_membership_writer;
+-- The INSERT has a foreign key to platform.tenants, and PostgreSQL checks it as
+-- the current role. Without this the write fails with "permission denied for
+-- table tenants" — an error about a table the statement never names, which is
+-- an unpleasant thing to debug. ovl_api's own SELECT does not cover it, being
+-- dormant while a role is assumed.
+GRANT SELECT ON platform.tenants TO tenant_membership_writer;
+GRANT tenant_membership_writer TO ovl_api;
+GRANT tenant_membership_writer TO ovl_admin;
+
 COMMIT;
 
 -- ---------------------------------------------------------------------------
