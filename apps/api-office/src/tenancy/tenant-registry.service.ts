@@ -95,6 +95,8 @@ export class TenantRegistryService {
         schemaName: tenants.schemaName,
         roleName: tenants.roleName,
         status: tenants.status,
+        mode: superAdminTenantSelection.mode,
+        writeExpiresAt: superAdminTenantSelection.writeExpiresAt,
       })
       .from(superAdminTenantSelection)
       .innerJoin(
@@ -105,11 +107,21 @@ export class TenantRegistryService {
       .where(eq(superAdminTenantSelection.supertokensUserId, supertokensUserId))
       .limit(1);
 
-    const descriptor = this.toDescriptor(selected[0]);
-    // Deliberately not cached: a super admin switching tenant must take effect
-    // on the next request, not after a TTL, or they spend the cache window
-    // looking at the tenant they just navigated away from.
-    return descriptor;
+    const row = selected[0];
+    const descriptor = this.toDescriptor(row);
+    if (!descriptor) return null;
+
+    // Read mode pins the whole request read-only. Expiry is evaluated here
+    // rather than trusted from the stored mode, so a lapsed write window stops
+    // granting writes the moment it passes rather than at the next write.
+    const writing =
+      row.mode === 'write' && !!row.writeExpiresAt && new Date(row.writeExpiresAt) > new Date();
+
+    // Deliberately not cached: a super admin switching tenant or mode must take
+    // effect on the next request, not after a TTL, or they spend the cache
+    // window looking at the tenant they just navigated away from — or, worse,
+    // still writing after dropping back to read.
+    return { ...descriptor, readOnly: !writing };
   }
 
   /** Lookup by slug. For the provisioning CLI and for cross-checking a subdomain. */

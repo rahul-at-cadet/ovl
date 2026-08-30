@@ -4,7 +4,7 @@ import { Pool, escapeIdentifier, type PoolClient } from 'pg';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from '@ovl/database';
 import { PG_POOL, TENANCY_OPTIONS, type ResolvedTenancyOptions } from './tenancy.constants';
-import { currentTenant } from './tenant-context';
+import { currentTenantReadOnly, currentTenant } from './tenant-context';
 import type { TenantDescriptor } from './tenant-registry.service';
 import {
   assertValidTenantRoleName,
@@ -145,7 +145,16 @@ export class TenantDbService {
     assertValidTenantSchemaName(tenant.schemaName);
     assertValidTenantRoleName(tenant.roleName);
 
-    return this.concurrency.run(tenant.tenantId, () => this.runBound(tenant, fn, options));
+    // Read-only is the union of what the caller asked for and what the request
+    // carries. A super admin viewing a tenant in read mode sets it on the
+    // context, and no service below can clear it — which is the point: the
+    // guarantee cannot depend on every call site remembering.
+    const effective: WithTenantOptions = {
+      ...options,
+      readOnly: options.readOnly || currentTenantReadOnly(),
+    };
+
+    return this.concurrency.run(tenant.tenantId, () => this.runBound(tenant, fn, effective));
   }
 
   /** Pool telemetry, for a health endpoint or a saturation alert. */

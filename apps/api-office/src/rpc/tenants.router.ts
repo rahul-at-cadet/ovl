@@ -48,6 +48,10 @@ const ProvisionSchema = Type.Object({
 const ProvisionCompiler = TypeCompiler.Compile(ProvisionSchema);
 
 const SlugSchema = Type.Object({ slug: Type.String() });
+const SetModeSchema = Type.Object({
+  mode: Type.Union([Type.Literal('read'), Type.Literal('write')]),
+});
+const SetModeCompiler = TypeCompiler.Compile(SetModeSchema);
 const SlugCompiler = TypeCompiler.Compile(SlugSchema);
 
 const SetStatusSchema = Type.Object({
@@ -121,7 +125,7 @@ export function createTenantsRouter(deps: () => TenantsRouterDeps) {
       // Which tenant this super admin is currently looking into. Ordinary
       // users always get null here: their tenant comes from their own
       // membership and is not something they choose.
-      let viewing: { slug: string; name: string } | null = null;
+      let viewing: Awaited<ReturnType<TenantSelectionService['current']>> = null;
       if (isSuperAdmin && d.selection?.enabled) {
         viewing = await d.selection.current(ctx.session.getUserId());
       }
@@ -328,6 +332,24 @@ export function createTenantsRouter(deps: () => TenantsRouterDeps) {
         const userId = await requireSuperAdmin(ctx);
         const selection = require(deps().selection, 'Tenant viewing');
         return selection.select(userId, input.slug);
+      }),
+
+    /**
+     * Switches between looking and changing.
+     *
+     * Read is the default and where an operator spends nearly all their time.
+     * Write is entered deliberately, lapses back after 30 minutes, and is
+     * dropped entirely when the tenant in view changes.
+     */
+    setMode: protectedProcedure
+      .input((val: unknown) => {
+        if (!SetModeCompiler.Check(val)) throw new Error('Invalid input');
+        return val as Static<typeof SetModeSchema>;
+      })
+      .mutation(async ({ input, ctx }) => {
+        const userId = await requireSuperAdmin(ctx);
+        const selection = require(deps().selection, 'Tenant viewing');
+        return selection.setMode(userId, input.mode);
       }),
 
     /** Returns this super admin to having no tenant in view. */

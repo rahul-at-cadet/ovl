@@ -115,8 +115,26 @@ CREATE TABLE IF NOT EXISTS platform.super_admin_tenant_selection (
     supertokens_user_id text PRIMARY KEY
         REFERENCES platform.super_admins (supertokens_user_id) ON DELETE CASCADE,
     tenant_id           uuid NOT NULL REFERENCES platform.tenants (id) ON DELETE CASCADE,
-    selected_at         timestamp with time zone NOT NULL DEFAULT now()
+    selected_at         timestamp with time zone NOT NULL DEFAULT now(),
+
+    -- 'read' or 'write'. Read is the default and is the mode an operator
+    -- spends almost all of their time in: looking at a customer's data to
+    -- answer a question. Write is entered deliberately.
+    mode                text NOT NULL DEFAULT 'read'
+        CONSTRAINT super_admin_tenant_selection_mode_check CHECK (mode IN ('read', 'write')),
+
+    -- When write mode lapses back to read. Write access that lasts until
+    -- someone remembers to turn it off is write access that is always on, and
+    -- an operator who has forgotten they are in write mode inside a customer's
+    -- tenant is the failure this prevents. NULL whenever mode is 'read'.
+    write_expires_at    timestamp with time zone
 );
+-- Both columns are added separately as well, so a database bootstrapped before
+-- they existed picks them up on the next idempotent re-run.
+ALTER TABLE platform.super_admin_tenant_selection
+    ADD COLUMN IF NOT EXISTS mode text NOT NULL DEFAULT 'read';
+ALTER TABLE platform.super_admin_tenant_selection
+    ADD COLUMN IF NOT EXISTS write_expires_at timestamp with time zone;
 
 -- Which tenant a vessel's API key belongs to.
 --

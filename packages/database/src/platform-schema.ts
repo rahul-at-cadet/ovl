@@ -142,6 +142,10 @@ export const superAdminTenantSelection = platform.table('super_admin_tenant_sele
 	supertokensUserId: text('supertokens_user_id').primaryKey().notNull(),
 	tenantId: uuid('tenant_id').notNull(),
 	selectedAt: timestamp('selected_at', { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	/** 'read' | 'write'. Read is the default and the mode an operator is in almost always. */
+	mode: text('mode').default('read').notNull(),
+	/** When write mode lapses back to read. NULL while in read mode. */
+	writeExpiresAt: timestamp('write_expires_at', { withTimezone: true, mode: 'string' }),
 });
 
 export type SuperAdminTenantSelectionRow = typeof superAdminTenantSelection.$inferSelect;

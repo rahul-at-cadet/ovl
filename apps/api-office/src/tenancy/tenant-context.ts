@@ -26,9 +26,30 @@ export interface TenantContext {
   readonly roleName: string;
   /** Correlates log lines for one request. Not used for authorisation. */
   readonly requestId: string;
+  /**
+   * Forces every transaction on this request to be read-only.
+   *
+   * Set when a platform super admin is viewing a tenant in read mode. It lives
+   * on the context rather than being passed per call because it must hold for
+   * the whole request: a single service that forgot to ask for it would
+   * otherwise be the one write that gets through. TenantDbService ORs it with
+   * the per-call option, so a caller can add read-only but never remove it.
+   */
+  readonly readOnly?: boolean;
 }
 
 const storage = new AsyncLocalStorage<TenantContext>();
+
+/**
+ * Whether the current request is pinned to read-only.
+ *
+ * Returns false outside a tenant context: work with no request behind it —
+ * migrations, the provisioning CLI, scheduled jobs — is not a super admin
+ * looking at a customer's data, and must not be silently made read-only.
+ */
+export function currentTenantReadOnly(): boolean {
+  return storage.getStore()?.readOnly === true;
+}
 
 /**
  * Runs `fn` with `context` visible to everything it awaits.
