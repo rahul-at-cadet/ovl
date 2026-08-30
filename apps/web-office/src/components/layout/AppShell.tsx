@@ -4,7 +4,7 @@ import { ReactNode, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import Session, { signOut } from 'supertokens-auth-react/recipe/session';
-import { LayoutDashboard, Database, Ship, Users, Settings, Bell, Menu, LogOut, Sliders, AlertTriangle, MessageSquare, CloudDownload, Briefcase, Building2 } from 'lucide-react';
+import { LayoutDashboard, Database, Ship, Users, Settings, Bell, Menu, LogOut, Sliders, AlertTriangle, MessageSquare, CloudDownload, Briefcase, Building2, ScrollText } from 'lucide-react';
 import { Button } from '@ovl/ui/components/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@ovl/ui/components/popover';
 import { Avatar, AvatarFallback, AvatarImage } from '@ovl/ui/components/avatar';
@@ -109,6 +109,13 @@ export function AppShell({ children }: AppShellProps) {
     enabled: sessionChecked,
   });
 
+  // The audit log is for administrators — a platform super admin reading
+  // across tenants, or a tenant's own admin reading theirs. Offering the link
+  // to everyone else would only lead them to a "not for you" page.
+  const { data: auditAccess } = trpc.audit.capabilities.useQuery(undefined, {
+    enabled: sessionChecked,
+  });
+
   const navItems = [
     { href: '/', label: 'Fleet Overview', icon: LayoutDashboard },
     { href: '/reports', label: 'Incoming Reports', icon: Database },
@@ -116,6 +123,9 @@ export function AppShell({ children }: AppShellProps) {
     { href: '/vessels', label: 'Vessel Management', icon: Ship },
     { href: '/configuration', label: 'Fleet Configuration', icon: Sliders },
     { href: '/users', label: 'Users & Roles', icon: Users },
+    ...(auditAccess?.canRead && auditAccess.available
+      ? [{ href: '/activity', label: 'Activity Log', icon: ScrollText }]
+      : []),
     ...(tenantAccess?.isSuperAdmin
       ? [{ href: '/tenants', label: 'Tenant Management', icon: Building2 }]
       : []),

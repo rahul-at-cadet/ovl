@@ -58,6 +58,8 @@ import { EdgeTenantResolverService } from '../tenancy/edge-tenant-resolver.servi
 import { TenantDbService } from '../tenancy/tenant-db.service';
 import { withTenantDb } from './tenant-scope';
 import { createTenantsRouter } from './tenants.router';
+import { createAuditRouter } from './audit.router';
+import { AuditService } from '../audit/audit.service';
 import { TenantRegistryService } from '../tenancy/tenant-registry.service';
 import { TenantProvisioningService } from '../tenancy/tenant-provisioning.service';
 import { TenantMigrationRunnerService } from '../tenancy/tenant-migration-runner.service';
@@ -285,6 +287,7 @@ export class TrpcRouter {
     @Optional() @Inject(TenantProvisioningService) private readonly tenantProvisioning?: TenantProvisioningService,
     @Optional() @Inject(TenantMigrationRunnerService) private readonly tenantMigrations?: TenantMigrationRunnerService,
     @Optional() @Inject(TenantSelectionService) private readonly tenantSelection?: TenantSelectionService,
+    @Optional() @Inject(AuditService) private readonly auditService?: AuditService,
   ) {}
 
   /** Throws unless the catalogue is wired up. */
@@ -399,6 +402,14 @@ export class TrpcRouter {
       provisioning: this.tenantProvisioning,
       migrations: this.tenantMigrations,
       selection: this.tenantSelection,
+    })),
+
+    // Reading the platform audit log. Extracted to audit.router.ts, which is
+    // also where the super-admin/tenant-admin split is enforced.
+    audit: createAuditRouter(() => ({
+      audit: this.auditService,
+      platformDb: this.platformDb,
+      supertokensService: this.supertokensService,
     })),
 
     catalogue: router({
