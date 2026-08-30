@@ -211,10 +211,16 @@ export default function TenantsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <PageHeading />
-        <div className="flex gap-3 w-full md:w-auto">
-          <div className="relative w-full md:w-72">
+      {/* min-w-0 on both halves, and the actions wrap rather than forcing the
+          row wider than the page. Without it the heading refused to shrink,
+          the search field held its fixed width, and the whole body scrolled
+          horizontally with the primary action clipped off the right edge. */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 min-w-0">
+        <div className="min-w-0">
+          <PageHeading />
+        </div>
+        <div className="flex flex-wrap gap-3 w-full md:w-auto min-w-0">
+          <div className="relative flex-1 min-w-[12rem] md:w-72 md:flex-none">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search by name or slug..."
@@ -226,7 +232,7 @@ export default function TenantsPage() {
           <Button
             onClick={() => setIsCreateOpen(true)}
             disabled={!capabilities?.canProvision}
-            className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-9 text-sm font-semibold shadow-sm shrink-0"
+            className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-9 text-sm font-semibold shadow-sm shrink-0 whitespace-nowrap"
           >
             <Plus className="w-4 h-4 mr-2" />
             New Tenant
