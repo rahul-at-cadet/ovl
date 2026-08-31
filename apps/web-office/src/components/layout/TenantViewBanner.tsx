@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Eye, EyeOff, Lock, PencilLine, Unlock } from 'lucide-react';
+import { Eye, EyeOff, Lock, PencilLine, ShieldAlert, Unlock } from 'lucide-react';
 import { Button } from '@ovl/ui/components/button';
 import { StatusBadge } from '@ovl/ui/components/status-badge';
 import { ConfirmDialog } from '@ovl/ui/components/confirm-dialog';
@@ -40,8 +40,19 @@ export function TenantViewBanner() {
 
   // Same query key the shell's nav already uses, so this costs no extra
   // round trip — React Query serves both from one cache entry.
-  const { data: capabilities } = trpc.tenants.capabilities.useQuery();
+  const { data: capabilities, error: capabilitiesError } = trpc.tenants.capabilities.useQuery();
   const viewing = capabilities?.viewing ?? null;
+
+  // `capabilities` is refused outright for an identity that is both a tenant
+  // member and a platform super admin — see the tenancy README, "Super admins
+  // belong to no tenant". Without this the refusal is invisible: the banner
+  // returns null, every page falls back to its own empty state, and the
+  // operator is left with a working-looking application showing nothing.
+  // This strip is the right place for it because it is the one piece of chrome
+  // that appears on every screen, and it is exactly where the wrong answer
+  // used to be shown.
+  const refusal =
+    capabilitiesError?.data?.code === 'FORBIDDEN' ? capabilitiesError.message : null;
 
   const [confirmWriteOpen, setConfirmWriteOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -88,6 +99,22 @@ export function TenantViewBanner() {
       router.push('/tenants');
     },
   });
+
+  if (refusal) {
+    return (
+      <div className="shrink-0 border-b border-status-critical/40 bg-status-critical/10 px-4 lg:px-8 py-2">
+        <div className="flex items-start gap-2.5">
+          <ShieldAlert className="w-4 h-4 shrink-0 text-status-critical mt-px" />
+          <p className="text-xs text-muted-foreground min-w-0">
+            <span className="text-foreground font-medium">
+              This account cannot be served.
+            </span>{' '}
+            {refusal}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (!viewing) return null;
 

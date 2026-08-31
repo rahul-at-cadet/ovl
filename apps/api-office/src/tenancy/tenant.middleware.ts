@@ -1,11 +1,23 @@
 import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import Session from 'supertokens-node/recipe/session';
-import { TenantRegistryService } from './tenant-registry.service';
+import { ConflictingIdentityError, TenantRegistryService } from './tenant-registry.service';
 import { runWithTenant } from './tenant-context';
 
 /** Set when a session was present but resolved to no usable tenant. */
 export const TENANT_UNRESOLVED = Symbol('ovl.tenantUnresolved');
+
+/**
+ * Set, to the explanatory message, when the identity holds both a tenant
+ * membership and a platform super admin grant.
+ *
+ * Distinct from TENANT_UNRESOLVED because the answers differ: an unresolved
+ * identity is told it belongs nowhere, which is true and unhelpfully generic
+ * here. This one carries the specific contradiction and how to clear it, and
+ * `TenantGuard` and the tRPC `isAuthed` middleware repeat it verbatim so the
+ * operator reads the same sentence whichever half of the API they hit.
+ */
+export const TENANT_CONFLICT = Symbol('ovl.tenantConflict');
 
 /**
  * Establishes the tenant context for the rest of the request.
@@ -49,6 +61,17 @@ export class TenantMiddleware implements NestMiddleware {
     try {
       descriptor = await this.registry.forUser(supertokensUserId);
     } catch (error) {
+      if (error instanceof ConflictingIdentityError) {
+        // Flagged rather than thrown, for the reason in this class's comment:
+        // an error raised here escapes into Express's own handler on the
+        // /trpc mount, which answers with a body no tRPC client can parse —
+        // so the browser gets a failure it cannot render and the screen goes
+        // quietly empty instead of loudly wrong. Handing it to the guard and
+        // to the tRPC middleware puts it in each layer's own idiom.
+        req[TENANT_CONFLICT] = error.message;
+        next();
+        return;
+      }
       next(error);
       return;
     }

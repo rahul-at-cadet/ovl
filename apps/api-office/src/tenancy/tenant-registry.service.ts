@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import {
   tenants,
@@ -17,6 +17,30 @@ import type { TenantContext } from './tenant-context';
 
 /** A resolved tenant, minus the per-request fields TenantContext adds. */
 export type TenantDescriptor = Omit<TenantContext, 'requestId'>;
+
+/**
+ * Thrown when one identity holds both a `platform.tenant_users` row and a
+ * `platform.super_admins` row.
+ *
+ * The two are mutually exclusive — a super admin belongs to no tenant — and
+ * `SuperAdminService.grant` and `TenantProvisioningService` both refuse to
+ * create the combination. This exists for rows written before that rule, or by
+ * hand: there is no correct tenant to serve such an identity, because half the
+ * application would read their own membership and the other half the tenant
+ * they have selected. Refusing is the only answer that is not silently wrong
+ * somewhere. See `apps/api-office/src/tenancy/README.md`, "Super admins belong
+ * to no tenant".
+ */
+export class ConflictingIdentityError extends ForbiddenException {
+  constructor(supertokensUserId: string, slug: string) {
+    super(
+      `Identity ${supertokensUserId} is both a member of tenant ${slug} and a platform ` +
+        'super admin. These are mutually exclusive; revoke one of them ' +
+        '(npm run catalogue:revoke-admin, or remove the platform.tenant_users row).',
+    );
+    this.name = 'ConflictingIdentityError';
+  }
+}
 
 interface CacheEntry {
   descriptor: TenantDescriptor;
@@ -66,13 +90,32 @@ export class TenantRegistryService {
         schemaName: tenants.schemaName,
         roleName: tenants.roleName,
         status: tenants.status,
+        // Joined rather than looked up separately: it is the same primary-key
+        // probe either way, so the exclusivity check below is free.
+        conflictingSuperAdmin: superAdmins.supertokensUserId,
       })
       .from(tenantUsers)
       .innerJoin(tenants, eq(tenantUsers.tenantId, tenants.id))
+      .leftJoin(superAdmins, eq(superAdmins.supertokensUserId, tenantUsers.supertokensUserId))
       .where(eq(tenantUsers.supertokensUserId, supertokensUserId))
       .limit(1);
 
     if (rows[0]) {
+      // Membership wins over selection everywhere in this method, so an
+      // identity holding both rows would be served their own tenant while the
+      // rest of the app — the tenant-view banner, the read/write mode control,
+      // AuthGuard's role assignment — went on describing the tenant they had
+      // selected. Neither answer is defensible, and picking one quietly is how
+      // an operator ends up editing a customer's fleet believing they are
+      // looking at a different one. Fail instead, naming both rows.
+      if (rows[0].conflictingSuperAdmin) {
+        this.logger.error(
+          `Identity ${supertokensUserId} holds both a tenant_users row (${rows[0].slug}) and a ` +
+            'super_admins row. Refusing to resolve a tenant until one is revoked.',
+        );
+        throw new ConflictingIdentityError(supertokensUserId, rows[0].slug);
+      }
+
       const descriptor = this.toDescriptor(rows[0]);
       if (descriptor) this.writeCache(this.byUserId, supertokensUserId, descriptor);
       return descriptor;
