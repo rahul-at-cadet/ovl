@@ -66,19 +66,45 @@ export class TenantCatalogService {
    * whether this tenant has taken it and whether it has diverged.
    */
   async browse(): Promise<CatalogueEntry[]> {
+    return this.browseWith(
+      await this.tenantDb.withTenant(
+        async (db) => ({
+          adoptions: await db.select().from(formSchemaAdoptions),
+          versions: await db.select().from(tenantFormSchemaVersions),
+        }),
+        { readOnly: true },
+      ),
+    );
+  }
+
+  /**
+   * The master catalogue with no tenant's adoption state layered on it.
+   *
+   * For a platform super admin who has selected no tenant. They sit above
+   * every customer, so "the version your fleet uses" has no answer for them —
+   * but *what the platform publishes* very much does, and returning nothing
+   * made the screen claim the platform had published nothing at all, which
+   * was false while five schemas sat in the catalogue.
+   *
+   * Everything comes back unadopted, because adoption is a tenant's own act
+   * and there is no tenant here to have made it.
+   */
+  async browsePlatform(): Promise<CatalogueEntry[]> {
+    return this.browseWith({ adoptions: [], versions: [] });
+  }
+
+  private async browseWith({
+    adoptions,
+    versions,
+  }: {
+    adoptions: Array<typeof formSchemaAdoptions.$inferSelect>;
+    versions: Array<typeof tenantFormSchemaVersions.$inferSelect>;
+  }): Promise<CatalogueEntry[]> {
     const masterSchemas = await this.master.listSchemas();
     const latestByName = new Map<string, (typeof masterSchemas)[number]>();
     for (const row of masterSchemas) {
       if (!latestByName.has(row.schemaName)) latestByName.set(row.schemaName, row);
     }
-
-    const { adoptions, versions } = await this.tenantDb.withTenant(
-      async (db) => ({
-        adoptions: await db.select().from(formSchemaAdoptions),
-        versions: await db.select().from(tenantFormSchemaVersions),
-      }),
-      { readOnly: true },
-    );
 
     const versionById = new Map(versions.map((v) => [v.id, v]));
     const adoptionByName = new Map(adoptions.map((a) => [a.schemaName, a]));

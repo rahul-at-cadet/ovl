@@ -546,7 +546,17 @@ export class TrpcRouter {
 
       tenant: router({
         /** Every master schema, annotated with this tenant's adoption state. */
-        browse: protectedProcedure.query(() => {
+        browse: protectedProcedure.query(async ({ ctx }) => {
+          // A super admin with no tenant still sees what the platform
+          // publishes — just without any "in use by your fleet" column, since
+          // there is no fleet of theirs to speak of.
+          if (
+            !tryCurrentTenant() &&
+            this.platformDb &&
+            (await this.platformDb.isSuperAdmin(ctx.session.getUserId()))
+          ) {
+            return this.requireCatalogue(this.tenantCatalog).browsePlatform();
+          }
           this.requireTenant();
           return this.requireCatalogue(this.tenantCatalog).browse();
         }),

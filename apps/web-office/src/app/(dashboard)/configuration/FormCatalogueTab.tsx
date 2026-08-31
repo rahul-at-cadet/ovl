@@ -34,8 +34,14 @@ import { trpc } from "@/lib/trpc";
  */
 export function FormCatalogueTab() {
   const utils = trpc.useUtils();
-  const { data: entries, isLoading, refetch } = trpc.catalogue.tenant.browse.useQuery();
+  const { data: entries, isLoading, error: browseError, refetch } = trpc.catalogue.tenant.browse.useQuery();
   const { data: ownVersions, refetch: refetchOwn } = trpc.catalogue.tenant.listOwn.useQuery({});
+
+  // A platform super admin with no tenant selected. They see what the platform
+  // publishes, but adoption is a tenant's own act, so there is no fleet here to
+  // adopt into.
+  const { data: capabilities } = trpc.tenants.capabilities.useQuery();
+  const noTenantSelected = !!capabilities?.isSuperAdmin && !capabilities.tenant;
 
   const adopt = trpc.catalogue.tenant.adopt.useMutation();
   const unadopt = trpc.catalogue.tenant.unadopt.useMutation();
@@ -120,13 +126,24 @@ export function FormCatalogueTab() {
         <CardHeader>
           <CardTitle className="text-foreground">Form Schemas</CardTitle>
           <CardDescription>
-            Schemas published by the platform, and the version your fleet uses. A schema you have
-            not adopted is not available to your vessels — there is no automatic default.
+            {noTenantSelected
+              ? 'Every schema the platform publishes for tenants to adopt. Select a tenant to see which of these its fleet uses, and to adopt or customise one on its behalf.'
+              : 'Schemas published by the platform, and the version your fleet uses. A schema you have not adopted is not available to your vessels — there is no automatic default.'}
           </CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <p className="text-muted-foreground text-sm">Loading catalogue…</p>
+          ) : browseError ? (
+            /* A failed request is not an empty catalogue. This said "the
+             * platform has not published any schemas yet" for every failure,
+             * which is a statement about the platform rather than about the
+             * request — and it was being shown while five schemas sat
+             * published in the catalogue. */
+            <div className="text-sm">
+              <p className="text-status-critical font-medium">Couldn&apos;t load the catalogue</p>
+              <p className="text-muted-foreground text-xs mt-1">{browseError.message}</p>
+            </div>
           ) : (entries ?? []).length === 0 ? (
             <p className="text-muted-foreground text-sm">
               The platform has not published any schemas yet.
@@ -201,11 +218,15 @@ export function FormCatalogueTab() {
                                 variant={
                                   entry.adopted && !entry.upgradeAvailable ? "ghost" : "default"
                                 }
-                                disabled={adopt.isPending}
+                                disabled={adopt.isPending || noTenantSelected}
                                 onClick={() =>
                                   run(() => adopt.mutateAsync({ versionId: entry.masterVersionId! }))
                                 }
-                                title={`Use platform version ${entry.masterVersion}`}
+                                title={
+                                  noTenantSelected
+                                    ? 'Select a tenant to adopt this on its behalf'
+                                    : `Use platform version ${entry.masterVersion}`
+                                }
                               >
                                 {entry.adopted
                                   ? entry.upgradeAvailable
@@ -218,7 +239,7 @@ export function FormCatalogueTab() {
                                 size="sm"
                                 variant="outline"
                                 className="px-2"
-                                disabled={fork.isPending}
+                                disabled={fork.isPending || noTenantSelected}
                                 onClick={() =>
                                   openFork(
                                     entry.schemaName,
