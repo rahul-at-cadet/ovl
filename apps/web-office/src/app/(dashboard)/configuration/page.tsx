@@ -26,7 +26,7 @@ import { ScopeSelector } from "./ScopeSelector";
 import { scopeLabel, type Scope } from "@/lib/config/complianceLogic";
 
 export default function ConfigurationPage() {
-  const [activeTab, setActiveTab] = useState("schemas");
+  const [activeTab, setActiveTab] = useState<string | null>(null);
 
   // Which catalogue tabs to offer. The server answers this rather than the
   // client inferring it from a role string, because "super admin" is a
@@ -35,6 +35,13 @@ export default function ConfigurationPage() {
   const { data: access } = trpc.catalogue.whoami.useQuery();
   const catalogueEnabled = access?.enabled === true;
   const isSuperAdmin = access?.isSuperAdmin === true;
+
+  // Schemas is the legacy publisher and is empty by design once the catalogue
+  // is on, so landing there shows a blank page to everyone whose deployment
+  // has moved on — which reads as "nothing is loaded" rather than "you are on
+  // the wrong tab". Deferred until `access` answers rather than defaulted and
+  // then corrected, so the tab does not visibly jump after the first render.
+  const tab = activeTab ?? (catalogueEnabled ? 'formCatalogue' : 'schemas');
 
   return (
     <div className="p-8">
@@ -45,7 +52,7 @@ export default function ConfigurationPage() {
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} orientation="horizontal" className="w-full">
+      <Tabs value={tab} onValueChange={setActiveTab} orientation="horizontal" className="w-full">
         {/*
           Scrolls within itself rather than widening the page. With enough tabs
           the list outgrows the content column, and a page that scrolls
@@ -92,7 +99,10 @@ export default function ConfigurationPage() {
         </TabsList>
 
         <TabsContent value="schemas">
-          <SchemasTab />
+          <SchemasTab
+            catalogueEnabled={catalogueEnabled}
+            onOpenCatalogue={() => setActiveTab('formCatalogue')}
+          />
         </TabsContent>
 
         {catalogueEnabled && (
@@ -131,7 +141,20 @@ export default function ConfigurationPage() {
   );
 }
 
-function SchemasTab() {
+/**
+ * The legacy per-tenant schema publisher.
+ *
+ * `catalogueEnabled` and `onOpenCatalogue` are passed in so the empty state can
+ * explain itself and point at the tab that actually holds the schemas; the tab
+ * strip lives in the parent, so switching to it has to be handed down.
+ */
+function SchemasTab({
+  catalogueEnabled,
+  onOpenCatalogue,
+}: {
+  catalogueEnabled: boolean;
+  onOpenCatalogue: () => void;
+}) {
   const { data: schemas, isLoading, refetch } = trpc.schemas.list.useQuery();
   const publishSchema = trpc.schemas.publish.useMutation({
     onSuccess: () => refetch(),
@@ -246,7 +269,32 @@ function SchemasTab() {
             ) : schemas?.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground border border-dashed border-border rounded-md">
                 <FileJson className="w-8 h-8 mx-auto mb-3 opacity-50" />
-                <p>No schemas published yet</p>
+                {/*
+                  Empty for two different reasons, and saying which matters.
+                  With the catalogue on, this list is never populated — schemas
+                  come from the platform catalogue and are adopted per tenant —
+                  so "none published yet" reads as a missing seed and sends
+                  people looking for a fault that is not there.
+                */}
+                {catalogueEnabled ? (
+                  <>
+                    <p>This list stays empty on a catalogue deployment.</p>
+                    <p className="mt-1 text-sm">
+                      Your schemas live under{' '}
+                      <button
+                        type="button"
+                        onClick={onOpenCatalogue}
+                        className="underline underline-offset-2 hover:text-foreground"
+                      >
+                        Form Catalogue
+                      </button>
+                      , where each one is adopted for your fleet. Publishing here is the
+                      older per-tenant route, kept for one-off versions.
+                    </p>
+                  </>
+                ) : (
+                  <p>No schemas published yet</p>
+                )}
               </div>
             ) : (
               <div className="overflow-x-auto">
