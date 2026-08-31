@@ -11,6 +11,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@ovl/ui/components/avatar';
 import { Sheet, SheetContent, SheetTrigger } from '@ovl/ui/components/sheet';
 import { ThemeToggle } from '@ovl/ui/components/theme-toggle';
 import { PoweredBySparks } from '@ovl/ui/components/sparks-logo';
+import { FullPageState } from '@ovl/ui/components/full-page-state';
 import { TenantBrand } from './TenantBrand';
 import { TenantViewBanner } from './TenantViewBanner';
 import { trpc } from '@/lib/trpc';
@@ -146,6 +147,33 @@ export function AppShell({ children }: AppShellProps) {
   // `tenantAccess` is still loading would flash the attribution at every super
   // admin on every page load.
   const showPoweredBy = !!tenantAccess && !tenantAccess.isSuperAdmin;
+
+  /**
+   * A platform super admin who has not picked a tenant yet.
+   *
+   * They sit above every tenant and belong to none, so every tenant-scoped
+   * screen has nothing to read and renders its empty state — "No vessels
+   * found", "No users found". That is a statement about the fleet, and it is
+   * false: the vessels and users exist, in a tenant nobody has selected. The
+   * screens say so now instead.
+   *
+   * A tenant's own staff never see this. They have a tenant by membership and
+   * cannot be in this state.
+   */
+  const needsTenantSelection = !!tenantAccess?.isSuperAdmin && !tenantAccess.tenant;
+
+  // Which screens still work with no tenant chosen.
+  //
+  // Most do. The monitoring screens read every tenant at once for a super
+  // admin in this state, and Fleet Configuration's platform catalogue lives in
+  // `platform.*` rather than any tenant schema — it is the set of schemas a
+  // super admin publishes *for* tenants to adopt, so needing a tenant to see
+  // it would be backwards.
+  //
+  // Only the screens that edit one customer's own settings genuinely cannot
+  // work: there is no such thing as the company name, logo or API keys of
+  // "all tenants".
+  const requiresOneTenant = pathname.startsWith('/settings');
 
   // The audit log is for administrators — a platform super admin reading
   // across tenants, or a tenant's own admin reading theirs. Offering the link
@@ -418,7 +446,28 @@ export function AppShell({ children }: AppShellProps) {
         {/* Page Content */}
         <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto p-4 lg:p-8">
           <div className="max-w-7xl mx-auto min-h-full pb-10">
-            {children}
+            {needsTenantSelection && requiresOneTenant ? (
+              <FullPageState
+                icon={Building2}
+                title="Choose a tenant first"
+                description={
+                  <>
+                    These settings belong to one customer — their company name, logo and API
+                    keys — and you are signed in as a platform super admin, which sits above
+                    every customer rather than inside one. Pick a tenant to edit its settings.
+                    Vessels, reports and users already show every tenant at once.
+                  </>
+                }
+                className="min-h-0 py-16"
+              >
+                <Button onClick={() => router.push('/tenants')}>
+                  <Building2 className="w-4 h-4" />
+                  Go to Tenant Management
+                </Button>
+              </FullPageState>
+            ) : (
+              children
+            )}
           </div>
         </main>
       </div>

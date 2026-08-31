@@ -47,6 +47,12 @@ export default function VesselsPage() {
 
   const utils = trpc.useUtils();
   const { data: vessels = [], isLoading } = trpc.vessels.list.useQuery();
+
+  // Platform-wide mode: a super admin with no tenant selected gets every
+  // tenant's vessels, and the server stamps each row with whose it is. Read
+  // from the rows rather than asked separately, so the column and the data can
+  // never disagree about which mode this is.
+  const acrossTenants = vessels.some((v: any) => v.tenantSlug);
   
   const createMutation = trpc.vessels.create.useMutation({
     onSuccess: () => {
@@ -149,7 +155,16 @@ export default function VesselsPage() {
               Map
             </Button>
           </div>
-          <Button onClick={openNewDialog} className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-9 text-sm font-semibold shadow-sm shrink-0 transition-all">
+          {/* A vessel belongs to exactly one tenant, so there is nothing this
+              could do while every tenant is on screen at once. Disabled with
+              the reason rather than hidden, so it does not look like a
+              permission the super admin lacks. */}
+          <Button
+            onClick={openNewDialog}
+            disabled={acrossTenants}
+            title={acrossTenants ? 'Select a tenant before adding a vessel to it' : undefined}
+            className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-9 text-sm font-semibold shadow-sm shrink-0 transition-all"
+          >
             <Plus className="w-4 h-4 mr-2" />
             Add Vessel
           </Button>
@@ -172,6 +187,9 @@ export default function VesselsPage() {
                   <th scope="col" className="px-4 py-2 font-semibold">Vessel Details</th>
                   <th scope="col" className="hidden md:table-cell px-4 py-2 font-semibold">IMO Number</th>
                   <th scope="col" className="hidden lg:table-cell px-4 py-2 font-semibold">Vessel Type</th>
+                  {acrossTenants && (
+                    <th scope="col" className="px-4 py-2 font-semibold">Tenant</th>
+                  )}
                   {/* One column, not two. "Edge Node Status" and "Last Sync"
                       sat side by side saying two halves of the same thing;
                       renaming the first to the second would have left the
@@ -186,7 +204,7 @@ export default function VesselsPage() {
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td colSpan={5} className="px-6 py-12 text-center text-muted-foreground bg-card">
+                    <td colSpan={acrossTenants ? 6 : 5} className="px-6 py-12 text-center text-muted-foreground bg-card">
                       Loading vessels...
                     </td>
                   </tr>
@@ -210,6 +228,11 @@ export default function VesselsPage() {
                       <td className="hidden lg:table-cell px-4 py-2.5 text-foreground font-medium">
                         {vessel.type}
                       </td>
+                      {acrossTenants && (
+                        <td className="px-4 py-2.5 text-foreground text-xs font-medium">
+                          {vessel.tenantName}
+                        </td>
+                      )}
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-2" title={`Edge node ${vessel.edgeStatus}`}>
                           {vessel.edgeStatus === 'Online' && <Wifi className="w-4 h-4 text-status-ok shrink-0" />}
@@ -250,7 +273,7 @@ export default function VesselsPage() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={5} className="px-6 py-12 text-center text-muted-foreground bg-card">
+                    <td colSpan={acrossTenants ? 6 : 5} className="px-6 py-12 text-center text-muted-foreground bg-card">
                       No vessels found matching &quot;{searchQuery}&quot;.
                     </td>
                   </tr>

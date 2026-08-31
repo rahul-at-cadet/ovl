@@ -6,7 +6,10 @@ import { eq, and, desc, sql } from 'drizzle-orm';
 import * as schema from '@ovl/database';
 import { protectedProcedure, router } from './trpc.base';
 import { withTenantDb } from './tenant-scope';
-import { TenantDbService } from '../tenancy/tenant-db.service';
+import { TenantDbService, type TenantDatabase } from '../tenancy/tenant-db.service';
+import { PlatformFleetService } from '../tenancy/platform-fleet.service';
+import { PlatformDbService } from '../tenancy/platform-db.service';
+import { tryCurrentTenant } from '../tenancy/tenant-context';
 import { SupertokensService } from '../auth/supertokens.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SchemaVersionsService } from '../config/schema-versions/schema-versions.service';
@@ -32,6 +35,9 @@ export interface OfficeRouterDeps {
   supertokensService: SupertokensService;
   notificationsService: NotificationsService;
   schemaVersionsService: SchemaVersionsService;
+  /** Reading every tenant at once, for a super admin who has selected none. */
+  platformFleet?: PlatformFleetService;
+  platformDb?: PlatformDbService;
 }
 
 const CreateCommercialReportSchema = Type.Object({
@@ -52,8 +58,8 @@ const COMMERCIAL_SCHEMA_LABELS: Record<string, string> = {
 
 export const createDashboardRouter = (deps: () => OfficeRouterDeps) =>
   router({
-    getOverview: protectedProcedure.query(async () =>
-      withTenantDb(deps().tenantDb, async (db) => {
+    getOverview: protectedProcedure.query(async ({ ctx }) => {
+      const read = async (db: TenantDatabase) => {
         const activeVesselsResult = await db.select({ count: sql<number>`count(*)` }).from(schema.vessels);
         const incomingReportsResult = await db.select({ count: sql<number>`count(*)` }).from(schema.reportVersions);
 
@@ -87,19 +93,65 @@ export const createDashboardRouter = (deps: () => OfficeRouterDeps) =>
           .limit(10);
 
         return {
-          activeVessels: activeVesselsResult[0].count,
-          incomingReports: incomingReportsResult[0].count,
+          activeVessels: Number(activeVesselsResult[0].count),
+          incomingReports: Number(incomingReportsResult[0].count),
           syncWarnings,
           syncHealthPercent,
+          // Carried so a platform-wide roll-up can recompute the percentage
+          // from real totals rather than averaging percentages, which would
+          // weight a one-vessel tenant the same as a fifty-vessel one.
+          vesselsTotal,
+          onlineCount,
           networkUptime: 99.9,
           liveStream: recentEvents.map((e) => ({
             vessel: e.vesselName || 'Unknown',
             event: `Report ${e.eventType}`,
             time: new Date(e.occurredAt).toLocaleString(),
+            occurredAt: e.occurredAt,
           })),
         };
+      };
+
+      const d = deps();
+
+      // A platform super admin who has selected no tenant sees the whole
+      // platform: every tenant's counts summed, and one merged activity feed.
+      if (
+        !tryCurrentTenant() &&
+        d.platformDb &&
+        d.platformFleet &&
+        (await d.platformDb.isSuperAdmin(ctx.session.getUserId()))
+      ) {
+        const perTenant = await d.platformFleet.acrossTenants(async (db) => [await read(db)]);
+
+        const vesselsTotal = perTenant.reduce((n, t) => n + t.vesselsTotal, 0);
+        const onlineCount = perTenant.reduce((n, t) => n + t.onlineCount, 0);
+
+        return {
+          activeVessels: perTenant.reduce((n, t) => n + t.activeVessels, 0),
+          incomingReports: perTenant.reduce((n, t) => n + t.incomingReports, 0),
+          syncWarnings: vesselsTotal - onlineCount,
+          // Recomputed from the totals, not averaged across tenants.
+          syncHealthPercent: vesselsTotal === 0 ? 100 : Math.round((onlineCount / vesselsTotal) * 100),
+          networkUptime: 99.9,
+          // One feed across the platform, newest first, and each line says
+          // which customer it came from — otherwise two vessels with similar
+          // names in different tenants are indistinguishable.
+          liveStream: perTenant
+            .flatMap((t) => t.liveStream.map((e) => ({ ...e, vessel: `${e.vessel} · ${t.tenantName}` })))
+            .sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime())
+            .slice(0, 10)
+            .map(({ occurredAt: _drop, ...e }) => e),
+        };
+      }
+
+      const one = await withTenantDb(d.tenantDb, read);
+      const { vesselsTotal: _vt, onlineCount: _oc, ...rest } = one;
+      return {
+        ...rest,
+        liveStream: one.liveStream.map(({ occurredAt: _drop, ...e }) => e),
+      };
     }),
-    )
     });
 
 export const createCommercialRouter = (deps: () => OfficeRouterDeps) =>

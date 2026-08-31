@@ -6,7 +6,10 @@ import { eq } from 'drizzle-orm';
 import * as schema from '@ovl/database';
 import { protectedProcedure, router } from './trpc.base';
 import { withTenantDb } from './tenant-scope';
-import { TenantDbService } from '../tenancy/tenant-db.service';
+import { TenantDbService, type TenantDatabase } from '../tenancy/tenant-db.service';
+import { PlatformFleetService } from '../tenancy/platform-fleet.service';
+import { PlatformDbService } from '../tenancy/platform-db.service';
+import { tryCurrentTenant } from '../tenancy/tenant-context';
 import { SupertokensService } from '../auth/supertokens.service';
 import { VesselsService } from '../vessels/vessels.service';
 import { VesselUsersService } from '../vessels/vessel-users.service';
@@ -29,6 +32,9 @@ export interface VesselsRouterDeps {
   supertokensService: SupertokensService;
   vesselsService: VesselsService;
   vesselUsersService: VesselUsersService;
+  /** Reading every tenant at once, for a super admin who has selected none. */
+  platformFleet?: PlatformFleetService;
+  platformDb?: PlatformDbService;
 }
 
 const CreateVesselSchema = Type.Object({
@@ -110,8 +116,12 @@ const VesselIdInputCompiler = TypeCompiler.Compile(VesselIdInputSchema);
 
 export const createVesselsRouter = (deps: () => VesselsRouterDeps) =>
   router({
-    list: protectedProcedure.query(async () =>
-      withTenantDb(deps().tenantDb, async (db) => {
+    list: protectedProcedure.query(async ({ ctx }) => {
+      // One query shape, read either from the caller's own tenant or from
+      // every tenant at once. Keeping it in one place is what stops the
+      // platform-wide view drifting into a different set of columns from the
+      // per-tenant one.
+      const read = async (db: TenantDatabase) => {
         const rows = await db.select({
           vessel: schema.vessels,
           lastSeenAt: schema.vesselSyncStatus.lastSeenAt,
@@ -134,8 +144,13 @@ export const createVesselsRouter = (deps: () => VesselsRouterDeps) =>
             groups: v.groups,
           };
         });
+      };
+
+      if (await isPlatformWide(deps(), ctx)) {
+        return requirePlatformFleet(deps()).acrossTenants(read);
+      }
+      return withTenantDb(deps().tenantDb, read);
     }),
-    ),
     // Fleet Map (ports ovl/office/httpapi/vesselpositions.go). See
     // VesselsService.getPositions's own doc comment for the full
     // status-precedence and position-parsing rules.
@@ -306,3 +321,30 @@ export const createVesselsRouter = (deps: () => VesselsRouterDeps) =>
         }),
     }),
     });
+
+/**
+ * Whether this request should read every tenant instead of one.
+ *
+ * True only for a platform super admin who has not selected a tenant — the
+ * state in which they sit above every customer and belong to none. Anyone
+ * with a tenant, super admin or not, reads that tenant and nothing else, so
+ * this can never widen what an ordinary office user sees.
+ */
+async function isPlatformWide(
+  deps: { platformDb?: PlatformDbService; platformFleet?: PlatformFleetService },
+  ctx: { session: { getUserId(): string } },
+): Promise<boolean> {
+  if (tryCurrentTenant()) return false;
+  if (!deps.platformDb || !deps.platformFleet) return false;
+  return deps.platformDb.isSuperAdmin(ctx.session.getUserId());
+}
+
+function requirePlatformFleet(deps: { platformFleet?: PlatformFleetService }): PlatformFleetService {
+  if (!deps.platformFleet) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'Platform-wide views require multi-tenancy to be enabled.',
+    });
+  }
+  return deps.platformFleet;
+}

@@ -58,6 +58,11 @@ export default function UsersPage() {
   const utils = trpc.useUtils();
   const { data: users = [], isLoading } = trpc.users.list.useQuery();
 
+  // Platform-wide mode — every tenant's users at once, for a super admin who
+  // has selected none. Read from the rows themselves, so the extra column and
+  // the data cannot disagree about which mode this is.
+  const acrossTenants = users.some((u: any) => u.tenantSlug);
+
   const updateMutation = trpc.users.update.useMutation({
     meta: { errorTitle: "Couldn't update that user" },
     onSuccess: () => {
@@ -163,7 +168,15 @@ export default function UsersPage() {
               className="pl-9 h-9 text-sm w-full"
             />
           </div>
-          <Button onClick={() => setIsCreateOpen(true)} className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-9 text-sm font-semibold shadow-sm shrink-0 transition-all">
+          {/* A user belongs to one tenant, so there is no tenant to create
+              them in while every tenant is on screen. Disabled with the
+              reason, rather than hidden as if it were forbidden. */}
+          <Button
+            onClick={() => setIsCreateOpen(true)}
+            disabled={acrossTenants}
+            title={acrossTenants ? 'Select a tenant before onboarding a user into it' : undefined}
+            className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-9 text-sm font-semibold shadow-sm shrink-0 transition-all"
+          >
             <UserPlus className="w-4 h-4 mr-2" />
             Onboard User
           </Button>
@@ -183,13 +196,16 @@ export default function UsersPage() {
                   <th scope="col" className="px-4 py-2 font-semibold">User</th>
                   <th scope="col" className="hidden md:table-cell px-4 py-2 font-semibold">Security Role</th>
                   <th scope="col" className="px-4 py-2 font-semibold">Account Status</th>
+                  {acrossTenants && (
+                    <th scope="col" className="px-4 py-2 font-semibold">Tenant</th>
+                  )}
                   <th scope="col" className="px-4 py-2 text-right font-semibold">Manage</th>
                 </tr>
               </thead>
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground bg-card">
+                    <td colSpan={acrossTenants ? 5 : 4} className="px-6 py-12 text-center text-muted-foreground bg-card">
                       Loading users...
                     </td>
                   </tr>
@@ -228,6 +244,11 @@ export default function UsersPage() {
                           {user.active ? 'Active' : 'Inactive'}
                         </div>
                       </td>
+                      {acrossTenants && (
+                        <td className="px-4 py-2.5 text-foreground text-xs font-medium">
+                          {user.tenantName}
+                        </td>
+                      )}
                       <td className="px-4 py-2.5 text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger
@@ -257,7 +278,7 @@ export default function UsersPage() {
                   )})
                 ) : (
                   <tr>
-                    <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground bg-card">
+                    <td colSpan={acrossTenants ? 5 : 4} className="px-6 py-12 text-center text-muted-foreground bg-card">
                       No users found matching &quot;{searchQuery}&quot;.
                     </td>
                   </tr>

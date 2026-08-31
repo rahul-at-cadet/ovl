@@ -65,6 +65,7 @@ import { TenantProvisioningService } from '../tenancy/tenant-provisioning.servic
 import { TenantMigrationRunnerService } from '../tenancy/tenant-migration-runner.service';
 import { TenantSelectionService } from '../tenancy/tenant-selection.service';
 import { TenantSettingsService } from '../tenancy/tenant-settings.service';
+import { PlatformFleetService } from '../tenancy/platform-fleet.service';
 
 
 
@@ -289,6 +290,7 @@ export class TrpcRouter {
     @Optional() @Inject(TenantMigrationRunnerService) private readonly tenantMigrations?: TenantMigrationRunnerService,
     @Optional() @Inject(TenantSelectionService) private readonly tenantSelection?: TenantSelectionService,
     @Optional() @Inject(TenantSettingsService) private readonly tenantSettings?: TenantSettingsService,
+    @Optional() @Inject(PlatformFleetService) private readonly platformFleet?: PlatformFleetService,
     @Optional() @Inject(AuditService) private readonly auditService?: AuditService,
   ) {}
 
@@ -343,6 +345,8 @@ export class TrpcRouter {
       supertokensService: this.supertokensService,
       notificationsService: this.notificationsService,
       schemaVersionsService: this.schemaVersionsService,
+      platformFleet: this.platformFleet,
+      platformDb: this.platformDb,
     };
   }
 
@@ -684,6 +688,8 @@ export class TrpcRouter {
       tenantDb: this.tenantDb,
       supertokensService: this.supertokensService,
       vesselsService: this.vesselsService,
+      platformFleet: this.platformFleet,
+      platformDb: this.platformDb,
       vesselUsersService: this.vesselUsersService,
     })),
 
@@ -692,19 +698,35 @@ export class TrpcRouter {
       // through the tenant pool. It read `this.db` — the legacy shared pool
       // pointed at `public` — which stayed empty once users moved, so the
       // Users screen showed "no users" for every tenant that had them.
-      list: protectedProcedure.query(async () => {
-        const officeUsers = await withTenantDb(
-          this.tenantDb,
-          (db) => db.select().from(schema.users),
-          { readOnly: true },
-        );
-        return officeUsers.map(u => ({
+      list: protectedProcedure.query(async ({ ctx }) => {
+        const shape = (u: typeof schema.users.$inferSelect) => ({
           id: u.id,
           username: u.username,
           roles: u.roles,
           active: u.active,
           createdAt: u.createdAt,
-        }));
+        });
+
+        // A platform super admin who has selected no tenant sees every
+        // tenant's users, each row saying whose it is. Anyone with a tenant —
+        // including a super admin viewing one — sees that tenant only.
+        if (
+          !tryCurrentTenant() &&
+          this.platformDb &&
+          this.platformFleet &&
+          (await this.platformDb.isSuperAdmin(ctx.session.getUserId()))
+        ) {
+          return this.platformFleet.acrossTenants(async (db) =>
+            (await db.select().from(schema.users)).map(shape),
+          );
+        }
+
+        const officeUsers = await withTenantDb(
+          this.tenantDb,
+          (db) => db.select().from(schema.users),
+          { readOnly: true },
+        );
+        return officeUsers.map(shape);
       }),
       update: protectedProcedure
         .input((val: unknown) => {
