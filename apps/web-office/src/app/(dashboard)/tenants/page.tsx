@@ -88,7 +88,11 @@ export default function TenantsPage() {
   const { data: capabilities } = trpc.tenants.capabilities.useQuery();
   const isSuperAdmin = capabilities?.isSuperAdmin === true;
 
-  const { data: tenants = [], isLoading } = trpc.tenants.list.useQuery(undefined, {
+  const {
+    data: tenants = [],
+    isLoading,
+    error: tenantsError,
+  } = trpc.tenants.list.useQuery(undefined, {
     // The list is super-admin only; querying it as anyone else just produces a
     // 403 toast on a page that is already telling them they lack access.
     enabled: isSuperAdmin,
@@ -320,6 +324,31 @@ export default function TenantsPage() {
                   <tr>
                     <td colSpan={5} className="px-6 py-12 text-center text-muted-foreground">
                       Loading tenants...
+                    </td>
+                  </tr>
+                ) : tenantsError ? (
+                  /* A failed request is not an empty fleet.
+                   *
+                   * `data` defaults to [] here, so before this branch existed
+                   * every error — a 403, a dropped connection, a query that
+                   * threw — rendered as "No tenants yet.", which is a claim
+                   * about the world rather than a report about the request. It
+                   * sent at least one person looking for a missing tenant that
+                   * was never missing. */
+                  <tr>
+                    <td colSpan={5} className="px-6 py-12 text-center">
+                      <p className="text-sm font-medium text-status-critical">
+                        Couldn&apos;t load tenants
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">{tenantsError.message}</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-3"
+                        onClick={() => utils.tenants.list.invalidate()}
+                      >
+                        Try again
+                      </Button>
                     </td>
                   </tr>
                 ) : filtered.length > 0 ? (

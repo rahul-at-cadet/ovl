@@ -134,6 +134,19 @@ export function AppShell({ children }: AppShellProps) {
   const tenantName = tenantAccess?.tenant?.name ?? null;
   const tenantLogo = tenantAccess?.tenant?.logoDataUrl ?? null;
 
+  // "Powered by SPARKS" is for the customers of the SaaS, not for the people
+  // who build it. A platform super admin is a SPARKS employee, so telling them
+  // their own product is powered by their own product is noise; a tenant's own
+  // staff are the ones who should see whose software they are running.
+  //
+  // Keyed on who is looking rather than on which tenant is being viewed: a
+  // super admin inside a customer's tenant is still a SPARKS employee.
+  //
+  // Waits for the answer instead of assuming one — rendering it while
+  // `tenantAccess` is still loading would flash the attribution at every super
+  // admin on every page load.
+  const showPoweredBy = !!tenantAccess && !tenantAccess.isSuperAdmin;
+
   // The audit log is for administrators — a platform super admin reading
   // across tenants, or a tenant's own admin reading theirs. Offering the link
   // to everyone else would only lead them to a "not for you" page.
@@ -211,9 +224,11 @@ export function AppShell({ children }: AppShellProps) {
           </button>
           {/* Attribution, deliberately at the foot rather than the head: the
               workspace belongs to the customer, the software belongs to us. */}
-          <div className="px-4 pb-4 pt-2">
-            <PoweredBySparks compact={!isSidebarOpen} />
-          </div>
+          {showPoweredBy && (
+            <div className="px-4 pb-4 pt-2">
+              <PoweredBySparks compact={!isSidebarOpen} />
+            </div>
+          )}
         </div>
       </aside>
 
@@ -260,9 +275,11 @@ export function AppShell({ children }: AppShellProps) {
                       <LogOut className="w-5 h-5 shrink-0" />
                       <span className="ml-3 font-medium text-sm">Sign Out</span>
                     </button>
-                    <div className="px-4 pb-4 pt-2">
-                      <PoweredBySparks />
-                    </div>
+                    {showPoweredBy && (
+                      <div className="px-4 pb-4 pt-2">
+                        <PoweredBySparks />
+                      </div>
+                    )}
                   </div>
                 </SheetContent>
               </Sheet>

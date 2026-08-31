@@ -14,13 +14,6 @@
  * lockup would be illegible or would not fit — a collapsed sidebar, a favicon,
  * anywhere under about 40px wide.
  *
- * `SparksWordmark` is the SPARKS letters alone, without the waves above them.
- * It exists because the lockup spends well over half its height on the motif,
- * so on a single short line — a "powered by" — the lockup has to be about
- * 26px tall before the letters are readable at all, which is far too loud for
- * a footnote. The wordmark puts every pixel of its height into the letters, so
- * it reads at 16px.
- *
  * Both are raster rather than inline SVG, unlike the mark they replace. The
  * artwork is the real brand asset rather than something redrawn by hand, and
  * a redrawn approximation of a company's logo is worse than a PNG. They are
@@ -45,18 +38,6 @@ export function SparksLogo({ className }: LogoProps) {
       // before it loads and the header does not jump.
       width={640}
       height={174}
-      className={`w-auto max-w-full object-contain ${className ?? ''}`}
-    />
-  );
-}
-
-export function SparksWordmark({ className }: LogoProps) {
-  return (
-    <img
-      src="/sparks-wordmark.png"
-      alt="SPARKS"
-      width={360}
-      height={58}
       className={`w-auto max-w-full object-contain ${className ?? ''}`}
     />
   );
@@ -104,7 +85,16 @@ export function PoweredBySparks({
       <span className="text-[10px] uppercase tracking-wider text-muted-foreground shrink-0">
         Powered by
       </span>
-      <SparksWordmark className="h-4 shrink-0" />
+      {/* The complete lockup, sized so it can actually be read.
+        *
+        * An earlier version cropped the wordmark out on its own to solve
+        * legibility in this one line, which shipped the logo with its blue
+        * waves deleted — a third of the mark missing. The waves are the
+        * identity; the answer to "too small to read" is a bigger logo, not a
+        * smaller one. The letters are roughly 55% of the lockup's height, so
+        * 24px here puts them at about 13px, which reads and still sits
+        * quietly under the nav. */}
+      <SparksLogo className="h-6 shrink-0" />
     </div>
   );
 }
