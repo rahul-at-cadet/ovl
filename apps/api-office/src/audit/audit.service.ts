@@ -25,6 +25,7 @@ export const AUDIT_CLASS_OF: Record<string, AuditEventClass> = {
   'user.reactivated': 'admin',
   'user.password_reset': 'admin',
   'tenant.provisioned': 'admin',
+  'tenant.settings_changed': 'admin',
   'tenant.status_changed': 'admin',
   'tenant.destroyed': 'admin',
   'super_admin.granted': 'admin',

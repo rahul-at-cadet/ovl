@@ -72,7 +72,7 @@ function requireEnv(name: string): string {
       connectionURI: process.env.SUPERTOKENS_CONNECTION_URI || 'http://localhost:3567',
       apiKey: process.env.SUPERTOKENS_API_KEY,
       appInfo: {
-        appName: 'Cadetlabs',
+        appName: 'SPARKS',
         apiDomain: process.env.API_DOMAIN || 'http://localhost:3001',
         websiteDomain: process.env.WEBSITE_DOMAIN || 'http://localhost:3000',
         apiBasePath: '/auth',

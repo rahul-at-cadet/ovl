@@ -7,7 +7,7 @@ import { LayoutDashboard, FileText, Settings, Users, Ship, Bell, Menu, LogOut, L
 import { Button } from '@ovl/ui/components/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@ovl/ui/components/popover';
 import { ThemeToggle } from '@ovl/ui/components/theme-toggle';
-import { CadetlabsLogo } from '@ovl/ui/components/cadetlabs-logo';
+import { SparksMark, PoweredBySparks } from '@ovl/ui/components/sparks-logo';
 import { trpc } from '@/lib/trpc';
 import { ChangePasswordDialog } from '@/components/ChangePasswordDialog';
 import { API_ORIGIN } from '@/lib/api-origin';
@@ -41,6 +41,11 @@ export function AppShell({ children }: AppShellProps) {
   // /users). Without this the nav offered every crew member a screen whose
   // actions the API would then refuse.
   const { data: me } = trpc.users.me.useQuery();
+
+  // Which vessel this node is. Set during enrolment and effectively immutable
+  // afterwards, so it is cheap to hold and never needs refetching on a timer.
+  const { data: setupStatus } = trpc.setup.status.useQuery();
+  const vesselName = setupStatus?.vesselName || null;
   const isMaster = (me?.role ?? '').toLowerCase() === 'master';
 
   const { data: notifications = [] } = trpc.notifications.list.useQuery(undefined, {
@@ -103,11 +108,18 @@ export function AppShell({ children }: AppShellProps) {
           md:relative md:translate-x-0 ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
           ${isSidebarOpen ? 'w-[260px]' : 'md:w-[80px] w-[260px]'}`}
       >
+        {/* This node belongs to one vessel, and which vessel is the single
+            most useful thing the chrome can say — an officer with two nodes
+            open otherwise has nothing to tell them apart. The product name
+            moves to the "powered by" line at the foot of the sidebar. */}
         <div className="h-14 flex items-center gap-2.5 px-4 border-b border-sidebar-border relative">
-          <CadetlabsLogo className="h-6 w-6 shrink-0" />
+          <Ship className="h-5 w-5 shrink-0 text-primary" />
           {(isSidebarOpen || isMobileSidebarOpen) && (
-            <span className="font-semibold text-base tracking-wide whitespace-nowrap text-foreground">
-              Cadetlabs
+            <span
+              className="font-semibold text-base tracking-wide truncate text-foreground min-w-0"
+              title={vesselName ?? undefined}
+            >
+              {vesselName ?? 'Vessel'}
             </span>
           )}
           <Button 
@@ -156,6 +168,17 @@ export function AppShell({ children }: AppShellProps) {
             )}
             {(isSidebarOpen || isMobileSidebarOpen) && <span className="ml-3.5 font-medium text-sm">Sign Out</span>}
           </button>
+          {/* Same treatment as the office shell: the vessel's identity at the
+              top, the product that runs it at the bottom. */}
+          <div className="px-3 pt-2 pb-1">
+            {isSidebarOpen || isMobileSidebarOpen ? (
+              <PoweredBySparks />
+            ) : (
+              <div className="flex justify-center" title="Powered by SPARKS">
+                <SparksMark className="h-4 opacity-70" />
+              </div>
+            )}
+          </div>
         </div>
       </aside>
 

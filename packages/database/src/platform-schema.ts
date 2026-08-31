@@ -41,6 +41,16 @@ export const tenants = platform.table(
 		/** Always `tenant_<slug>_rw`. The role the pool assumes for this tenant's transactions. */
 		roleName: text("role_name").notNull(),
 		status: text("status").notNull().default("provisioning"),
+		/**
+		 * The customer's own logo, inlined as a data URI.
+		 *
+		 * Editable by that tenant's administrators, unlike everything above it
+		 * except `name` — see platform-bootstrap.sql section 11, where the
+		 * UPDATE grant names these columns and no others.
+		 */
+		logoDataUrl: text("logo_data_url"),
+		/** IANA zone, e.g. "Europe/Oslo". Defaults to UTC. */
+		defaultTimezone: text("default_timezone").notNull().default("UTC"),
 		createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).defaultNow().notNull(),
 		updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).defaultNow().notNull(),
 	},

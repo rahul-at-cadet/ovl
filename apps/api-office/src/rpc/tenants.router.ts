@@ -1,12 +1,15 @@
 import { TRPCError } from '@trpc/server';
 import { Type, Static } from '@sinclair/typebox';
 import { TypeCompiler } from '@sinclair/typebox/compiler';
-import { auditMeta, protectedProcedure, router } from './trpc.base';
+import { auditMeta, protectedProcedure, requireCatalogue, requireTenant, router } from './trpc.base';
 import { TenantRegistryService } from '../tenancy/tenant-registry.service';
 import { TenantProvisioningService } from '../tenancy/tenant-provisioning.service';
 import { TenantMigrationRunnerService } from '../tenancy/tenant-migration-runner.service';
 import { PlatformDbService } from '../tenancy/platform-db.service';
 import { TenantSelectionService } from '../tenancy/tenant-selection.service';
+import { TenantSettingsService } from '../tenancy/tenant-settings.service';
+import { SupertokensService } from '../auth/supertokens.service';
+import { AuditService } from '../audit/audit.service';
 import { tryCurrentTenant } from '../tenancy/tenant-context';
 
 /**
@@ -36,6 +39,10 @@ export interface TenantsRouterDeps {
   provisioning?: TenantProvisioningService;
   migrations?: TenantMigrationRunnerService;
   selection?: TenantSelectionService;
+  settings?: TenantSettingsService;
+  /** For the tenant-admin check on the settings procedures. */
+  supertokens?: SupertokensService;
+  audit?: AuditService;
 }
 
 const ProvisionSchema = Type.Object({
@@ -47,6 +54,15 @@ const ProvisionSchema = Type.Object({
   adminEmail: Type.Optional(Type.String()),
 });
 const ProvisionCompiler = TypeCompiler.Compile(ProvisionSchema);
+
+const UpdateTenantSettingsSchema = Type.Object({
+  name: Type.Optional(Type.String()),
+  // Explicitly nullable: null clears the logo, absent leaves it untouched, so
+  // saving the General tab cannot blank a logo the form never carried.
+  logoDataUrl: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  defaultTimezone: Type.Optional(Type.String()),
+});
+const UpdateTenantSettingsCompiler = TypeCompiler.Compile(UpdateTenantSettingsSchema);
 
 const SlugSchema = Type.Object({ slug: Type.String() });
 const SetModeSchema = Type.Object({
@@ -142,15 +158,19 @@ export function createTenantsRouter(deps: () => TenantsRouterDeps) {
       // is a label for the tenant the request is bound to, so it has to come
       // from the binding or it is decoration that can disagree with reality.
       const context = tryCurrentTenant();
-      const tenant =
-        context && d.registry
-          ? {
-              slug: context.slug,
-              // Falls back to the slug: a tenant is always identifiable, even
-              // if the registry row is mid-rename or the lookup fails.
-              name: (await d.registry.displayName(context.tenantId)) ?? context.slug,
-            }
-          : null;
+      let tenant: { slug: string; name: string; logoDataUrl: string | null } | null = null;
+      if (context && d.settings) {
+        // Never fatal. The shell is chrome: if this lookup fails the app must
+        // still render, unbranded, rather than the whole screen erroring
+        // because a logo could not be read.
+        const settings = await d.settings.get(context.tenantId).catch(() => null);
+        tenant = {
+          slug: context.slug,
+          // Falls back to the slug, so a tenant is always identifiable.
+          name: settings?.name ?? context.slug,
+          logoDataUrl: settings?.logoDataUrl ?? null,
+        };
+      }
 
       return {
         tenancyEnabled: Boolean(d.platformDb),
@@ -163,6 +183,72 @@ export function createTenantsRouter(deps: () => TenantsRouterDeps) {
         viewing,
       };
     }),
+
+    /**
+     * This tenant's own settings — what Global Settings calls Company Name,
+     * plus its logo and default timezone.
+     *
+     * Readable by any signed-in member of the tenant: the shell renders the
+     * name and logo on every screen, so gating it on admin would leave
+     * everyone else looking at an unbranded app.
+     */
+    settings: protectedProcedure.query(async () => {
+      const tenant = requireTenant();
+      return requireCatalogue(deps().settings).get(tenant.tenantId);
+    }),
+
+    /**
+     * Edits them. Tenant admins only.
+     *
+     * The tenant is taken from the resolved context, never from the input, so
+     * this cannot be pointed at another tenant however the caller frames the
+     * request. What may be written is narrowed again underneath by a
+     * column-level grant — see platform-bootstrap.sql section 11.
+     */
+    updateSettings: protectedProcedure
+      .input((val: unknown) => {
+        if (!UpdateTenantSettingsCompiler.Check(val)) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid settings' });
+        }
+        return val as Static<typeof UpdateTenantSettingsSchema>;
+      })
+      .mutation(async ({ input, ctx }) => {
+        const tenant = requireTenant();
+        const d = deps();
+
+        // Roles live in the tenant's own users table, so this is the same
+        // check users.create makes rather than the super-admin one the rest of
+        // this router uses: renaming the company is the tenant's own business.
+        const localUser = await requireCatalogue(d.supertokens).getLocalUser(ctx.session.getUserId());
+        if (!localUser || !(localUser.roles as string[]).includes('admin')) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'Only an administrator can change these settings.',
+          });
+        }
+
+        const updated = await requireCatalogue(d.settings).update(tenant.tenantId, input);
+
+        // Who renamed the company, and from what. Reconstructing that from the
+        // new name alone is exactly what an audit trail exists to avoid.
+        await d.audit?.record({
+          event: 'tenant.settings_changed',
+          actorUserId: ctx.session.getUserId(),
+          actorEmail: localUser.username,
+          subject: tenant.slug,
+          detail: {
+            changed: Object.keys(input),
+            ...(input.name === undefined ? {} : { name: updated.name }),
+            ...(input.defaultTimezone === undefined ? {} : { defaultTimezone: updated.defaultTimezone }),
+            // Never the data URI itself — it would bloat every row and tells an
+            // auditor nothing a boolean does not.
+            ...(input.logoDataUrl === undefined ? {} : { logo: input.logoDataUrl ? 'set' : 'cleared' }),
+          },
+          ...auditMeta(ctx),
+        });
+
+        return updated;
+      }),
 
     /**
      * Every tenant, with the migration state of its schema.

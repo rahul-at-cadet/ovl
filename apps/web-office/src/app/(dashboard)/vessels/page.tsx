@@ -151,7 +151,7 @@ export default function VesselsPage() {
           </div>
           <Button onClick={openNewDialog} className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-9 text-sm font-semibold shadow-sm shrink-0 transition-all">
             <Plus className="w-4 h-4 mr-2" />
-            Provision Node
+            Add Vessel
           </Button>
         </div>
       </div>
@@ -172,15 +172,21 @@ export default function VesselsPage() {
                   <th scope="col" className="px-4 py-2 font-semibold">Vessel Details</th>
                   <th scope="col" className="hidden md:table-cell px-4 py-2 font-semibold">IMO Number</th>
                   <th scope="col" className="hidden lg:table-cell px-4 py-2 font-semibold">Vessel Type</th>
-                  <th scope="col" className="px-4 py-2 font-semibold">Edge Node Status</th>
-                  <th scope="col" className="hidden lg:table-cell px-4 py-2 font-semibold">Last Sync</th>
+                  {/* One column, not two. "Edge Node Status" and "Last Sync"
+                      sat side by side saying two halves of the same thing;
+                      renaming the first to the second would have left the
+                      table with two identically named columns. The connection
+                      state is now the icon and its colour, and the column
+                      carries the answer people actually come for — when this
+                      vessel last reached us. */}
+                  <th scope="col" className="px-4 py-2 font-semibold">Last Sync</th>
                   <th scope="col" className="px-4 py-2 text-right font-semibold">Manage</th>
                 </tr>
               </thead>
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground bg-card">
+                    <td colSpan={5} className="px-6 py-12 text-center text-muted-foreground bg-card">
                       Loading vessels...
                     </td>
                   </tr>
@@ -205,20 +211,15 @@ export default function VesselsPage() {
                         {vessel.type}
                       </td>
                       <td className="px-4 py-2.5">
-                        <div className="flex items-center gap-2">
-                          {vessel.edgeStatus === 'Online' && <Wifi className="w-4 h-4 text-status-ok" />}
-                          {vessel.edgeStatus === 'Syncing' && <Activity className="w-4 h-4 text-status-info animate-pulse" />}
-                          {vessel.edgeStatus === 'Offline' && <WifiOff className="w-4 h-4 text-status-critical" />}
-                          <span className={`font-semibold text-xs uppercase tracking-wider ${
-                            vessel.edgeStatus === 'Online' ? 'text-status-ok' :
-                            vessel.edgeStatus === 'Syncing' ? 'text-status-info' : 'text-status-critical'
-                          }`}>
-                            {vessel.edgeStatus}
-                          </span>
+                        <div className="flex items-center gap-2" title={`Edge node ${vessel.edgeStatus}`}>
+                          {vessel.edgeStatus === 'Online' && <Wifi className="w-4 h-4 text-status-ok shrink-0" />}
+                          {vessel.edgeStatus === 'Syncing' && <Activity className="w-4 h-4 text-status-info animate-pulse shrink-0" />}
+                          {vessel.edgeStatus === 'Offline' && <WifiOff className="w-4 h-4 text-status-critical shrink-0" />}
+                          <span className="text-foreground text-xs font-medium">{vessel.lastSync}</span>
+                          {/* The state is in the icon's colour, which a screen
+                              reader cannot see. */}
+                          <span className="sr-only">Edge node {vessel.edgeStatus}</span>
                         </div>
-                      </td>
-                      <td className="hidden lg:table-cell px-4 py-2.5 text-muted-foreground text-xs font-medium">
-                        {vessel.lastSync}
                       </td>
                       <td className="px-4 py-2.5 text-right">
                         <DropdownMenu>
@@ -249,7 +250,7 @@ export default function VesselsPage() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground bg-card">
+                    <td colSpan={5} className="px-6 py-12 text-center text-muted-foreground bg-card">
                       No vessels found matching &quot;{searchQuery}&quot;.
                     </td>
                   </tr>

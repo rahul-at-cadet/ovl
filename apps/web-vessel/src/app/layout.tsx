@@ -30,10 +30,10 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Cadetlabs | Vessel Reporting Engine",
-  description: "Secure local edge reporting for Cadetlabs vessels",
+  title: "SPARKS | Vessel",
+  description: "Secure local edge reporting for SPARKS vessels",
   icons: {
-    icon: "/cadetlabs-logo.png",
+    icon: "/sparks-mark.png",
   },
 };
 

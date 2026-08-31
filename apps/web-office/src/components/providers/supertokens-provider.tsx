@@ -16,7 +16,7 @@ if (typeof window !== 'undefined') {
   const origin = window.location.origin;
   SuperTokens.init({
     appInfo: {
-      appName: 'Cadetlabs',
+      appName: 'SPARKS',
       apiDomain: isProd ? origin : 'http://localhost:3001',
       websiteDomain: isProd ? origin : 'http://localhost:3000',
       apiBasePath: '/auth',

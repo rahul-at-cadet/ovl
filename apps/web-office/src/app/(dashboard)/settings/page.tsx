@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@ovl/ui/components/tab
 import { Settings, Globe, Shield, Key, Bell, KeyRound, Copy, CheckCircle2, Trash2, Ship, Pencil, X, Loader2, Server, Database, Clock } from 'lucide-react';
 import { useState } from 'react';
 import { trpc } from '@/lib/trpc';
+import { GeneralSettingsTab } from './GeneralSettingsTab';
 
 export default function SettingsPage() {
   const [copied, setCopied] = useState<string | null>(null);
@@ -143,27 +144,7 @@ export default function SettingsPage() {
 
           <div className="flex-1 space-y-6">
             <TabsContent value="general" className="mt-0 space-y-6">
-              <Card className="bg-card border-border shadow-sm overflow-hidden rounded-md">
-                <CardHeader className="border-b border-border pb-4 bg-card">
-                  <CardTitle className="text-sm font-semibold tracking-tight text-foreground">Organization Identity</CardTitle>
-                  <CardDescription className="text-xs text-muted-foreground">Update your company name and global locale settings.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6 pt-6">
-                  <div className="space-y-2 max-w-md">
-                    <Label htmlFor="company-name" className="text-xs font-semibold text-foreground uppercase tracking-wider">Company Name</Label>
-                    <Input id="company-name" defaultValue="Oceanic Vanguard Lines (OVL)" className="bg-card border-border text-foreground text-sm h-10" />
-                  </div>
-                  <div className="space-y-2 max-w-md">
-                    <Label htmlFor="default-timezone" className="text-xs font-semibold text-foreground uppercase tracking-wider">Default Timezone</Label>
-                    <Input id="default-timezone" defaultValue="UTC (Coordinated Universal Time)" className="bg-card border-border text-foreground text-sm h-10" />
-                  </div>
-                </CardContent>
-                <CardFooter className="bg-card border-t border-border p-4 flex justify-end">
-                  <Button className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-9 text-sm font-semibold shadow-sm transition-all">
-                    Save Changes
-                  </Button>
-                </CardFooter>
-              </Card>
+              <GeneralSettingsTab />
             </TabsContent>
 
             <TabsContent value="security" className="mt-0 space-y-6">

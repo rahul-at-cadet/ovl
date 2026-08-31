@@ -64,6 +64,7 @@ import { TenantRegistryService } from '../tenancy/tenant-registry.service';
 import { TenantProvisioningService } from '../tenancy/tenant-provisioning.service';
 import { TenantMigrationRunnerService } from '../tenancy/tenant-migration-runner.service';
 import { TenantSelectionService } from '../tenancy/tenant-selection.service';
+import { TenantSettingsService } from '../tenancy/tenant-settings.service';
 
 
 
@@ -287,6 +288,7 @@ export class TrpcRouter {
     @Optional() @Inject(TenantProvisioningService) private readonly tenantProvisioning?: TenantProvisioningService,
     @Optional() @Inject(TenantMigrationRunnerService) private readonly tenantMigrations?: TenantMigrationRunnerService,
     @Optional() @Inject(TenantSelectionService) private readonly tenantSelection?: TenantSelectionService,
+    @Optional() @Inject(TenantSettingsService) private readonly tenantSettings?: TenantSettingsService,
     @Optional() @Inject(AuditService) private readonly auditService?: AuditService,
   ) {}
 
@@ -402,6 +404,9 @@ export class TrpcRouter {
       provisioning: this.tenantProvisioning,
       migrations: this.tenantMigrations,
       selection: this.tenantSelection,
+      settings: this.tenantSettings,
+      supertokens: this.supertokensService,
+      audit: this.auditService,
     })),
 
     // Reading the platform audit log. Extracted to audit.router.ts, which is

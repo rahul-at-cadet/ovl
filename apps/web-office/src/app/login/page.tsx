@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@ovl/
 import { Input } from '@ovl/ui/components/input';
 import { Label } from '@ovl/ui/components/label';
 import { Button } from '@ovl/ui/components/button';
-import { CadetlabsLogo } from '@ovl/ui/components/cadetlabs-logo';
+import { SparksLogo } from '@ovl/ui/components/sparks-logo';
 import { trpc } from '@/lib/trpc';
 import { API_ORIGIN } from '@/lib/api-origin';
 
@@ -180,12 +180,13 @@ export default function OfficeLoginPage() {
       <div className="w-full max-w-[400px] z-10 p-4">
         <Card className="bg-card border-border shadow-sm rounded-md">
           <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-border">
+            {/* The lockup already carries the product name, so there is no
+                separate title under it — that would say SPARKS twice. Sized in
+                steps so it stays legible on a laptop without dominating a
+                phone. */}
             <div>
-              <CadetlabsLogo className="h-10 w-10 mx-auto mb-2" />
-              <CardTitle className="text-xl font-medium tracking-tight text-foreground">
-                Cadetlabs
-              </CardTitle>
-              <CardDescription className="text-muted-foreground mt-1 text-sm">
+              <SparksLogo className="h-9 sm:h-11 mx-auto mb-1" />
+              <CardDescription className="text-muted-foreground mt-2 text-sm">
                 Secure Office Authentication
               </CardDescription>
             </div>
@@ -260,9 +261,8 @@ function FirstAdminSetup() {
       <div className="w-full max-w-[420px] z-10 p-4">
         <Card className="bg-card border-border shadow-sm rounded-md">
           <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-border">
-            <CadetlabsLogo className="h-10 w-10 mx-auto mb-2" />
-            <CardTitle className="text-xl font-medium tracking-tight text-foreground">Cadetlabs</CardTitle>
-            <CardDescription className="text-muted-foreground mt-1 text-sm">
+            <SparksLogo className="h-9 sm:h-11 mx-auto mb-1" />
+            <CardDescription className="text-muted-foreground mt-2 text-sm">
               First-time setup — no account exists yet
             </CardDescription>
           </CardHeader>

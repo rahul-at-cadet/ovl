@@ -112,7 +112,7 @@ export default function SetupPage() {
             <CardTitle className="text-sm font-semibold tracking-tight text-foreground flex items-center"><Database className="w-4 h-4 mr-2" /> Data Persistence</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 pt-6 text-sm text-foreground">
-            <p>Welcome to Cadetlabs. This node operates in an occasionally-connected environment.</p>
+            <p>Welcome to SPARKS. This node operates in an occasionally-connected environment.</p>
             <p>All data is persisted locally in the configured SQLite database before being synchronized to shore. Ensure your host machine provides persistent storage for the data directory.</p>
           </CardContent>
           <CardFooter className=" border-t border-border p-4 flex justify-end">

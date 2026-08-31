@@ -82,6 +82,23 @@ CREATE TABLE IF NOT EXISTS platform.tenant_users (
 
 CREATE INDEX IF NOT EXISTS tenant_users_tenant_id_idx ON platform.tenant_users (tenant_id);
 
+-- A tenant's own branding and locale, edited by its administrators.
+--
+-- Kept beside `name` rather than in the tenant's own schema because they are
+-- the same kind of fact — who this customer is — and the office shell reads
+-- them on every page load, before any tenant role is assumed. Added as ALTERs
+-- so an existing database picks them up on the next idempotent re-run.
+--
+-- The logo is a data URI rather than a path or a bucket key. It is the one
+-- choice here that avoids introducing object storage for a single small image
+-- per customer, it is atomic with the rest of the row, and it survives a
+-- restore with no second system to keep in step. Size is capped in the
+-- application (see TenantSettingsService) rather than by a column type,
+-- because the limit is about what is sensible to inline in a page, not about
+-- what Postgres can hold.
+ALTER TABLE platform.tenants ADD COLUMN IF NOT EXISTS logo_data_url text;
+ALTER TABLE platform.tenants ADD COLUMN IF NOT EXISTS default_timezone text NOT NULL DEFAULT 'UTC';
+
 -- Who may publish into the master catalogue.
 --
 -- Deliberately NOT a value in `users.roles`: that table lives inside a tenant
@@ -663,6 +680,36 @@ GRANT audit_reader TO ovl_admin;
 -- tenants are both things the API does; unmapping an identity entirely is
 -- offboarding, which stays with ovl_admin (section 4).
 -- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- 11. The role that edits a tenant's own settings
+--
+-- A tenant's administrators may rename their company, upload their logo and
+-- set their default timezone. All three live on platform.tenants, which
+-- ovl_api can otherwise only read.
+--
+-- The grant is COLUMN-LEVEL, and that is the whole point of it. `slug`,
+-- `schema_name`, `role_name` and `status` decide which schema a tenant
+-- resolves to and whether it resolves at all; a request path able to write
+-- those could repoint a customer at another customer's data or quietly
+-- suspend them. Naming the three columns that are safe to edit means the
+-- other four are refused by Postgres rather than by a validation check
+-- somebody has to remember to write.
+-- ---------------------------------------------------------------------------
+
+SELECT format('CREATE ROLE %I NOLOGIN', 'tenant_settings_writer')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tenant_settings_writer')
+\gexec
+
+GRANT USAGE ON SCHEMA platform TO tenant_settings_writer;
+GRANT SELECT ON platform.tenants TO tenant_settings_writer;
+GRANT UPDATE (name, logo_data_url, default_timezone) ON platform.tenants TO tenant_settings_writer;
+GRANT tenant_settings_writer TO ovl_api;
+GRANT tenant_settings_writer TO ovl_admin;
+
+-- Deliberately NOT granted: UPDATE on slug, schema_name, role_name or status,
+-- and INSERT or DELETE on this table at all. Creating and retiring tenants is
+-- provisioning, and stays with ovl_admin (section 4).
 
 SELECT format('CREATE ROLE %I NOLOGIN', 'tenant_membership_writer')
 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tenant_membership_writer')

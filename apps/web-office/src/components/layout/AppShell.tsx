@@ -10,7 +10,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@ovl/ui/components/popo
 import { Avatar, AvatarFallback, AvatarImage } from '@ovl/ui/components/avatar';
 import { Sheet, SheetContent, SheetTrigger } from '@ovl/ui/components/sheet';
 import { ThemeToggle } from '@ovl/ui/components/theme-toggle';
-import { CadetlabsLogo } from '@ovl/ui/components/cadetlabs-logo';
+import { PoweredBySparks } from '@ovl/ui/components/sparks-logo';
+import { TenantBrand } from './TenantBrand';
 import { TenantViewBanner } from './TenantViewBanner';
 import { trpc } from '@/lib/trpc';
 import { useCurrentUser } from '@/lib/useCurrentUser';
@@ -129,8 +130,9 @@ export function AppShell({ children }: AppShellProps) {
   // The customer company this session is inside, shown in the shell so every
   // screen says whose data it is. Null on a single-tenant deployment and for a
   // super admin who has not picked a tenant, in both of which cases there is
-  // no one company to name and the shell just says Cadetlabs.
+  // no one company to name and the shell falls back to the SPARKS lockup.
   const tenantName = tenantAccess?.tenant?.name ?? null;
+  const tenantLogo = tenantAccess?.tenant?.logoDataUrl ?? null;
 
   // The audit log is for administrators — a platform super admin reading
   // across tenants, or a tenant's own admin reading theirs. Offering the link
@@ -177,24 +179,11 @@ export function AppShell({ children }: AppShellProps) {
       <aside
         className={`h-screen bg-card border-r border-border flex flex-col relative z-20 shrink-0 hidden md:flex transition-all duration-200 ${isSidebarOpen ? 'w-[260px]' : 'w-[70px]'}`}
       >
-        <div className="h-16 flex items-center gap-2 px-4 border-b border-border">
-          <CadetlabsLogo className="h-6 w-6 shrink-0" />
-          {isSidebarOpen && (
-            <div className="min-w-0">
-              <span className="block font-medium text-sm tracking-tight truncate text-foreground">
-                Cadetlabs
-              </span>
-              {/* Whose fleet this is. Cadetlabs is the product; every screen
-                  below belongs to one customer, and until this was here
-                  nothing said which one. Truncated rather than wrapped so a
-                  long company name cannot push the nav down. */}
-              {tenantName && (
-                <span className="block text-xs text-muted-foreground truncate" title={tenantName}>
-                  {tenantName}
-                </span>
-              )}
-            </div>
-          )}
+        {/* The customer's brand, not ours. Whoever is signed in works for
+            that company, so their name and logo belong at the top of their own
+            workspace; SPARKS is an attribution at the foot of the sidebar. */}
+        <div className="h-16 flex items-center px-4 border-b border-border overflow-hidden">
+          <TenantBrand name={tenantName} logoDataUrl={tenantLogo} collapsed={!isSidebarOpen} />
         </div>
 
         <div className="flex-1 overflow-y-auto py-6 px-3 space-y-1">
@@ -215,11 +204,16 @@ export function AppShell({ children }: AppShellProps) {
           })}
         </div>
 
-        <div className="p-4 border-t border-border">
-          <button onClick={handleSignOut} className="w-full flex items-center px-3 py-2.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+        <div className="border-t border-border">
+          <button onClick={handleSignOut} className="w-[calc(100%-0.5rem)] flex items-center px-3 py-2.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors mt-2 mx-1">
             <LogOut className="w-5 h-5 shrink-0" />
             {isSidebarOpen && <span className="ml-3 font-medium text-sm">Sign Out</span>}
           </button>
+          {/* Attribution, deliberately at the foot rather than the head: the
+              workspace belongs to the customer, the software belongs to us. */}
+          <div className="px-4 pb-4 pt-2">
+            <PoweredBySparks compact={!isSidebarOpen} />
+          </div>
         </div>
       </aside>
 
@@ -243,18 +237,8 @@ export function AppShell({ children }: AppShellProps) {
                   <Menu className="w-5 h-5" />
                 </SheetTrigger>
                 <SheetContent side="left" className="w-[260px] bg-card border-r border-border p-0 flex flex-col">
-                  <div className="h-16 flex items-center gap-2 px-4 border-b border-border shrink-0">
-                    <CadetlabsLogo className="h-6 w-6 shrink-0" />
-                    <div className="min-w-0">
-                      <span className="block font-medium text-sm tracking-tight truncate text-foreground">
-                        Cadetlabs
-                      </span>
-                      {tenantName && (
-                        <span className="block text-xs text-muted-foreground truncate" title={tenantName}>
-                          {tenantName}
-                        </span>
-                      )}
-                    </div>
+                  <div className="h-16 flex items-center px-4 border-b border-border shrink-0 overflow-hidden">
+                    <TenantBrand name={tenantName} logoDataUrl={tenantLogo} />
                   </div>
                   <div className="flex-1 overflow-y-auto py-6 px-3 space-y-1">
                     {navItems.map((item) => {
@@ -271,11 +255,14 @@ export function AppShell({ children }: AppShellProps) {
                       );
                     })}
                   </div>
-                  <div className="p-4 border-t border-border mt-auto shrink-0">
-                    <button onClick={handleSignOut} className="w-full flex items-center px-3 py-2.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                  <div className="border-t border-border mt-auto shrink-0">
+                    <button onClick={handleSignOut} className="w-[calc(100%-0.5rem)] flex items-center px-3 py-2.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors mt-2 mx-1">
                       <LogOut className="w-5 h-5 shrink-0" />
                       <span className="ml-3 font-medium text-sm">Sign Out</span>
                     </button>
+                    <div className="px-4 pb-4 pt-2">
+                      <PoweredBySparks />
+                    </div>
                   </div>
                 </SheetContent>
               </Sheet>
@@ -286,16 +273,8 @@ export function AppShell({ children }: AppShellProps) {
                 name truncates instead of pushing the header icons off screen.
                 On mobile this bar is the only chrome that is always visible —
                 the sidebar is behind a tap — so the tenant belongs here too. */}
-            <div className="md:hidden flex items-center gap-2 mr-4 min-w-0">
-               <CadetlabsLogo className="h-5 w-5 shrink-0" />
-               <div className="min-w-0">
-                 <span className="block font-bold tracking-tight truncate leading-tight">Cadetlabs</span>
-                 {tenantName && (
-                   <span className="block text-xs text-muted-foreground truncate leading-tight" title={tenantName}>
-                     {tenantName}
-                   </span>
-                 )}
-               </div>
+            <div className="md:hidden flex items-center mr-4 min-w-0">
+               <TenantBrand name={tenantName} logoDataUrl={tenantLogo} dense />
             </div>
 
           </div>

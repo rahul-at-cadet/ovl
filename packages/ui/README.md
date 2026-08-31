@@ -28,7 +28,7 @@ the semantic status scale `text-status-ok | -warn | -attention | -critical |
 -info` — which each app defines in its own `src/app/globals.css`.
 
 That is deliberate and it is the whole point. The two apps have genuinely
-different palettes: the office app is the Cadetlabs brand teal, while the
+different palettes: the office app is the SPARKS brand teal, while the
 vessel app runs an IHO S-52 Night palette built to preserve a watchkeeper's
 dark adaptation at sea. A component that hardcoded `text-emerald-400` would
 look correct in one app and actively unsafe in the other. Because the

@@ -6,6 +6,7 @@ import { User, KeyRound, ShieldCheck } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@ovl/ui/components/card';
 import { Input } from '@ovl/ui/components/input';
 import { Label } from '@ovl/ui/components/label';
+import { SparksLogo } from '@ovl/ui/components/sparks-logo';
 import { Button } from '@ovl/ui/components/button';
 import { API_ORIGIN } from '@/lib/api-origin';
 import { trpc } from '@/lib/trpc';
@@ -77,10 +78,8 @@ export default function LoginPage() {
         <Card className="bg-card border-border rounded-sm">
           <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-border">
             <div>
-              <CardTitle className="text-xl font-medium tracking-tight text-foreground">
-                Cadetlabs
-              </CardTitle>
-              <CardDescription className="text-muted-foreground mt-1 text-sm">
+              <SparksLogo className="h-9 sm:h-11 mx-auto mb-1" />
+              <CardDescription className="text-muted-foreground mt-2 text-sm">
                 Secure Terminal Authentication
               </CardDescription>
             </div>
