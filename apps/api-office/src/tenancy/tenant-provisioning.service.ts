@@ -133,6 +133,20 @@ export class TenantProvisioningService {
       tenant.slug,
     );
 
+    // Before the profile is written, not after. This method creates a row in
+    // the tenant's schema and then maps it in the registry; refusing at the
+    // second step would leave an orphaned local profile behind that nothing
+    // can sign in as and nothing cleans up.
+    //
+    // Matched on email as well as identity because the SuperTokens account may
+    // not exist yet — an operator inviting `ops@example.com` to a tenant when
+    // that address is already a platform super admin is the case this catches.
+    const existing = await supertokens.listUsersByAccountInfo('public', { email: username });
+    await this.assertNotASuperAdmin(
+      { supertokensUserId: existing[0]?.id ?? null, email: username },
+      tenant.slug,
+    );
+
     const created = await runAsSystemForTenant({ ...tenant, requestId: 'provision-admin' }, () =>
       this.users.createUser({ username, roles: ['admin'] as never }),
     );

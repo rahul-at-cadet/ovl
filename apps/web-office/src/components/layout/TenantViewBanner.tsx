@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Eye, EyeOff, Lock, PencilLine, ShieldAlert, Unlock } from 'lucide-react';
+import { Building2, Eye, EyeOff, Lock, PencilLine, ShieldAlert, Unlock } from 'lucide-react';
 import { Button } from '@ovl/ui/components/button';
 import { StatusBadge } from '@ovl/ui/components/status-badge';
 import { ConfirmDialog } from '@ovl/ui/components/confirm-dialog';
@@ -110,6 +110,60 @@ export function TenantViewBanner() {
               This account cannot be served.
             </span>{' '}
             {refusal}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // A super admin belongs to no tenant, so until they pick one every
+  // tenant-scoped call is refused — correctly, but the pages answer that
+  // refusal with their own "nothing here" state, which is indistinguishable
+  // from a tenant that genuinely has no vessels or users. Saying it once, in
+  // the strip that appears on every screen, is what stops an operator reading
+  // an empty fleet as a real one.
+  if (!viewing && capabilities?.isSuperAdmin) {
+    return (
+      <div className="shrink-0 border-b border-status-info/30 bg-status-info/5 px-4 lg:px-8 py-2">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <Building2 className="w-4 h-4 shrink-0 text-status-info" />
+            <p className="text-xs text-muted-foreground min-w-0 truncate">
+              <span className="text-foreground font-medium">No tenant selected</span>
+              <span className="hidden lg:inline">
+                {' '}— every screen below is empty until you choose one.
+              </span>
+            </p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => router.push('/tenants')}>
+            <Eye className="w-3.5 h-3.5" />
+            Choose a tenant
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // The same silence for an ordinary office user, and a different cause: their
+  // identity was never mapped to a tenant, or the tenant it maps to has been
+  // suspended. They cannot fix it themselves, so the strip says who can rather
+  // than offering a control that would only fail.
+  if (
+    !viewing &&
+    capabilities?.tenancyEnabled &&
+    capabilities.hasTenant === false &&
+    !capabilities.isSuperAdmin
+  ) {
+    return (
+      <div className="shrink-0 border-b border-status-attention/40 bg-status-attention/10 px-4 lg:px-8 py-2">
+        <div className="flex items-start gap-2.5">
+          <Building2 className="w-4 h-4 shrink-0 text-status-attention mt-px" />
+          <p className="text-xs text-muted-foreground min-w-0">
+            <span className="text-foreground font-medium">
+              This account isn&apos;t linked to a tenant.
+            </span>{' '}
+            Every screen below will stay empty until an administrator adds you to one —
+            or, if your organisation was recently suspended, until it is reactivated.
           </p>
         </div>
       </div>

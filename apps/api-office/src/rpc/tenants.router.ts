@@ -174,6 +174,11 @@ export function createTenantsRouter(deps: () => TenantsRouterDeps) {
 
       return {
         tenancyEnabled: Boolean(d.platformDb),
+        // Whether a tenant resolved for this request at all. The shell needs
+        // it to tell two silences apart: an office user whose identity was
+        // never mapped to a tenant sees the same empty tables as one whose
+        // tenant is simply empty, and only the server knows which it is.
+        hasTenant: Boolean(tryCurrentTenant()),
         // Provisioning needs ADMIN_DATABASE_URL — a role that may CREATE
         // SCHEMA and CREATE ROLE. A deployment can run multi-tenant without
         // it, and then tenants can be listed but not created.

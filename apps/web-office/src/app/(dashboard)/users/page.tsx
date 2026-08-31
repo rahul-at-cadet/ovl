@@ -279,7 +279,7 @@ export default function UsersPage() {
                 ) : (
                   <tr>
                     <td colSpan={acrossTenants ? 5 : 4} className="px-6 py-12 text-center text-muted-foreground bg-card">
-                      No users found matching &quot;{searchQuery}&quot;.
+                      {users.length === 0 ? 'No users yet.' : 'No users match that search.'}
                     </td>
                   </tr>
                 )}

@@ -1,6 +1,11 @@
 import { ForbiddenException } from '@nestjs/common';
 import Session from 'supertokens-node/recipe/session';
-import { TenantMiddleware, TENANT_CONFLICT, TENANT_UNRESOLVED } from './tenant.middleware';
+import {
+  NO_TENANT_MESSAGE,
+  TenantMiddleware,
+  TENANT_CONFLICT,
+  TENANT_UNRESOLVED,
+} from './tenant.middleware';
 import { TenantGuard } from './tenant.guard';
 import { ConflictingIdentityError, TenantRegistryService } from './tenant-registry.service';
 
@@ -81,7 +86,7 @@ describe('reporting a conflicting identity', () => {
 
     it('still gives the generic answer when there is simply no tenant', () => {
       expect(() => new TenantGuard().canActivate(contextFor({}))).toThrow(
-        'No tenant is associated with this account.',
+        NO_TENANT_MESSAGE,
       );
     });
   });

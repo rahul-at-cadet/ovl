@@ -11,6 +11,7 @@ import { Button } from '@ovl/ui/components/button';
 import { SparksLogo } from '@ovl/ui/components/sparks-logo';
 import { trpc } from '@/lib/trpc';
 import { API_ORIGIN } from '@/lib/api-origin';
+import { humanErrorMessage } from '@ovl/ui/lib/mutation-errors';
 
 export default function OfficeLoginPage() {
   const router = useRouter();
@@ -63,7 +64,7 @@ export default function OfficeLoginPage() {
         setError("Invalid email or password");
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "An error occurred during login");
+      setError(humanErrorMessage(err, "Could not sign in. Try again in a moment."));
     } finally {
       setIsLoading(false);
     }
@@ -95,7 +96,7 @@ export default function OfficeLoginPage() {
       }
       window.location.href = '/';
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'An error occurred updating the password');
+      setError(humanErrorMessage(err, 'Could not update the password. Try again in a moment.'));
     } finally {
       setIsLoading(false);
     }

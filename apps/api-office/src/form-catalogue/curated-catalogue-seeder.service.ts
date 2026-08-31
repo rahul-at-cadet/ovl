@@ -36,13 +36,43 @@ export class CuratedCatalogueSeederService implements OnModuleInit {
     }
   }
 
+  /**
+   * Where the curated JSON lives, resolved from this module rather than from
+   * the working directory.
+   *
+   * `process.cwd()` was the original answer and is kept as a fallback, but on
+   * its own it makes the catalogue depend on where the process happened to be
+   * started: `node apps/api-office/dist/main.js` from the repo root looks in
+   * `<root>/src/schemas`, finds nothing, and a fresh database then comes up
+   * with an empty catalogue and no error — the schema picker is simply blank.
+   *
+   * The module-relative path holds for every way this runs. Compiled, this
+   * file sits at `apps/api-office/dist/form-catalogue/`; under ts-node it sits
+   * at `apps/api-office/src/form-catalogue/`. Two levels up is the app root in
+   * both cases, and the Docker image copies `src/schemas` to exactly there.
+   */
+  private curatedSchemaDir(): { dir: string | null; tried: string[] } {
+    const candidates = [
+      join(__dirname, '..', '..', 'src', 'schemas'),
+      join(process.cwd(), 'src', 'schemas'),
+    ];
+    return { dir: candidates.find(existsSync) ?? null, tried: candidates };
+  }
+
   async seed(): Promise<{ seeded: string[]; skipped: string[] }> {
-    const dir = join(process.cwd(), 'src', 'schemas');
+    const { dir, tried } = this.curatedSchemaDir();
     const seeded: string[] = [];
     const skipped: string[] = [];
 
-    if (!existsSync(dir)) {
-      this.logger.warn(`No curated schemas directory at ${dir}`);
+    if (!dir) {
+      // Every path tried, because the useful question when the catalogue comes
+      // up empty is "where did it look?" — and one path in the log answers it
+      // only if you already know which one it should have been.
+      this.logger.warn(
+        `No curated schemas directory found. Tried: ${tried.join(', ')}. ` +
+          'The master catalogue will stay empty until one exists or a super admin ' +
+          'publishes a schema.',
+      );
       return { seeded, skipped };
     }
 
