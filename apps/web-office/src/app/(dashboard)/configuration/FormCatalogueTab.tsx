@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@ovl/ui/components/card";
 import { Button } from "@ovl/ui/components/button";
 import { Input } from "@ovl/ui/components/input";
@@ -43,6 +43,16 @@ export function FormCatalogueTab() {
   const { data: capabilities } = trpc.tenants.capabilities.useQuery();
   const noTenantSelected = !!capabilities?.isSuperAdmin && !capabilities.tenant;
 
+  // A super admin viewing a tenant in read mode. The mode pins every
+  // transaction on the request read-only, so adopting would fail at the
+  // database — better to say so on the button than to let Postgres say it
+  // afterwards in its own words.
+  const viewingReadOnly = capabilities?.viewing?.mode === 'read';
+  const cannotAdopt = noTenantSelected || viewingReadOnly;
+  const cannotAdoptReason = noTenantSelected
+    ? 'Select a tenant to adopt this on its behalf'
+    : 'Viewing read-only — use "Enable write access" in the banner above first';
+
   const adopt = trpc.catalogue.tenant.adopt.useMutation();
   const unadopt = trpc.catalogue.tenant.unadopt.useMutation();
   const fork = trpc.catalogue.tenant.fork.useMutation();
@@ -69,9 +79,23 @@ export function FormCatalogueTab() {
       await fn();
       await refreshAll();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(humanise(err instanceof Error ? err.message : "Something went wrong"));
     }
   };
+
+  /**
+   * Clears the banner on its own.
+   *
+   * It sat there until the page was navigated away from, long after the reader
+   * had moved on and with nothing to click. Keyed on the message so a second,
+   * different failure restarts the clock rather than inheriting the remains of
+   * the first one's.
+   */
+  useEffect(() => {
+    if (!error) return;
+    const timer = setTimeout(() => setError(null), 8000);
+    return () => clearTimeout(timer);
+  }, [error]);
 
   const openFork = (schemaName: string, versionId: string, masterVersion: string) => {
     setForkTarget({ schemaName, versionId, masterVersion });
@@ -117,8 +141,19 @@ export function FormCatalogueTab() {
   return (
     <div className="space-y-6">
       {error && (
-        <div className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
+        <div
+          role="alert"
+          className="flex items-start gap-3 rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+        >
+          <span className="flex-1 min-w-0">{error}</span>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            aria-label="Dismiss this message"
+            className="shrink-0 -mr-1 -mt-0.5 rounded p-1 text-destructive/70 hover:text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
@@ -218,13 +253,13 @@ export function FormCatalogueTab() {
                                 variant={
                                   entry.adopted && !entry.upgradeAvailable ? "ghost" : "default"
                                 }
-                                disabled={adopt.isPending || noTenantSelected}
+                                disabled={adopt.isPending || cannotAdopt}
                                 onClick={() =>
                                   run(() => adopt.mutateAsync({ versionId: entry.masterVersionId! }))
                                 }
                                 title={
-                                  noTenantSelected
-                                    ? 'Select a tenant to adopt this on its behalf'
+                                  cannotAdopt
+                                    ? cannotAdoptReason
                                     : `Use platform version ${entry.masterVersion}`
                                 }
                               >
@@ -239,7 +274,7 @@ export function FormCatalogueTab() {
                                 size="sm"
                                 variant="outline"
                                 className="px-2"
-                                disabled={fork.isPending || noTenantSelected}
+                                disabled={fork.isPending || cannotAdopt}
                                 onClick={() =>
                                   openFork(
                                     entry.schemaName,
@@ -393,4 +428,20 @@ export function FormCatalogueTab() {
       </Dialog>
     </div>
   );
+}
+
+/**
+ * Turns the database's words into the reader's.
+ *
+ * "cannot execute INSERT in a read-only transaction" is Postgres explaining
+ * itself to a developer. It reaches this screen when a platform super admin
+ * adopts a schema while viewing a tenant in read mode — the mode pins the
+ * whole request read-only, by design — and it tells the reader nothing about
+ * what they did or how to proceed.
+ */
+function humanise(message: string): string {
+  if (/read-only transaction/i.test(message)) {
+    return 'You are viewing this tenant in read-only mode, so nothing can be changed. Use "Enable write access" in the banner at the top first.';
+  }
+  return message;
 }

@@ -6,7 +6,10 @@ import { eq, and, desc, sql } from 'drizzle-orm';
 import * as schema from '@ovl/database';
 import { protectedProcedure, router } from './trpc.base';
 import { withTenantDb } from './tenant-scope';
-import { TenantDbService } from '../tenancy/tenant-db.service';
+import { TenantDbService, type TenantDatabase } from '../tenancy/tenant-db.service';
+import { PlatformFleetService } from '../tenancy/platform-fleet.service';
+import { PlatformDbService } from '../tenancy/platform-db.service';
+import { tryCurrentTenant } from '../tenancy/tenant-context';
 import { SupertokensService } from '../auth/supertokens.service';
 
 /**
@@ -22,6 +25,9 @@ import { SupertokensService } from '../auth/supertokens.service';
  * Dependencies arrive as a getter; see notifications.router.ts for why.
  */
 export interface ReportsRouterDeps {
+  /** Reading every tenant at once, for a super admin who has selected none. */
+  platformFleet?: PlatformFleetService;
+  platformDb?: PlatformDbService;
   db: NodePgDatabase<typeof schema>;
   tenantDb?: TenantDbService;
   supertokensService: SupertokensService;
@@ -62,8 +68,8 @@ const SetRemarkResolvedCompiler = TypeCompiler.Compile(SetRemarkResolvedSchema);
 
 export const createReportsRouter = (deps: () => ReportsRouterDeps) =>
   router({
-    list: protectedProcedure.query(async () =>
-      withTenantDb(deps().tenantDb, async (db) => {
+    list: protectedProcedure.query(async ({ ctx }) => {
+      const read = async (db: TenantDatabase) => {
         const reports = await db
           .select({
             id: schema.reportVersions.reportId,
@@ -109,8 +115,29 @@ export const createReportsRouter = (deps: () => ReportsRouterDeps) =>
             by: 'System',
             reviewed: !!r.reviewedBy,
           }));
+      };
+
+      const d = deps();
+
+      // A platform super admin who has selected no tenant sees the whole
+      // platform's ledger. Each tenant is capped at 100 rows by `read`, so the
+      // merged list is re-sorted and re-capped here — otherwise the newest
+      // hundred across the platform could be crowded out by an older tenant
+      // that simply came back first.
+      if (
+        !tryCurrentTenant() &&
+        d.platformDb &&
+        d.platformFleet &&
+        (await d.platformDb.isSuperAdmin(ctx.session.getUserId()))
+      ) {
+        const all = await d.platformFleet.acrossTenants(read);
+        return all
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+          .slice(0, 100);
+      }
+
+      return withTenantDb(d.tenantDb, read);
     }),
-    ),
     // The original's own CSV export (office/httpapi/csvexport.go) is
     // API-key-gated for external/compliance tooling, not a dashboard
     // button — it has no UI trigger anywhere in the original app. This

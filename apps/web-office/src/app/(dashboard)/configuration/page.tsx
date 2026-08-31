@@ -26,7 +26,14 @@ import { ScopeSelector } from "./ScopeSelector";
 import { scopeLabel, type Scope } from "@/lib/config/complianceLogic";
 
 export default function ConfigurationPage() {
-  const [activeTab, setActiveTab] = useState("schemas");
+  // "schemas" is a tenant's *own* published versions, which is empty for
+  // everyone until they publish one — so the page opened on a blank panel
+  // reading "No schemas published yet" while the platform catalogue everyone
+  // actually comes here for sat one tab over, unseen. Land on the catalogue
+  // instead until this tenant has schemas of its own.
+  const { data: ownSchemas } = trpc.schemas.list.useQuery();
+  const [activeTab, setActiveTab] = useState<string | null>(null);
+  const effectiveTab = activeTab ?? ((ownSchemas?.length ?? 0) > 0 ? "schemas" : "formCatalogue");
 
   // Which catalogue tabs to offer. The server answers this rather than the
   // client inferring it from a role string, because "super admin" is a
@@ -45,7 +52,7 @@ export default function ConfigurationPage() {
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} orientation="horizontal" className="w-full">
+      <Tabs value={effectiveTab} onValueChange={setActiveTab} orientation="horizontal" className="w-full">
         {/*
           Scrolls within itself rather than widening the page. With enough tabs
           the list outgrows the content column, and a page that scrolls

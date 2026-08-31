@@ -30,6 +30,10 @@ export default function GlobalReportsPage() {
 
   const utils = trpc.useUtils();
   const { data: reports = [], isLoading } = trpc.reports.list.useQuery();
+
+  // Platform-wide mode: a super admin with no tenant selected gets every
+  // tenant's ledger, and the server stamps each row with whose it is.
+  const acrossTenants = reports.some((r: any) => r.tenantSlug);
   const markReviewed = trpc.reports.markReviewed.useMutation({
     onSuccess: () => utils.reports.list.invalidate(),
   });
@@ -106,6 +110,9 @@ export default function GlobalReportsPage() {
               <TableRow className="border-border hover:bg-transparent">
                 <TableHead className="hidden md:table-cell text-muted-foreground font-medium">Report ID</TableHead>
                 <TableHead className="text-muted-foreground font-medium">Vessel / IMO</TableHead>
+                {acrossTenants && (
+                  <TableHead className="hidden lg:table-cell text-muted-foreground font-medium">Tenant</TableHead>
+                )}
                 <TableHead className="hidden md:table-cell text-muted-foreground font-medium">Type</TableHead>
                 <TableHead className="text-muted-foreground font-medium">Status</TableHead>
                 <TableHead className="hidden md:table-cell text-muted-foreground font-medium">Date Received</TableHead>
@@ -116,7 +123,7 @@ export default function GlobalReportsPage() {
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                  <TableCell colSpan={acrossTenants ? 8 : 7} className="text-center py-12 text-muted-foreground">
                     Loading reports...
                   </TableCell>
                 </TableRow>
@@ -142,6 +149,11 @@ export default function GlobalReportsPage() {
                       <span className="text-xs text-muted-foreground">IMO {report.imo}</span>
                     </div>
                   </TableCell>
+                  {acrossTenants && (
+                    <TableCell className="hidden lg:table-cell text-foreground text-xs font-medium">
+                      {(report as { tenantName?: string }).tenantName}
+                    </TableCell>
+                  )}
                   <TableCell className="hidden md:table-cell">
                     <div className="flex items-center text-foreground">
                       <FileText className="w-4 h-4 text-muted-foreground mr-2" />
@@ -186,7 +198,7 @@ export default function GlobalReportsPage() {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                  <TableCell colSpan={acrossTenants ? 8 : 7} className="text-center py-12 text-muted-foreground">
                     No reports found matching your criteria.
                   </TableCell>
                 </TableRow>

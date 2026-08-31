@@ -851,6 +851,8 @@ export class TrpcRouter {
       db: this.db,
       tenantDb: this.tenantDb,
       supertokensService: this.supertokensService,
+      platformFleet: this.platformFleet,
+      platformDb: this.platformDb,
     })),
     // The first call site migrated off the shared schema, and the one that had
     // to go first: edge authentication resolves a vessel's key to a tenant and
