@@ -34,6 +34,14 @@ export default function GlobalReportsPage() {
   // Platform-wide mode: a super admin with no tenant selected gets every
   // tenant's ledger, and the server stamps each row with whose it is.
   const acrossTenants = reports.some((r: any) => r.tenantSlug);
+
+  // Everything that acts on a report needs one tenant to act in. Reviewing
+  // writes to that tenant's schema, the audit trail reads from it, and the CSV
+  // export is that tenant's ledger — none of which has a meaning while every
+  // tenant is on screen at once. Disabled with the reason rather than hidden,
+  // so it does not read as a permission the super admin lacks.
+  const actionsNeedOneTenant = acrossTenants;
+  const selectTenantFirst = 'Select a tenant to work on its reports';
   const markReviewed = trpc.reports.markReviewed.useMutation({
     onSuccess: () => utils.reports.list.invalidate(),
   });
@@ -94,7 +102,8 @@ export default function GlobalReportsPage() {
               <Button
                 variant="outline"
                 onClick={handleExport}
-                disabled={isExporting}
+                disabled={isExporting || actionsNeedOneTenant}
+                title={actionsNeedOneTenant ? selectTenantFirst : undefined}
                 className="h-9 border-border bg-card text-muted-foreground hover:text-foreground shrink-0"
               >
                 {isExporting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
@@ -173,7 +182,8 @@ export default function GlobalReportsPage() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        disabled={markReviewed.isPending}
+                        disabled={markReviewed.isPending || actionsNeedOneTenant}
+                        title={actionsNeedOneTenant ? selectTenantFirst : undefined}
                         onClick={() => markReviewed.mutate({ reportId: report.id })}
                         className="text-muted-foreground hover:text-foreground text-xs h-7"
                       >
@@ -182,17 +192,34 @@ export default function GlobalReportsPage() {
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Link href={`/reports/${report.id}`}>
-                      {/* pr-0: this is the trailing cell of a right-aligned
-                          column, and the button's own 10px right padding sat
-                          between the chevron and the cell edge — so the glyphs
-                          stopped 11px short of where the "Action" header text
-                          ends, and the column read as misaligned. Dropping it
-                          puts the chevron flush with the header. */}
-                      <Button variant="ghost" size="sm" className="pr-0 text-muted-foreground hover:text-primary">
+                    {/* pr-0: this is the trailing cell of a right-aligned
+                        column, and the button's own 10px right padding sat
+                        between the chevron and the cell edge — so the glyphs
+                        stopped 11px short of where the "Action" header text
+                        ends, and the column read as misaligned. Dropping it
+                        puts the chevron flush with the header. */}
+                    {actionsNeedOneTenant ? (
+                      /* Not wrapped in a Link at all. A disabled button inside
+                         an anchor still navigates when the anchor is clicked
+                         around it, and the report detail page reads one
+                         tenant's schema — it would only fail once it got
+                         there. */
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled
+                        title={selectTenantFirst}
+                        className="pr-0 text-muted-foreground"
+                      >
                         Audit <ChevronRight className="w-4 h-4 ml-1" />
                       </Button>
-                    </Link>
+                    ) : (
+                      <Link href={`/reports/${report.id}`}>
+                        <Button variant="ghost" size="sm" className="pr-0 text-muted-foreground hover:text-primary">
+                          Audit <ChevronRight className="w-4 h-4 ml-1" />
+                        </Button>
+                      </Link>
+                    )}
                   </TableCell>
                 </TableRow>
                 ))
