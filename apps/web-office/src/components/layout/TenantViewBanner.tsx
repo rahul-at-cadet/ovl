@@ -6,6 +6,7 @@ import { Eye, EyeOff, Lock, PencilLine, Unlock } from 'lucide-react';
 import { Button } from '@ovl/ui/components/button';
 import { StatusBadge } from '@ovl/ui/components/status-badge';
 import { ConfirmDialog } from '@ovl/ui/components/confirm-dialog';
+import { useQueryClient } from '@tanstack/react-query';
 import { trpc } from '@/lib/trpc';
 
 /**
@@ -35,6 +36,7 @@ function remainingLabel(ms: number): string {
 export function TenantViewBanner() {
   const router = useRouter();
   const utils = trpc.useUtils();
+  const queryClient = useQueryClient();
 
   // Same query key the shell's nav already uses, so this costs no extra
   // round trip — React Query serves both from one cache entry.
@@ -73,10 +75,16 @@ export function TenantViewBanner() {
   const stopViewingMutation = trpc.tenants.stopViewing.useMutation({
     meta: { errorTitle: "Couldn't stop viewing that tenant" },
     onSuccess: async () => {
-      // Every other screen is holding that tenant's rows; left cached they
-      // would go on showing one tenant's data under no tenant at all. Tenant
+      // Removed, not invalidated. Invalidation refetches and keeps the old
+      // data until the new answer arrives — but there is no new answer: with
+      // no tenant selected every tenant-scoped procedure now returns
+      // FORBIDDEN, and React Query holds the last successful data on error.
+      // So the screens did not merely fail to refresh, they went on showing
+      // the tenant that had just been stepped out of.
+      //
+      // Dropping the cache outright leaves nothing to render stale. Tenant
       // Management is then the only page that still works, so go there.
-      await utils.invalidate();
+      queryClient.removeQueries();
       router.push('/tenants');
     },
   });

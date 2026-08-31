@@ -41,6 +41,7 @@ import {
   Eye,
   EyeOff,
 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { trpc } from '@/lib/trpc';
 
 /**
@@ -85,18 +86,36 @@ export default function TenantsPage() {
   const [destroyConfirmation, setDestroyConfirmation] = useState('');
 
   const utils = trpc.useUtils();
+  const queryClient = useQueryClient();
   const { data: capabilities } = trpc.tenants.capabilities.useQuery();
   const isSuperAdmin = capabilities?.isSuperAdmin === true;
 
   const {
     data: tenants = [],
-    isLoading,
+    isFetching: isFetchingTenants,
+    isSuccess: tenantsLoaded,
     error: tenantsError,
   } = trpc.tenants.list.useQuery(undefined, {
     // The list is super-admin only; querying it as anyone else just produces a
     // 403 toast on a page that is already telling them they lack access.
     enabled: isSuperAdmin,
   });
+
+  // Nothing may claim the fleet is empty until the list has actually arrived.
+  //
+  // This is the "No tenants yet" report, and the cause was a render state
+  // rather than any missing data. React Query derives `isLoading` as
+  // `isPending && isFetching`, so a query held back by `enabled: false` is
+  // *pending but not loading* — and this query is disabled until
+  // `capabilities` comes back and says the viewer is a super admin. In that
+  // window the old code fell straight past its loading branch to the empty
+  // one and rendered "No tenants yet." to a platform admin whose tenants were
+  // all present and about to load.
+  //
+  // Keyed on `isSuccess` instead: the empty state now requires the request to
+  // have completed and genuinely returned nothing.
+  const tenantsPending = !capabilities || (isSuperAdmin && !tenantsLoaded && !tenantsError);
+  const isLoading = tenantsPending || isFetchingTenants;
 
   const provisionMutation = trpc.tenants.provision.useMutation({
     // The result — including a one-time password — is rendered inline in the
@@ -134,14 +153,29 @@ export default function TenantsPage() {
 
   // Viewing a tenant changes which schema every other screen reads, so the
   // whole tRPC cache has to go — not just this page's queries.
+  //
+  // Removed rather than invalidated, and the difference matters: invalidation
+  // keeps serving the old rows until a fresh answer replaces them, so every
+  // screen would show the previous tenant's data in the meantime — and after
+  // stopping a view there is no fresh answer at all, because a super admin
+  // with no tenant gets FORBIDDEN from every tenant-scoped procedure and
+  // React Query keeps the last successful data on error.
+  const resetTenantScopedCache = () => {
+    queryClient.removeQueries();
+    // This page's own list is not tenant-scoped and is what the operator is
+    // looking at, so put it back immediately rather than leaving a blank table.
+    void utils.tenants.list.refetch();
+    void utils.tenants.capabilities.refetch();
+  };
+
   const viewAsMutation = trpc.tenants.viewAs.useMutation({
     meta: { errorTitle: "Couldn't switch to that tenant" },
-    onSuccess: () => utils.invalidate(),
+    onSuccess: resetTenantScopedCache,
   });
 
   const stopViewingMutation = trpc.tenants.stopViewing.useMutation({
     meta: { errorTitle: "Couldn't stop viewing that tenant" },
-    onSuccess: () => utils.invalidate(),
+    onSuccess: resetTenantScopedCache,
   });
 
   const migrateTenantMutation = trpc.tenants.migrateTenant.useMutation({
