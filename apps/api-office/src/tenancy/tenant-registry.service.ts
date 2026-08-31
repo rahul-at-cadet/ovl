@@ -42,6 +42,7 @@ export class TenantRegistryService {
   private readonly byUserId = new Map<string, CacheEntry>();
   private readonly bySlugCache = new Map<string, CacheEntry>();
   private readonly byIdCache = new Map<string, CacheEntry>();
+  private readonly nameById = new Map<string, { name: string; expiresAt: number }>();
 
   constructor(
     @Inject(PLATFORM_DB) private readonly platformDb: PlatformDatabase,
@@ -188,6 +189,38 @@ export class TenantRegistryService {
   }
 
   /**
+   * The tenant's display name — the customer's own company name.
+   *
+   * Deliberately not on TenantDescriptor and not returned by the lookups
+   * above. That type is what gets bound into SQL, and the display name is the
+   * one field here a customer chooses freely; keeping it out means it can
+   * never reach a statement, however a descriptor is later used. This is the
+   * accessor for showing it to a person, which is all it is for.
+   *
+   * Cached on the same TTL as the descriptors, because the office shell asks
+   * for it on every page load and a rename is about as frequent as never.
+   */
+  async displayName(tenantId: string): Promise<string | null> {
+    const cached = this.nameById.get(tenantId);
+    if (cached && cached.expiresAt > Date.now()) return cached.name;
+
+    const rows = await this.platformDb
+      .select({ name: tenants.name })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+
+    const name = rows[0]?.name ?? null;
+    if (name !== null) {
+      this.nameById.set(tenantId, {
+        name,
+        expiresAt: Date.now() + this.options.registryCacheTtlMillis,
+      });
+    }
+    return name;
+  }
+
+  /**
    * Drops cached lookups. Call after provisioning, suspending, or reassigning
    * a user — otherwise a suspended tenant keeps serving for up to one TTL.
    */
@@ -195,6 +228,7 @@ export class TenantRegistryService {
     this.byUserId.clear();
     this.bySlugCache.clear();
     this.byIdCache.clear();
+    this.nameById.clear();
   }
 
   /**

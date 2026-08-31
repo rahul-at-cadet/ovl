@@ -7,6 +7,7 @@ import { TenantProvisioningService } from '../tenancy/tenant-provisioning.servic
 import { TenantMigrationRunnerService } from '../tenancy/tenant-migration-runner.service';
 import { PlatformDbService } from '../tenancy/platform-db.service';
 import { TenantSelectionService } from '../tenancy/tenant-selection.service';
+import { tryCurrentTenant } from '../tenancy/tenant-context';
 
 /**
  * Platform tenant administration — the top of the hierarchy.
@@ -130,6 +131,27 @@ export function createTenantsRouter(deps: () => TenantsRouterDeps) {
         viewing = await d.selection.current(ctx.session.getUserId());
       }
 
+      // Whose data this request is actually reading — the customer company,
+      // not this product. Every screen in the office app belongs to exactly
+      // one tenant and nothing on any of them said which, so a person with
+      // access to two organisations had no way to tell them apart, and an
+      // operator inside a customer's tenant had only the banner.
+      //
+      // Taken from the resolved context rather than from anything the caller
+      // sent, for the same reason TenantMiddleware resolves it that way: this
+      // is a label for the tenant the request is bound to, so it has to come
+      // from the binding or it is decoration that can disagree with reality.
+      const context = tryCurrentTenant();
+      const tenant =
+        context && d.registry
+          ? {
+              slug: context.slug,
+              // Falls back to the slug: a tenant is always identifiable, even
+              // if the registry row is mid-rename or the lookup fails.
+              name: (await d.registry.displayName(context.tenantId)) ?? context.slug,
+            }
+          : null;
+
       return {
         tenancyEnabled: Boolean(d.platformDb),
         // Provisioning needs ADMIN_DATABASE_URL — a role that may CREATE
@@ -137,6 +159,7 @@ export function createTenantsRouter(deps: () => TenantsRouterDeps) {
         // it, and then tenants can be listed but not created.
         canProvision: Boolean(d.provisioning?.enabled),
         isSuperAdmin,
+        tenant,
         viewing,
       };
     }),

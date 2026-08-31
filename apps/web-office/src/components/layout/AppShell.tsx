@@ -126,6 +126,12 @@ export function AppShell({ children }: AppShellProps) {
     enabled: sessionChecked,
   });
 
+  // The customer company this session is inside, shown in the shell so every
+  // screen says whose data it is. Null on a single-tenant deployment and for a
+  // super admin who has not picked a tenant, in both of which cases there is
+  // no one company to name and the shell just says Cadetlabs.
+  const tenantName = tenantAccess?.tenant?.name ?? null;
+
   // The audit log is for administrators — a platform super admin reading
   // across tenants, or a tenant's own admin reading theirs. Offering the link
   // to everyone else would only lead them to a "not for you" page.
@@ -174,9 +180,20 @@ export function AppShell({ children }: AppShellProps) {
         <div className="h-16 flex items-center gap-2 px-4 border-b border-border">
           <CadetlabsLogo className="h-6 w-6 shrink-0" />
           {isSidebarOpen && (
-            <span className="font-medium text-sm tracking-tight whitespace-nowrap text-foreground">
-              Cadetlabs
-            </span>
+            <div className="min-w-0">
+              <span className="block font-medium text-sm tracking-tight truncate text-foreground">
+                Cadetlabs
+              </span>
+              {/* Whose fleet this is. Cadetlabs is the product; every screen
+                  below belongs to one customer, and until this was here
+                  nothing said which one. Truncated rather than wrapped so a
+                  long company name cannot push the nav down. */}
+              {tenantName && (
+                <span className="block text-xs text-muted-foreground truncate" title={tenantName}>
+                  {tenantName}
+                </span>
+              )}
+            </div>
           )}
         </div>
 
@@ -210,7 +227,11 @@ export function AppShell({ children }: AppShellProps) {
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Top Header */}
         <header className="h-16 bg-card border-b border-border flex items-center justify-between px-4 lg:px-8 z-10 shrink-0">
-          <div className="flex items-center flex-1">
+          {/* min-w-0 is what lets this side shrink. A flex item's default
+              min-width is auto, so without it the row refuses to go below its
+              content width and a long tenant name pushes the header's own
+              controls off the screen instead of truncating. */}
+          <div className="flex items-center flex-1 min-w-0">
             <Button variant="ghost" size="icon" aria-label={isSidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'} aria-expanded={isSidebarOpen} onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="hidden md:flex text-muted-foreground hover:text-foreground mr-4">
               <Menu className="w-5 h-5" />
             </Button>
@@ -224,9 +245,16 @@ export function AppShell({ children }: AppShellProps) {
                 <SheetContent side="left" className="w-[260px] bg-card border-r border-border p-0 flex flex-col">
                   <div className="h-16 flex items-center gap-2 px-4 border-b border-border shrink-0">
                     <CadetlabsLogo className="h-6 w-6 shrink-0" />
-                    <span className="font-medium text-sm tracking-tight whitespace-nowrap text-foreground">
-                      Cadetlabs
-                    </span>
+                    <div className="min-w-0">
+                      <span className="block font-medium text-sm tracking-tight truncate text-foreground">
+                        Cadetlabs
+                      </span>
+                      {tenantName && (
+                        <span className="block text-xs text-muted-foreground truncate" title={tenantName}>
+                          {tenantName}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="flex-1 overflow-y-auto py-6 px-3 space-y-1">
                     {navItems.map((item) => {
@@ -254,14 +282,25 @@ export function AppShell({ children }: AppShellProps) {
             </div>
 
             {/* Mobile Title */}
-            <div className="md:hidden flex items-center gap-2 mr-4">
+            {/* min-w-0 on both the row and the text block, so a long company
+                name truncates instead of pushing the header icons off screen.
+                On mobile this bar is the only chrome that is always visible —
+                the sidebar is behind a tap — so the tenant belongs here too. */}
+            <div className="md:hidden flex items-center gap-2 mr-4 min-w-0">
                <CadetlabsLogo className="h-5 w-5 shrink-0" />
-               <span className="font-bold tracking-tight">Cadetlabs</span>
+               <div className="min-w-0">
+                 <span className="block font-bold tracking-tight truncate leading-tight">Cadetlabs</span>
+                 {tenantName && (
+                   <span className="block text-xs text-muted-foreground truncate leading-tight" title={tenantName}>
+                     {tenantName}
+                   </span>
+                 )}
+               </div>
             </div>
 
           </div>
 
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-4 shrink-0">
             <ThemeToggle />
             {/* Base UI's Popover.Root renders no wrapping element of its own —
                 it injects small focus-guard elements inline at this exact
