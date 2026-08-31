@@ -136,6 +136,32 @@ export function TenantViewBanner() {
     );
   }
 
+  // The same silence for an ordinary office user, and a different cause: their
+  // identity was never mapped to a tenant, or the tenant it maps to has been
+  // suspended. They cannot fix it themselves, so the strip says who can rather
+  // than offering a control that would only fail.
+  if (
+    !viewing &&
+    capabilities?.tenancyEnabled &&
+    capabilities.hasTenant === false &&
+    !capabilities.isSuperAdmin
+  ) {
+    return (
+      <div className="shrink-0 border-b border-status-attention/40 bg-status-attention/10 px-4 lg:px-8 py-2">
+        <div className="flex items-start gap-2.5">
+          <Building2 className="w-4 h-4 shrink-0 text-status-attention mt-px" />
+          <p className="text-xs text-muted-foreground min-w-0">
+            <span className="text-foreground font-medium">
+              This account isn&apos;t linked to a tenant.
+            </span>{' '}
+            Every screen below will stay empty until an administrator adds you to one —
+            or, if your organisation was recently suspended, until it is reactivated.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (!viewing) return null;
 
   const isWrite = viewing.mode === 'write';

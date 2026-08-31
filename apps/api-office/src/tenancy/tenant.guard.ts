@@ -1,6 +1,6 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import { tryCurrentTenant } from './tenant-context';
-import { TENANT_CONFLICT } from './tenant.middleware';
+import { NO_TENANT_MESSAGE, TENANT_CONFLICT } from './tenant.middleware';
 
 /**
  * Refuses any request that has no tenant on its async context.
@@ -26,7 +26,7 @@ export class TenantGuard implements CanActivate {
     if (typeof conflict === 'string') throw new ForbiddenException(conflict);
 
     if (!tryCurrentTenant()) {
-      throw new ForbiddenException('No tenant is associated with this account.');
+      throw new ForbiddenException(NO_TENANT_MESSAGE);
     }
     return true;
   }

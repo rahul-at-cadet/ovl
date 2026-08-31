@@ -20,6 +20,24 @@ export const TENANT_UNRESOLVED = Symbol('ovl.tenantUnresolved');
 export const TENANT_CONFLICT = Symbol('ovl.tenantConflict');
 
 /**
+ * What a request is told when no tenant could be resolved for it.
+ *
+ * Shared by `TenantGuard` and both tRPC `requireTenant` helpers so the three
+ * cannot drift. It replaces "No tenant is associated with this account", which
+ * was accurate and told nobody what to do: "tenant" is an association the
+ * reader cannot see, cannot create, and — for the commonest cause, a super
+ * admin who simply has not picked one yet — has not actually lost.
+ *
+ * Both remedies are named because the answer differs by who is asking, and the
+ * server deliberately does not tell one kind of caller about the other's
+ * powers beyond this sentence.
+ */
+export const NO_TENANT_MESSAGE =
+  'This account is not linked to a tenant, so there is no data to show. A platform ' +
+  'super admin chooses one in Tenant Management; an office user has to be added to a ' +
+  'tenant by an administrator.';
+
+/**
  * Establishes the tenant context for the rest of the request.
  *
  * Placed in middleware rather than a guard or interceptor because the

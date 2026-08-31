@@ -3,7 +3,7 @@ import * as trpcExpress from '@trpc/server/adapters/express';
 import * as crypto from 'crypto';
 import Session from 'supertokens-node/recipe/session';
 import { tryCurrentTenant } from '../tenancy/tenant-context';
-import { TENANT_CONFLICT } from '../tenancy/tenant.middleware';
+import { NO_TENANT_MESSAGE, TENANT_CONFLICT } from '../tenancy/tenant.middleware';
 import type { AuditActor } from '../audit/audit.service';
 
 /**
@@ -132,7 +132,7 @@ export function requireTenant() {
   if (!tenant) {
     throw new TRPCError({
       code: 'FORBIDDEN',
-      message: 'No tenant is associated with this account.',
+      message: NO_TENANT_MESSAGE,
     });
   }
   return tenant;

@@ -54,6 +54,7 @@ import { MasterCatalogService } from '../form-catalogue/master-catalog.service';
 import { TenantCatalogService } from '../form-catalogue/tenant-catalog.service';
 import { PlatformDbService } from '../tenancy/platform-db.service';
 import { tryCurrentTenant, runAsSystemForTenant } from '../tenancy/tenant-context';
+import { NO_TENANT_MESSAGE } from '../tenancy/tenant.middleware';
 import { EdgeTenantResolverService } from '../tenancy/edge-tenant-resolver.service';
 import { TenantDbService } from '../tenancy/tenant-db.service';
 import { withTenantDb } from './tenant-scope';
@@ -376,7 +377,7 @@ export class TrpcRouter {
     if (!tenant) {
       throw new TRPCError({
         code: 'FORBIDDEN',
-        message: 'No tenant is associated with this account.',
+        message: NO_TENANT_MESSAGE,
       });
     }
     return tenant;
