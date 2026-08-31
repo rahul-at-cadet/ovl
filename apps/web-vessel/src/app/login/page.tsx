@@ -9,6 +9,7 @@ import { Label } from '@ovl/ui/components/label';
 import { Button } from '@ovl/ui/components/button';
 import { API_ORIGIN } from '@/lib/api-origin';
 import { trpc } from '@/lib/trpc';
+import { humanErrorMessage } from '@ovl/ui/lib/mutation-errors';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -49,8 +50,10 @@ export default function LoginPage() {
         // Full page reload or router.push
         window.location.href = '/';
       }
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      // Never the raw message: a failed fetch here reads "Failed to fetch",
+      // which tells the officer nothing about what to try next.
+      setError(humanErrorMessage(err, 'Could not sign in. Try again in a moment.'));
     } finally {
       setIsLoading(false);
     }

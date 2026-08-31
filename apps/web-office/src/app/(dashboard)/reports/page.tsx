@@ -187,7 +187,7 @@ export default function GlobalReportsPage() {
               ) : (
                 <TableRow>
                   <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
-                    No reports found matching your criteria.
+                    {reports.length === 0 ? 'No reports yet.' : 'No reports match those filters.'}
                   </TableCell>
                 </TableRow>
               )}

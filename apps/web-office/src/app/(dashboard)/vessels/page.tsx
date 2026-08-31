@@ -250,7 +250,7 @@ export default function VesselsPage() {
                 ) : (
                   <tr>
                     <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground bg-card">
-                      No vessels found matching &quot;{searchQuery}&quot;.
+                      {vessels.length === 0 ? 'No vessels yet.' : 'No vessels match that search.'}
                     </td>
                   </tr>
                 )}
