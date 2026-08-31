@@ -5,6 +5,7 @@ import { httpBatchLink } from '@trpc/client';
 import React, { useRef, useState } from 'react';
 import { trpc } from '@/lib/trpc';
 import { API_ORIGIN } from '@/lib/api-origin';
+import { REQUEST_TIMEOUT_MS, timeoutSignal } from '@/lib/request-timeout';
 import { useToastManager } from '@ovl/ui/components/toast';
 import { mutationErrorToast, type MutationMeta } from '@ovl/ui/lib/mutation-errors';
 
@@ -44,6 +45,28 @@ export function TRPCProvider({ children }: { children: React.ReactNode }) {
       links: [
         httpBatchLink({
           url: `${API_ORIGIN}/trpc`,
+          /*
+           * Every tRPC request gets a deadline.
+           *
+           * `fetch` waits forever by default, so an API that accepts the
+           * connection and then never answers leaves the query permanently
+           * `isLoading` — not failed, just pending. Any screen gated on one is
+           * then stuck with nothing to render and no error to show; the login
+           * page sat on "Checking setup status..." exactly this way, which
+           * also made it useless as the fallback for a failed session check.
+           *
+           * React Query's `retry` does not help here, because retries are for
+           * requests that finish badly, and this one does not finish at all.
+           * Aborting gives it something to retry, and then to report.
+           *
+           * tRPC passes its own signal for cancellation on unmount, so it is
+           * forwarded rather than replaced — see timeoutSignal.
+           */
+          fetch: (url, options) =>
+            fetch(url, {
+              ...options,
+              signal: timeoutSignal(REQUEST_TIMEOUT_MS, options?.signal),
+            }),
         }),
       ],
     }),

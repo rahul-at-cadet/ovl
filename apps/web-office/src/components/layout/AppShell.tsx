@@ -14,6 +14,7 @@ import { CadetlabsLogo } from '@ovl/ui/components/cadetlabs-logo';
 import { TenantViewBanner } from './TenantViewBanner';
 import { trpc } from '@/lib/trpc';
 import { useCurrentUser } from '@/lib/useCurrentUser';
+import { SESSION_CHECK_TIMEOUT_MS, withDeadline } from '@/lib/request-timeout';
 
 interface AppShellProps {
   children: ReactNode;
@@ -27,7 +28,24 @@ export function AppShell({ children }: AppShellProps) {
 
   useEffect(() => {
     let cancelled = false;
-    Session.doesSessionExist()
+    // The deadline is the load-bearing part, not decoration.
+    //
+    // The catch below was written to stop this screen hanging forever, and it
+    // cannot do that on its own: it only runs if the promise rejects, and the
+    // way this actually hung was a promise that never settled at all. There
+    // are two routes to that. A refresh request that is accepted and never
+    // answered leaves `fetch` pending — addressed at the transport now, see
+    // the preAPIHook in supertokens-provider. And `onUnauthorisedResponse`
+    // inside supertokens-website is a `while (true)` around a cross-tab lock
+    // with no iteration limit, which spins as long as it can neither take the
+    // lock nor observe the session state change.
+    //
+    // Neither can be fixed from here, and both leave a visitor on
+    // "Checking session..." with no recourse but to reload the page by hand.
+    // So the wait is bounded, and running out is treated as the same "cannot
+    // determine the session" the catch already handles: fail safe to login,
+    // which is recoverable, rather than to a screen that never changes.
+    withDeadline(Session.doesSessionExist(), SESSION_CHECK_TIMEOUT_MS, 'Session check')
       .then((exists) => {
         if (cancelled) return;
         if (!exists) {
@@ -37,9 +55,8 @@ export function AppShell({ children }: AppShellProps) {
         }
       })
       .catch((err) => {
-        // If the session check itself fails (e.g. a transient refresh
-        // error), fail safe to the login page rather than hanging on
-        // "Checking session..." forever.
+        // If the session check fails or times out, fail safe to the login
+        // page rather than hanging on "Checking session..." forever.
         console.error('Session check failed:', err);
         if (!cancelled) router.replace('/login');
       });
