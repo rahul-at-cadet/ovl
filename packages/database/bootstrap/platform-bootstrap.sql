@@ -703,7 +703,14 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tenant_settings_writer
 
 GRANT USAGE ON SCHEMA platform TO tenant_settings_writer;
 GRANT SELECT ON platform.tenants TO tenant_settings_writer;
-GRANT UPDATE (name, logo_data_url, default_timezone) ON platform.tenants TO tenant_settings_writer;
+-- `updated_at` is in the list because the UPDATE statement sets it, and a
+-- column-level grant covers every column the statement writes — leaving it out
+-- fails the whole statement with "permission denied for table tenants", an
+-- error that names the table rather than the column and sends you looking in
+-- the wrong place. It is a timestamp: it cannot repoint a tenant at another
+-- tenant's schema, which is what this grant exists to prevent.
+GRANT UPDATE (name, logo_data_url, default_timezone, updated_at)
+    ON platform.tenants TO tenant_settings_writer;
 GRANT tenant_settings_writer TO ovl_api;
 GRANT tenant_settings_writer TO ovl_admin;
 
