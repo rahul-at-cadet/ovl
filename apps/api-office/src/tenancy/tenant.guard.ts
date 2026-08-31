@@ -1,5 +1,6 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import { tryCurrentTenant } from './tenant-context';
+import { TENANT_CONFLICT } from './tenant.middleware';
 
 /**
  * Refuses any request that has no tenant on its async context.
@@ -16,7 +17,14 @@ import { tryCurrentTenant } from './tenant-context';
  */
 @Injectable()
 export class TenantGuard implements CanActivate {
-  canActivate(_context: ExecutionContext): boolean {
+  canActivate(context: ExecutionContext): boolean {
+    // Checked before the generic case: an identity holding both a membership
+    // and a super admin grant has a tenant it could be served and is refused
+    // anyway, so "no tenant is associated with this account" would be both
+    // untrue and useless for working out what to do about it.
+    const conflict = context.switchToHttp().getRequest()?.[TENANT_CONFLICT];
+    if (typeof conflict === 'string') throw new ForbiddenException(conflict);
+
     if (!tryCurrentTenant()) {
       throw new ForbiddenException('No tenant is associated with this account.');
     }

@@ -1,8 +1,15 @@
-import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Error as STError } from 'supertokens-node';
 import { verifySession } from 'supertokens-node/recipe/session/framework/express';
 import { SupertokensService } from './supertokens.service';
 import { PlatformDbService } from '../tenancy/platform-db.service';
+import { TENANT_CONFLICT } from '../tenancy/tenant.middleware';
 import { Inject, Optional } from '@nestjs/common';
 
 @Injectable()
@@ -32,6 +39,19 @@ export class AuthGuard implements CanActivate {
     if (err) {
       throw err;
     }
+
+    // Answered here rather than left to TenantGuard, which runs after this one:
+    // an identity that is both a tenant member and a platform super admin has
+    // no tenant on the context, so the profile lookup below would throw from
+    // inside TenantDbService and turn a 403 anyone can act on into a 500.
+    //
+    // It is also the one case where this guard's synthetic-profile fallback
+    // gives the wrong answer on its own. The fallback keys on having no local
+    // profile; a super admin who *does* have one silently receives that
+    // tenant's roles instead of ['superAdmin'], which is a third way the same
+    // contradiction shows up. Refusing outright settles all three.
+    const conflict = req[TENANT_CONFLICT];
+    if (typeof conflict === 'string') throw new ForbiddenException(conflict);
 
     // Attach the full local Postgres user (with roles) to the request
     const stUserId = req.session.getUserId();

@@ -51,6 +51,77 @@ Layers 1–3 decide *which* schema a request should reach. Only layer 4 decides
 which it *may* reach. Keep that distinction in mind when changing anything
 here: weakening 1–3 causes bugs, weakening 4 causes breaches.
 
+## Super admins belong to no tenant
+
+**One identity is either a tenant user or a platform super admin. Never both.**
+This is enforced, not merely intended.
+
+Layer 1 resolves an identity to a tenant from two places, in order:
+`platform.tenant_users` — the identity's own membership — and, only when there
+is no membership, `platform.super_admin_tenant_selection` — the tenant a super
+admin has explicitly stepped into. That precedence is correct for each case
+taken alone. It has no correct answer when one identity holds both rows.
+
+The failure is not theoretical, and it is not confined to the resolver.
+`TenantRegistryService.forUser` would serve the identity's *own* tenant, while
+`tenants.capabilities` reads `viewing` straight from `TenantSelectionService`
+and the shell banner therefore announces the *selected* one. A super admin who
+was also the admin of `banner_check`, with `acme` selected, saw the banner say
+"Viewing Acme Shipping" above a Users & Roles page listing `banner_check`'s
+users. Read/write mode comes from the selection path too, so the mode control
+described a permission that was not the one being applied. `AuthGuard` adds a
+third disagreement: it hands out the synthetic `['superAdmin']` profile only to
+an identity with *no* local profile, so a super admin who also has a tenant
+account silently gets that tenant's roles instead.
+
+Each of those could be patched to agree with the resolver. None of them should
+be, because the combination is meaningless in the model: a super admin
+administers the platform and reaches a tenant by *selecting* it, which is a
+deliberate, audited act (`impersonation.started`). Belonging to a tenant is a
+different relationship, not a stronger one. The design already says so in
+several places — see the synthetic-profile note in `auth/auth.guard.ts` and the
+class comment on `TenantSelectionService`.
+
+So the rule is enforced from both directions, because either order of
+operations would otherwise reach the same state:
+
+- `SuperAdminService.grant` refuses an identity that has a
+  `platform.tenant_users` row (`AlreadyATenantMemberError`). This is what
+  `npm run catalogue:grant-admin` calls.
+- `TenantProvisioningService.createFirstAdmin` and `assignUser` refuse an
+  identity that is already a super admin (`AlreadyASuperAdminError`), matching
+  on SuperTokens id *or* email so an invitation to an address that is already a
+  super admin is caught before any profile is written. This covers
+  `npm run tenant:assign`, `tenants.provision` and `tenants.createAdmin`.
+
+Rows written before this rule, or by hand, still exist in the wild.
+`TenantRegistryService.forUser` therefore refuses to resolve a tenant for such
+an identity at all, raising `ConflictingIdentityError` rather than picking one
+and being quietly wrong in half the UI.
+
+Surfacing it takes the same route `TENANT_UNRESOLVED` takes, and for the same
+reason: `TenantMiddleware` catches it and sets `TENANT_CONFLICT` on the request
+instead of rejecting, and `AuthGuard`, `TenantGuard` and the tRPC `isAuthed`
+middleware each turn that into a 403 carrying the message verbatim. Throwing
+from the middleware looks simpler and is worse — the `/trpc` mount in `main.ts`
+is a bare `app.use`, so the error lands in Express's own handler and comes back
+in a shape no tRPC client can parse. The browser then has a failure it cannot
+render and the screen goes quietly empty, which is the exact failure mode this
+section exists to remove. Refusing loudly has to mean a visible error.
+
+`/auth/*` is excluded from `TenantMiddleware`, so the person can still sign in
+and out; every other route fails until an operator revokes one side:
+
+```bash
+npm run catalogue:revoke-admin --workspace api-office -- --user <supertokensUserId>
+# or, to keep the platform grant and drop the tenant account:
+psql "$ADMIN_DATABASE_URL" -c \
+  "DELETE FROM platform.tenant_users WHERE supertokens_user_id = '<supertokensUserId>'"
+```
+
+Locking one person out of one screen is the cheap failure. Showing an operator
+one tenant's name above another tenant's data — in write mode — is not.
+
 ## The transaction preamble
 
 Every tenant query runs inside this, in `TenantDbService`:

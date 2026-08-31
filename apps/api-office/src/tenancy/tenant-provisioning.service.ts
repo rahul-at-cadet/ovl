@@ -28,6 +28,26 @@ export interface FirstAdminResult {
   supertokensUserId: string;
 }
 
+/**
+ * Thrown when a platform super admin is put forward as a tenant user.
+ *
+ * The mirror of `AlreadyATenantMemberError` in `SuperAdminService`: the rule is
+ * enforced from both directions so it cannot be reached by doing the two steps
+ * in the other order. See `apps/api-office/src/tenancy/README.md`, "Super
+ * admins belong to no tenant".
+ */
+export class AlreadyASuperAdminError extends Error {
+  constructor(identity: string, slug: string) {
+    super(
+      `Refusing to add ${identity} to tenant ${slug}: they are a platform super admin, and a ` +
+        'super admin belongs to no tenant. A super admin reaches a tenant by selecting it, ' +
+        'not by joining it. Revoke the grant first (npm run catalogue:revoke-admin), or use a ' +
+        'separate identity for the tenant account.',
+    );
+    this.name = 'AlreadyASuperAdminError';
+  }
+}
+
 export class ProvisioningDisabledError extends Error {
   constructor() {
     super(
@@ -87,6 +107,20 @@ export class TenantProvisioningService {
     username: string,
   ): Promise<FirstAdminResult> {
     const pool = this.requirePool();
+
+    // Before the profile is written, not after. This method creates a row in
+    // the tenant's schema and then maps it in the registry; refusing at the
+    // second step would leave an orphaned local profile behind that nothing
+    // can sign in as and nothing cleans up.
+    //
+    // Matched on email as well as identity because the SuperTokens account may
+    // not exist yet — an operator inviting `ops@example.com` to a tenant when
+    // that address is already a platform super admin is the case this catches.
+    const existing = await supertokens.listUsersByAccountInfo('public', { email: username });
+    await this.assertNotASuperAdmin(
+      { supertokensUserId: existing[0]?.id ?? null, email: username },
+      tenant.slug,
+    );
 
     const created = await runAsSystemForTenant({ ...tenant, requestId: 'provision-admin' }, () =>
       this.users.createUser({ username, roles: ['admin'] as never }),
@@ -231,6 +265,13 @@ export class TenantProvisioningService {
   /** Points an authenticated identity at a tenant. */
   async assignUser(supertokensUserId: string, tenantId: string): Promise<void> {
     const pool = this.requirePool();
+
+    // The other half of the rule enforced in SuperAdminService.grant. Without
+    // it, `tenant:assign` would be a way to construct exactly the combination
+    // that promotion refuses to create.
+    const tenant = await this.registry.byId(tenantId);
+    await this.assertNotASuperAdmin({ supertokensUserId }, tenant?.slug ?? tenantId);
+
     await pool.query(
       `INSERT INTO platform.tenant_users (supertokens_user_id, tenant_id)
        VALUES ($1, $2)
@@ -360,6 +401,31 @@ export class TenantProvisioningService {
     ).replaceAll('"public".', '');
 
     return `${core}\n;\n${this.migrations.combinedSql()}`;
+  }
+
+  /**
+   * Refuses an identity that is already a platform super admin.
+   *
+   * Either half of the identity is enough to match: the SuperTokens id when
+   * the account exists, the email when it does not yet. `platform.super_admins`
+   * stores both, so one query settles it.
+   */
+  private async assertNotASuperAdmin(
+    identity: { supertokensUserId?: string | null; email?: string | null },
+    slug: string,
+  ): Promise<void> {
+    const pool = this.requirePool();
+    const { rows } = await pool.query<{ supertokens_user_id: string; email: string }>(
+      `SELECT supertokens_user_id, email
+         FROM platform.super_admins
+        WHERE ($1::text IS NOT NULL AND supertokens_user_id = $1)
+           OR ($2::text IS NOT NULL AND lower(email) = lower($2))
+        LIMIT 1`,
+      [identity.supertokensUserId ?? null, identity.email ?? null],
+    );
+    if (rows[0]) {
+      throw new AlreadyASuperAdminError(identity.email ?? rows[0].supertokens_user_id, slug);
+    }
   }
 
   private requirePool(): Pool {

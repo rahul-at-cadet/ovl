@@ -3,6 +3,7 @@ import * as trpcExpress from '@trpc/server/adapters/express';
 import * as crypto from 'crypto';
 import Session from 'supertokens-node/recipe/session';
 import { tryCurrentTenant } from '../tenancy/tenant-context';
+import { TENANT_CONFLICT } from '../tenancy/tenant.middleware';
 import type { AuditActor } from '../audit/audit.service';
 
 /**
@@ -84,12 +85,27 @@ export const edgeProcedure = t.procedure.use(isEdgeAuthed);
  * middleware is defined at module scope before DI has constructed it.
  */
 const isAuthed = t.middleware(async ({ ctx, next }) => {
+  let session: Awaited<ReturnType<typeof Session.getSession>>;
   try {
-    const session = await Session.getSession(ctx.req, ctx.res);
-    return next({ ctx: { ...ctx, session } });
+    session = await Session.getSession(ctx.req, ctx.res);
   } catch {
     throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Not logged in' });
   }
+
+  // Raised for every procedure, not only the tenant-scoped ones. An identity
+  // that is both a tenant member and a super admin has no coherent view of the
+  // application at all — `tenants.capabilities`, which decides what the shell
+  // renders, is exactly the call that would otherwise succeed and describe a
+  // tenant the data layer will not serve.
+  // Cast because Express's Request type has no symbol index signature; the
+  // symbol is how the middleware avoids colliding with any real header or body
+  // field, which is worth more than indexing cleanly.
+  const conflict = (ctx.req as unknown as Record<symbol, unknown>)[TENANT_CONFLICT];
+  if (typeof conflict === 'string') {
+    throw new TRPCError({ code: 'FORBIDDEN', message: conflict });
+  }
+
+  return next({ ctx: { ...ctx, session } });
 });
 
 export const protectedProcedure = t.procedure.use(isAuthed);
