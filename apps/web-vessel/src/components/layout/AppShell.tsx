@@ -7,7 +7,7 @@ import { LayoutDashboard, FileText, Settings, Users, Ship, Bell, Menu, LogOut, L
 import { Button } from '@ovl/ui/components/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@ovl/ui/components/popover';
 import { ThemeToggle } from '@ovl/ui/components/theme-toggle';
-import { CadetlabsLogo } from '@/components/layout/CadetlabsLogo';
+import { SparksLogo } from '@/components/layout/SparksLogo';
 import { trpc } from '@/lib/trpc';
 import { ChangePasswordDialog } from '@/components/ChangePasswordDialog';
 import { API_ORIGIN } from '@/lib/api-origin';
@@ -104,10 +104,10 @@ export function AppShell({ children }: AppShellProps) {
           ${isSidebarOpen ? 'w-[260px]' : 'md:w-[80px] w-[260px]'}`}
       >
         <div className="h-14 flex items-center gap-2.5 px-4 border-b border-sidebar-border relative">
-          <CadetlabsLogo className="h-6 w-6 shrink-0" />
+          <SparksLogo className="h-6 w-6 shrink-0" />
           {(isSidebarOpen || isMobileSidebarOpen) && (
             <span className="font-semibold text-base tracking-wide whitespace-nowrap text-foreground">
-              Cadetlabs
+              Sparks
             </span>
           )}
           <Button 

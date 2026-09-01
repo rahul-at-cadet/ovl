@@ -64,8 +64,8 @@
  * hardcode a color in a component — add or change a token here
  * instead).
  *
- * Light (:root): matches the Cadetlabs brand palette verbatim, ported
- * from /Users/ras/cadetlabs/assetbuilder/packages/ui/src/styles/
+ * Light (:root): matches the Sparks brand palette verbatim, ported
+ * from /Users/ras/sparks/assetbuilder/packages/ui/src/styles/
  * globals.css's own :root block — the brand teal (#3BA99C) as
  * --primary, a teal-tinted --border/--ring rather than this file's
  * previous neutral blue-slate. Dark mode (.dark below) is matched the
@@ -128,7 +128,7 @@
 }
 
 /*
- * Dark (.dark): same Cadetlabs source, its own .dark block — neutral
+ * Dark (.dark): same Sparks source, its own .dark block — neutral
  * dark-grey surfaces (no color tint) with the brand teal brightened for
  * contrast as --primary, so dark mode reads as the same brand as the
  * light theme above rather than falling back to shadcn's generic

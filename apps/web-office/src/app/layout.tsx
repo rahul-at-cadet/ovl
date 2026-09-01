@@ -12,10 +12,10 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Cadetlabs | Office Dashboard",
+  title: "Sparks | Office Dashboard",
   description: "Centralized fleet management and reporting",
   icons: {
-    icon: "/cadetlabs-logo.png",
+    icon: "/sparks-logo.png",
   },
 };
 
