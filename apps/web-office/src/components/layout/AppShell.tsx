@@ -10,7 +10,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@ovl/ui/components/popo
 import { Avatar, AvatarFallback, AvatarImage } from '@ovl/ui/components/avatar';
 import { Sheet, SheetContent, SheetTrigger } from '@ovl/ui/components/sheet';
 import { ThemeToggle } from '@ovl/ui/components/theme-toggle';
-import { SparksMark } from '@/components/layout/SparksLogo';
+import { SparksLogo, SparksMark } from '@/components/layout/SparksLogo';
 import { trpc } from '@/lib/trpc';
 import { useCurrentUser } from '@/lib/useCurrentUser';
 
@@ -133,12 +133,11 @@ export function AppShell({ children }: AppShellProps) {
       <aside
         className={`h-screen bg-card border-r border-border flex flex-col relative z-20 shrink-0 hidden md:flex transition-all duration-200 ${isSidebarOpen ? 'w-[260px]' : 'w-[70px]'}`}
       >
-        <div className="h-16 flex items-center gap-2 px-4 border-b border-border">
-          <SparksMark className="h-6 w-6 shrink-0" />
-          {isSidebarOpen && (
-            <span className="font-medium text-sm tracking-tight whitespace-nowrap text-foreground">
-              Sparks
-            </span>
+        <div className="h-16 flex items-center px-4 border-b border-border overflow-hidden">
+          {isSidebarOpen ? (
+            <SparksLogo className="h-6 w-auto shrink-0" />
+          ) : (
+            <SparksMark className="h-6 w-6 shrink-0 mx-auto" />
           )}
         </div>
 
@@ -184,11 +183,8 @@ export function AppShell({ children }: AppShellProps) {
                   <Menu className="w-5 h-5" />
                 </SheetTrigger>
                 <SheetContent side="left" className="w-[260px] bg-card border-r border-border p-0 flex flex-col">
-                  <div className="h-16 flex items-center gap-2 px-4 border-b border-border shrink-0">
-                    <SparksMark className="h-6 w-6 shrink-0" />
-                    <span className="font-medium text-sm tracking-tight whitespace-nowrap text-foreground">
-                      Sparks
-                    </span>
+                  <div className="h-16 flex items-center px-4 border-b border-border shrink-0">
+                    <SparksLogo className="h-6 w-auto shrink-0" />
                   </div>
                   <div className="flex-1 overflow-y-auto py-6 px-3 space-y-1">
                     {navItems.map((item) => {

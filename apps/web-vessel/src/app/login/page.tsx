@@ -9,7 +9,7 @@ import { Label } from '@ovl/ui/components/label';
 import { Button } from '@ovl/ui/components/button';
 import { API_ORIGIN } from '@/lib/api-origin';
 import { trpc } from '@/lib/trpc';
-import { SparksMark } from '@/components/layout/SparksLogo';
+import { SparksLogo } from '@/components/layout/SparksLogo';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -78,10 +78,7 @@ export default function LoginPage() {
         <Card className="bg-card border-border rounded-sm">
           <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-border">
             <div>
-              <SparksMark className="h-10 w-10 mx-auto mb-2" />
-              <CardTitle className="text-xl font-medium tracking-tight text-foreground">
-                Sparks
-              </CardTitle>
+              <SparksLogo className="h-12 w-auto mx-auto mb-4" />
               <CardDescription className="text-muted-foreground mt-1 text-sm">
                 Secure Terminal Authentication
               </CardDescription>

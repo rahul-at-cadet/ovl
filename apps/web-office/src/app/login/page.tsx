@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@ovl/
 import { Input } from '@ovl/ui/components/input';
 import { Label } from '@ovl/ui/components/label';
 import { Button } from '@ovl/ui/components/button';
-import { SparksMark } from '@/components/layout/SparksLogo';
+import { SparksLogo } from '@/components/layout/SparksLogo';
 import { trpc } from '@/lib/trpc';
 import { API_ORIGIN } from '@/lib/api-origin';
 
@@ -181,10 +181,7 @@ export default function OfficeLoginPage() {
         <Card className="bg-card border-border shadow-sm rounded-md">
           <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-border">
             <div>
-              <SparksMark className="h-10 w-10 mx-auto mb-2" />
-              <CardTitle className="text-xl font-medium tracking-tight text-foreground">
-                Sparks
-              </CardTitle>
+              <SparksLogo className="h-12 w-auto mx-auto mb-4" />
               <CardDescription className="text-muted-foreground mt-1 text-sm">
                 Secure Office Authentication
               </CardDescription>
@@ -260,8 +257,7 @@ function FirstAdminSetup() {
       <div className="w-full max-w-[420px] z-10 p-4">
         <Card className="bg-card border-border shadow-sm rounded-md">
           <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-border">
-            <SparksMark className="h-10 w-10 mx-auto mb-2" />
-            <CardTitle className="text-xl font-medium tracking-tight text-foreground">Sparks</CardTitle>
+            <SparksLogo className="h-12 w-auto mx-auto mb-4" />
             <CardDescription className="text-muted-foreground mt-1 text-sm">
               First-time setup — no account exists yet
             </CardDescription>

@@ -7,7 +7,7 @@ import { LayoutDashboard, FileText, Settings, Users, Ship, Bell, Menu, LogOut, L
 import { Button } from '@ovl/ui/components/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@ovl/ui/components/popover';
 import { ThemeToggle } from '@ovl/ui/components/theme-toggle';
-import { SparksLogo } from '@/components/layout/SparksLogo';
+import { SparksLogo, SparksMark } from '@/components/layout/SparksLogo';
 import { trpc } from '@/lib/trpc';
 import { ChangePasswordDialog } from '@/components/ChangePasswordDialog';
 import { API_ORIGIN } from '@/lib/api-origin';
@@ -103,12 +103,11 @@ export function AppShell({ children }: AppShellProps) {
           md:relative md:translate-x-0 ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
           ${isSidebarOpen ? 'w-[260px]' : 'md:w-[80px] w-[260px]'}`}
       >
-        <div className="h-14 flex items-center gap-2.5 px-4 border-b border-sidebar-border relative">
-          <SparksLogo className="h-6 w-6 shrink-0" />
-          {(isSidebarOpen || isMobileSidebarOpen) && (
-            <span className="font-semibold text-base tracking-wide whitespace-nowrap text-foreground">
-              Sparks
-            </span>
+        <div className="h-14 flex items-center px-4 border-b border-sidebar-border relative overflow-hidden">
+          {isSidebarOpen || isMobileSidebarOpen ? (
+            <SparksLogo className="h-6 w-auto shrink-0" />
+          ) : (
+            <SparksMark className="h-6 w-6 shrink-0 mx-auto" />
           )}
           <Button 
             variant="ghost" 
