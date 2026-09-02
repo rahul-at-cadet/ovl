@@ -1,12 +1,22 @@
 import { Injectable, Inject } from '@nestjs/common';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import * as schema from '@ovl/database';
 import { DATABASE_CONNECTION } from '../database/database.module';
 import { ComplianceService } from '../config/compliance/compliance.service';
 import { effectiveCadence } from '../config/logic/compliance';
 
 const LOG_ABSTRACT_SCHEMA_KIND = 'log-abstract.json';
+
+/**
+ * How far back to look per vessel for a position that actually validates.
+ *
+ * Bounded rather than unbounded: the query would otherwise return every
+ * positioned report the fleet has ever filed, which is the in-memory
+ * behaviour this replaced. A vessel whose last 25 positioned reports are
+ * all malformed has a data problem no map can paper over.
+ */
+const POSITION_CANDIDATES_PER_VESSEL = 25;
 
 export interface VesselPositionView {
   id: string;
@@ -129,38 +139,90 @@ export class VesselsService {
       : allVessels;
     if (vessels.length === 0) return [];
 
-    const reportRows = await this.db
-      .select({
-        vesselId: schema.reportVersions.vesselId,
-        reportId: schema.reportVersions.reportId,
-        versionNo: schema.reportVersions.versionNo,
-        eventTime: schema.reportVersions.eventTime,
-        fields: schema.reportVersions.fields,
-      })
-      .from(schema.reportVersions)
-      .where(eq(schema.reportVersions.schemaKind, LOG_ABSTRACT_SCHEMA_KIND));
+    /**
+     * At most one row per vessel, resolved in the database.
+     *
+     * This previously selected every log-abstract report_version — each
+     * carrying its whole `fields` JSONB, which is hundreds of keys wide —
+     * and then deduplicated, filtered and ranked them in Node. So painting
+     * the fleet map read the entire reporting history of the fleet into
+     * memory and discarded all but one row per vessel.
+     *
+     * The two DISTINCT ONs do that reduction in SQL: the first keeps the
+     * latest version of each report, the second keeps each vessel's most
+     * recent report *that carries a position*. Only the six position
+     * fields are projected, not the whole document.
+     *
+     * That second step is the behaviour worth preserving: position is not
+     * schema-mandatory and most Log Abstracts leave it blank, so keying
+     * off the latest report outright made a vessel vanish from the map the
+     * moment it filed one without a Position — even though shore knew
+     * exactly where it was an hour earlier. Staleness is surfaced through
+     * asOf instead of by dropping the marker.
+     */
+    const positionRows = await this.db.execute<{
+      vessel_id: string;
+      event_time: string;
+      lat_deg: unknown;
+      lat_min: unknown;
+      lat_hemi: unknown;
+      lon_deg: unknown;
+      lon_min: unknown;
+      lon_hemi: unknown;
+    }>(sql`
+      WITH latest_version AS (
+        SELECT DISTINCT ON (rv.vessel_id, rv.report_id)
+          rv.vessel_id, rv.event_time,
+          rv.fields->'Latitude_Degree'      AS lat_deg,
+          rv.fields->'Latitude_Minutes'     AS lat_min,
+          rv.fields->'Latitude_North_South' AS lat_hemi,
+          rv.fields->'Longitude_Degree'     AS lon_deg,
+          rv.fields->'Longitude_Minutes'    AS lon_min,
+          rv.fields->'Longitude_East_West'  AS lon_hemi
+        FROM report_versions rv
+        WHERE rv.schema_kind = ${LOG_ABSTRACT_SCHEMA_KIND}
+        ORDER BY rv.vessel_id, rv.report_id, rv.version_no DESC
+      )
+      SELECT vessel_id, event_time, lat_deg, lat_min, lat_hemi, lon_deg, lon_min, lon_hemi
+      FROM (
+        SELECT *, ROW_NUMBER() OVER (PARTITION BY vessel_id ORDER BY event_time DESC) AS rn
+        FROM latest_version
+        -- Presence only. SQL can tell whether the six keys exist; it
+        -- cannot tell whether "X" is a hemisphere or whether 90 is a
+        -- legal minute value, and duplicating those rules here would put
+        -- the map's correctness in two places that can disagree.
+        WHERE lat_deg IS NOT NULL AND lat_min IS NOT NULL AND lat_hemi IS NOT NULL
+          AND lon_deg IS NOT NULL AND lon_min IS NOT NULL AND lon_hemi IS NOT NULL
+      ) ranked
+      -- Several candidates per vessel, newest first, rather than only the
+      -- newest: a report can carry all six keys and still hold nonsense
+      -- (a stray hemisphere letter, an impossible latitude). Taking just
+      -- the top row let such a report shadow the good position behind it
+      -- and drop the vessel off the map entirely. readPosition below walks
+      -- these in order and takes the first that actually validates, which
+      -- is what the previous in-memory version did across all history.
+      WHERE rn <= ${POSITION_CANDIDATES_PER_VESSEL}
+      ORDER BY vessel_id, event_time DESC
+    `);
 
-    const latestVersionByReport = new Map<string, (typeof reportRows)[number]>();
-    for (const r of reportRows) {
-      const key = `${r.vesselId}:${r.reportId}`;
-      const existing = latestVersionByReport.get(key);
-      if (!existing || r.versionNo > existing.versionNo) latestVersionByReport.set(key, r);
-    }
-    // The most recent report that actually carries a position, not
-    // simply the most recent report. Position isn't schema-mandatory and
-    // most Log Abstracts leave it blank, so keying off the latest report
-    // outright made a vessel vanish from the map the moment it filed one
-    // without a Position — even though shore knew exactly where it was
-    // an hour earlier. This is what the Go original's own comment
-    // describes ("whichever report mentioned it last"); its SQL takes
-    // the latest row regardless, which is the behaviour that hides
-    // vessels. Staleness is surfaced via asOf rather than by dropping
-    // the marker.
-    const latestByVessel = new Map<string, (typeof reportRows)[number]>();
-    for (const r of latestVersionByReport.values()) {
-      if (!readPosition(r.fields as Record<string, unknown>)) continue;
-      const existing = latestByVessel.get(r.vesselId);
-      if (!existing || new Date(r.eventTime) > new Date(existing.eventTime)) latestByVessel.set(r.vesselId, r);
+    // Validation stays in TypeScript: SQL can tell whether the six keys
+    // are present, but not whether the values are sane. readPosition owns
+    // the range, hemisphere and minutes-under-60 rules, with its own tests.
+    const latestByVessel = new Map<string, { eventTime: string; pos: { lat: number; lon: number } }>();
+    for (const r of positionRows.rows) {
+      // Rows arrive newest-first per vessel, so the first that validates
+      // wins and later (older) candidates are skipped.
+      if (latestByVessel.has(r.vessel_id)) continue;
+      const pos = readPosition({
+        Latitude_Degree: r.lat_deg,
+        Latitude_Minutes: r.lat_min,
+        Latitude_North_South: r.lat_hemi,
+        Longitude_Degree: r.lon_deg,
+        Longitude_Minutes: r.lon_min,
+        Longitude_East_West: r.lon_hemi,
+      });
+      if (!pos) continue;
+      latestByVessel.set(r.vessel_id, { eventTime: r.event_time, pos });
     }
 
     const remarkedRows = await this.db
@@ -183,9 +245,9 @@ export class VesselsService {
     const out: VesselPositionView[] = [];
     for (const v of vessels) {
       const latest = latestByVessel.get(v.id);
+      // Position was already resolved and validated above.
       if (!latest) continue;
-      const pos = readPosition(latest.fields as Record<string, unknown>);
-      if (!pos) continue;
+      const pos = latest.pos;
 
       const groups = (v.groups as string[]) ?? [];
       const cadence = effectiveCadence(cadenceRules, v.id, groups);
