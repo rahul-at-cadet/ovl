@@ -9,6 +9,8 @@ import { useParams } from 'next/navigation';
 import { useState, useRef, useEffect } from 'react';
 
 import { trpc } from '@/lib/trpc';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@ovl/ui/components/tabs';
+import { AuditTrail } from './AuditTrail';
 import { useCurrentUser } from '@/lib/useCurrentUser';
 import { sectionsInOrder, sectionLabel, type SchemaFieldLike } from '@/lib/sections';
 
@@ -158,6 +160,17 @@ export default function ReportDetailPage() {
         </div>
       )}
 
+      {/* Report / Audit trail as tabs, matching the original's own layout.
+          Kept as tabs rather than stacked sections because the audit trail
+          and version diff are reference material consulted deliberately,
+          not something a reviewer wants between them and the payload. */}
+      <Tabs defaultValue="report" className="w-full">
+        <TabsList className="mb-4 justify-start bg-transparent gap-2">
+          <TabsTrigger value="report" className="data-[state=active]:bg-muted">Report</TabsTrigger>
+          <TabsTrigger value="audit" className="data-[state=active]:bg-muted">Audit trail</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="report" className="mt-0 space-y-6">
           <Card className="bg-card border-border rounded-md">
             <CardHeader className="border-b border-border pb-4 flex flex-row items-center justify-between">
               <div>
@@ -274,7 +287,13 @@ export default function ReportDetailPage() {
                 );
               })()}
             </CardContent>
-      </Card>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="audit" className="mt-0">
+          <AuditTrail reportId={id} vesselId={report.vesselId} />
+        </TabsContent>
+      </Tabs>
 
       <div className="grid gap-4 xl:grid-cols-2">
       <Card className="bg-card border-border rounded-md h-[420px] flex flex-col">

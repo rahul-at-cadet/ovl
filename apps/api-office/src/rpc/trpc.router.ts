@@ -274,6 +274,16 @@ const GetReportSchema = Type.Object({
 });
 const GetReportCompiler = TypeCompiler.Compile(GetReportSchema);
 
+// vesselId is optional: the port keys reports on reportId alone
+// everywhere else, but the original scopes these by vessel, and a
+// reportId is only guaranteed unique within a vessel. Accepting both
+// lets the caller be precise where it can be.
+const ReportHistorySchema = Type.Object({
+  reportId: Type.String(),
+  vesselId: Type.Optional(Type.String()),
+});
+const ReportHistoryCompiler = TypeCompiler.Compile(ReportHistorySchema);
+
 const GetSchemaFieldsSchema = Type.Object({
   schemaName: Type.String(),
 });
@@ -1772,6 +1782,92 @@ export class TrpcRouter {
 
         return { csv: lines.join('\n'), filename: `fleet-reports-${new Date().toISOString().split('T')[0]}.csv` };
       }),
+      /**
+       * The report's chronological audit trail — ports
+       * handleListReportEvents (reports.go:357), which had no equivalent
+       * here: reports.get read a single 'submitted' row to get an author
+       * name and nothing else, so B4's Audit trail tab had no data behind
+       * it and a report's history was simply unavailable to a reviewer.
+       *
+       * `origin` distinguishes what the vessel reported from what office
+       * did to it, which is the whole point of keeping the trail: a
+       * dispute about a report turns on who changed what, and when.
+       */
+      listEvents: protectedProcedure
+        .input((val: unknown) => {
+          if (!ReportHistoryCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof ReportHistorySchema>;
+        })
+        .query(async ({ input }) => {
+          const rows = await this.db
+            .select({
+              versionNo: schema.reportAuditEvents.versionNo,
+              type: schema.reportAuditEvents.eventType,
+              at: schema.reportAuditEvents.occurredAt,
+              actor: schema.reportAuditEvents.actor,
+              detail: schema.reportAuditEvents.detail,
+              origin: schema.reportAuditEvents.origin,
+            })
+            .from(schema.reportAuditEvents)
+            .where(
+              and(
+                eq(schema.reportAuditEvents.reportId, input.reportId),
+                input.vesselId ? eq(schema.reportAuditEvents.vesselId, input.vesselId) : undefined,
+              ),
+            )
+            // Ascending: a trail reads forwards. id breaks ties because
+            // several events can share an instant (a submit and the
+            // cascade it triggers), and an unstable order in an audit
+            // view is worse than a wrong one — it changes between reads.
+            .orderBy(schema.reportAuditEvents.occurredAt, schema.reportAuditEvents.id);
+
+          return rows.map((r) => ({ ...r, at: new Date(r.at).toISOString() }));
+        }),
+
+      /**
+       * Every version of one report, oldest first — ports
+       * handleListReportVersions (reports.go:392), backing B4's History
+       * tab. Without it a corrected report showed only its current state,
+       * with no way to see what the correction actually changed.
+       *
+       * Field values travel with each version so the client can diff
+       * consecutive versions without a request per version.
+       */
+      listVersions: protectedProcedure
+        .input((val: unknown) => {
+          if (!ReportHistoryCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof ReportHistorySchema>;
+        })
+        .query(async ({ input }) => {
+          const rows = await this.db
+            .select({
+              versionNo: schema.reportVersions.versionNo,
+              eventType: schema.reportVersions.eventType,
+              state: schema.reportVersions.state,
+              schemaKind: schema.reportVersions.schemaKind,
+              eventTime: schema.reportVersions.eventTime,
+              submittedAt: schema.reportVersions.submittedAt,
+              receivedAt: schema.reportVersions.receivedAt,
+              fields: schema.reportVersions.fields,
+            })
+            .from(schema.reportVersions)
+            .where(
+              and(
+                eq(schema.reportVersions.reportId, input.reportId),
+                input.vesselId ? eq(schema.reportVersions.vesselId, input.vesselId) : undefined,
+              ),
+            )
+            .orderBy(schema.reportVersions.versionNo);
+
+          return rows.map((v) => ({
+            ...v,
+            fields: (v.fields as Record<string, unknown>) ?? {},
+            eventTime: v.eventTime ? new Date(v.eventTime).toISOString() : null,
+            submittedAt: v.submittedAt ? new Date(v.submittedAt).toISOString() : null,
+            receivedAt: v.receivedAt ? new Date(v.receivedAt).toISOString() : null,
+          }));
+        }),
+
       get: protectedProcedure
         .input((val: unknown) => {
           if (!GetReportCompiler.Check(val)) throw new Error('Invalid input');
