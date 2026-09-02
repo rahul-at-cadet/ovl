@@ -58,6 +58,13 @@ export default function SettingsPage() {
     }
     setCopied(id);
     setTimeout(() => setCopied(null), 2000);
+
+    // Deliberately does NOT dismiss the new-token banner. Copying is not
+    // proof the token was captured: clipboard writes fail silently in
+    // non-secure contexts (hence the execCommand fallback above), and the
+    // paste can still land somewhere the operator loses. Since the token
+    // is unrecoverable once dismissed, clearing it stays an explicit act
+    // — the Done button — rather than a side effect of clicking copy.
   };
 
   const handleGenerateKey = () => {
@@ -88,14 +95,20 @@ export default function SettingsPage() {
   const { data: systemStatus } = trpc.system.get.useQuery(undefined, { refetchInterval: 30_000 });
 
   return (
-    <div className="space-y-8 max-w-6xl">
-      <div className="border-b border-border pb-6">
+    // Fixed to the viewport with the panel scrolling internally, matching
+    // Vessels/Reports/Users. Without it the API Keys tab grew the whole
+    // page — the tab rail scrolled away with the content, so on a
+    // deployment with a real number of keys you lost the navigation and
+    // the "Generate New Key" control the moment you scrolled down to
+    // read the list.
+    <div className="h-[calc(100dvh-136px)] flex flex-col space-y-6 overflow-hidden max-w-6xl">
+      <div className="border-b border-border pb-6 shrink-0">
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">Global Settings</h1>
         <p className="text-muted-foreground mt-1.5 text-sm font-medium">Configure shore-side system preferences, security policies, and edge integrations.</p>
       </div>
 
-      <Tabs defaultValue="general" orientation="vertical" className="w-full">
-        <div className="flex flex-col md:flex-row gap-8 w-full">
+      <Tabs defaultValue="general" orientation="vertical" className="w-full flex-1 min-h-0">
+        <div className="flex flex-col md:flex-row gap-8 w-full h-full min-h-0">
           <TabsList className="flex flex-col h-auto bg-transparent gap-2 w-64 shrink-0">
             <TabsTrigger 
               value="general" 
@@ -141,7 +154,11 @@ export default function SettingsPage() {
             </TabsTrigger>
           </TabsList>
 
-          <div className="flex-1 space-y-6">
+          {/* min-h-0 is load-bearing: without it this flex child adopts
+              its content's height instead of the row's, so the API Keys
+              card grew past the viewport and its own overflow-y-auto had
+              nothing left to scroll. */}
+          <div className="flex-1 min-h-0 flex flex-col space-y-6">
             <TabsContent value="general" className="mt-0 space-y-6">
               <Card className="bg-card border-border shadow-sm overflow-hidden rounded-md">
                 <CardHeader className="border-b border-border pb-4 bg-card">
@@ -188,9 +205,9 @@ export default function SettingsPage() {
               </Card>
             </TabsContent>
 
-            <TabsContent value="apikeys" className="mt-0 space-y-6">
-              <Card className="bg-card border-border shadow-sm overflow-hidden rounded-md">
-                <CardHeader className="border-b border-border pb-4 bg-card flex flex-row items-center justify-between">
+            <TabsContent value="apikeys" className="mt-0 min-h-0 flex-1 flex flex-col">
+              <Card className="bg-card border-border shadow-sm overflow-hidden rounded-md flex flex-col min-h-0 flex-1">
+                <CardHeader className="border-b border-border pb-4 bg-card flex flex-row items-center justify-between shrink-0">
                   <div>
                     <CardTitle className="text-sm font-semibold tracking-tight text-foreground">API Credentials</CardTitle>
                     <CardDescription className="text-xs text-muted-foreground mt-1">Manage keys for edge-node synchronization.</CardDescription>
@@ -207,11 +224,32 @@ export default function SettingsPage() {
                     </Button>
                   </div>
                 </CardHeader>
-                <CardContent className="pt-6 space-y-6">
-                  {newRawToken && (
-                    <div className="bg-status-ok/10 border border-status-ok/25 p-4 rounded-md space-y-2 mb-6">
-                      <p className="text-sm text-status-ok font-medium">New API Key Generated</p>
-                      <p className="text-xs text-status-ok/80">Please copy this token now. You won't be able to see it again.</p>
+
+                {/* Pinned outside the scroll container, not inside it: the
+                    token is shown exactly once and cannot be recovered, so
+                    it must not be able to scroll out of view while the
+                    operator is reading it across to a vessel. */}
+                {newRawToken && (
+                  <div className="shrink-0 border-b border-border px-(--card-spacing) pt-4 pb-4">
+                    <div className="bg-status-ok/10 border border-status-ok/25 p-4 rounded-md space-y-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm text-status-ok font-medium">New API Key Generated</p>
+                          <p className="text-xs text-status-ok/80">Please copy this token now. You won&apos;t be able to see it again.</p>
+                        </div>
+                        {/* An explicit dismiss, because copying isn't the only
+                            way someone takes the token down — selecting the
+                            text by hand or reading it across to another
+                            machine leaves the banner with no way to clear it. */}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setNewRawToken(null)}
+                          className="h-7 px-2 -mt-1 -mr-1 text-status-ok/70 hover:text-status-ok hover:bg-status-ok/10 shrink-0"
+                        >
+                          Done
+                        </Button>
+                      </div>
                       <div className="flex gap-2 mt-2">
                         <Input readOnly value={newRawToken} className="bg-card border-status-ok/30 text-status-ok font-mono tracking-widest text-sm" />
                         <Button variant="outline" onClick={() => handleCopy(newRawToken, 'new')} className="border-status-ok/30 bg-status-ok/10 hover:bg-status-ok/20 text-status-ok h-10 w-10 p-0 shrink-0">
@@ -219,40 +257,61 @@ export default function SettingsPage() {
                         </Button>
                       </div>
                     </div>
-                  )}
+                  </div>
+                )}
 
+                <CardContent className="pt-6 space-y-6 flex-1 min-h-0 overflow-y-auto">
+                  {/* One compact row per key. The previous layout gave each
+                      key a full-width masked password field, which was
+                      pure decoration — the token is unrecoverable by
+                      design, so the dots represented nothing and implied a
+                      reveal that cannot exist. What an operator actually
+                      needs here is to tell keys apart and revoke the right
+                      one, so the row carries the label, a stable
+                      fingerprint, and its dates instead. */}
                   {isLoading ? (
                     <div className="text-center text-muted-foreground py-4 text-sm">Loading API keys...</div>
                   ) : apiKeys.length > 0 ? (
-                    apiKeys.map((key) => (
-                      <div key={key.id} className="space-y-2 pb-4 border-b border-border last:border-0">
-                        <div className="flex items-center justify-between">
-                          <Label className="text-xs font-semibold text-foreground uppercase tracking-wider">{key.label || 'API Key'}</Label>
+                    <div className="divide-y divide-border rounded-md border border-border">
+                      {apiKeys.map((key) => (
+                        <div
+                          key={key.id}
+                          className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-muted/40"
+                        >
+                          <KeyRound className="size-4 shrink-0 text-muted-foreground" />
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-baseline gap-2">
+                              <span className="truncate text-sm font-medium text-foreground">
+                                {key.label || 'API Key'}
+                              </span>
+                              <code className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[0.65rem] text-muted-foreground">
+                                {key.fingerprint}
+                              </code>
+                            </div>
+                            <div className="mt-0.5 text-xs text-muted-foreground">
+                              Created {new Date(key.createdAt).toLocaleDateString()}
+                              {key.lastUsedAt ? (
+                                <> · last used {new Date(key.lastUsedAt).toLocaleDateString()}</>
+                              ) : (
+                                <> · never used</>
+                              )}
+                            </div>
+                          </div>
+
                           <Button
                             variant="ghost"
                             size="sm"
                             disabled={revokeMutation.isPending}
                             onClick={() => revokeMutation.mutate({ id: key.id })}
-                            className="h-7 px-2 text-muted-foreground hover:text-status-critical hover:bg-status-critical/10"
+                            className="h-7 shrink-0 px-2 text-muted-foreground hover:bg-status-critical/10 hover:text-status-critical"
                           >
-                            <Trash2 className="w-3.5 h-3.5 mr-1" />
+                            <Trash2 className="mr-1 w-3.5 h-3.5" />
                             Revoke
                           </Button>
                         </div>
-                        <div className="flex gap-2">
-                          <div className="relative flex-1">
-                            <KeyRound className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                            <Input
-                              readOnly
-                              type="password"
-                              defaultValue="ovl_prod_xxxxxxxxxxxxxxxxxxxxxxxx"
-                              className="pl-9 bg-card border-border text-muted-foreground text-sm h-10 font-mono tracking-widest"
-                            />
-                          </div>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-2">Created: {new Date(key.createdAt).toLocaleString()}</p>
-                      </div>
-                    ))
+                      ))}
+                    </div>
                   ) : (
                     <div className="text-center text-muted-foreground py-4 text-sm">No active API keys.</div>
                   )}

@@ -18,6 +18,7 @@ import { VesselsService } from '../vessels/vessels.service';
 import { Scope } from '../config/logic/scope';
 import { effectiveSeverities } from '../config/logic/compliance';
 import { continuityConfigFor, revalidate, type ContinuityReport, type Severity } from '../config/logic/continuity';
+import { validateImo } from '../vessels/logic/imo';
 import { SupertokensService } from '../auth/supertokens.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { UsersService } from '../users/users.service';
@@ -203,6 +204,11 @@ const DeleteVesselSchema = Type.Object({
   id: Type.String(),
 });
 const DeleteVesselCompiler = TypeCompiler.Compile(DeleteVesselSchema);
+
+const ResetVesselCredentialsSchema = Type.Object({
+  id: Type.String(),
+});
+const ResetVesselCredentialsCompiler = TypeCompiler.Compile(ResetVesselCredentialsSchema);
 
 const RenameVesselGroupSchema = Type.Object({
   from: Type.String(),
@@ -434,6 +440,45 @@ export class TrpcRouter {
   ) {}
 
   /**
+   * Confirms the bearer token isEdgeAuthed hashed actually belongs to a
+   * live, unrevoked row in api_keys. isEdgeAuthed itself only checks the
+   * header's *shape* (it runs before DI construction, with no `this.db`
+   * to query) — every edgeProcedure handler must call this before doing
+   * anything else, or it accepts any string shaped like
+   * "Bearer ovl_prod_...", real key or not.
+   */
+  private async verifyEdgeApiKey(ctx: { tokenLookupHash: string; tokenHash: string }): Promise<void> {
+    const keys = await this.db.select().from(schema.apiKeys)
+      .where(eq(schema.apiKeys.tokenLookupHash, ctx.tokenLookupHash));
+
+    if (keys.length === 0 || keys[0].tokenHash !== ctx.tokenHash || keys[0].revokedAt) {
+      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid or revoked API key' });
+    }
+  }
+
+  /**
+   * Confirms the bearer token belongs specifically to this vesselId, not
+   * merely to some valid provisioning key — provisioning keys (checked by
+   * verifyEdgeApiKey) are deliberately shared across a whole fleet and
+   * only ever prove "allowed to enroll", so they can't be the credential
+   * that separates one vessel's sync traffic from another's. edge.enroll
+   * mints this secret per vessel; every sync.pushEvents/pullConfig call
+   * must present that same vessel's own secret, not any other vessel's or
+   * the original provisioning key.
+   */
+  private async verifyVesselCredential(vesselId: string, ctx: { tokenHash: string }): Promise<void> {
+    const rows = await this.db.select().from(schema.vesselCredentials)
+      .where(eq(schema.vesselCredentials.vesselId, vesselId));
+
+    if (rows.length === 0 || rows[0].tokenHash !== ctx.tokenHash || rows[0].revokedAt) {
+      throw new TRPCError({
+        code: 'UNAUTHORIZED',
+        message: 'Invalid vessel credential. Re-enroll this vessel from its setup screen.',
+      });
+    }
+  }
+
+  /**
    * Re-checks every report in (vesselId, schemaName)'s chain against the
    * continuity rules (architecture 8.3) after a report version lands —
    * ports office/syncservice/cascade.go's runCascade near-verbatim. Any
@@ -587,25 +632,27 @@ export class TrpcRouter {
           return val as Static<typeof EnrollEdgeSchema>;
         })
         .mutation(async ({ input, ctx }) => {
-          // 1. Verify API Key
-          const keys = await this.db.select().from(schema.apiKeys)
-            .where(eq(schema.apiKeys.tokenLookupHash, ctx.tokenLookupHash));
-          
-          if (keys.length === 0 || keys[0].tokenHash !== ctx.tokenHash || keys[0].revokedAt) {
-            throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid or revoked API key' });
-          }
+          await this.verifyEdgeApiKey(ctx);
+
+          // Validated before the lookup, not just on the implicit-create
+          // path: a malformed IMO can't identify a real hull either way,
+          // and rejecting it here means a typo is reported as a typo
+          // rather than silently registering a second vessel.
+          const enrollImo = input.imoNumber.trim();
+          const enrollImoError = validateImo(enrollImo);
+          if (enrollImoError) throw new TRPCError({ code: 'BAD_REQUEST', message: enrollImoError });
 
           // 2. Lookup Vessel by IMO
-          const existing = await this.db.select().from(schema.vessels).where(eq(schema.vessels.imo, input.imoNumber));
+          const existing = await this.db.select().from(schema.vessels).where(eq(schema.vessels.imo, enrollImo));
           
           let vesselId;
           if (existing.length > 0) {
             vesselId = existing[0].id;
           } else {
-            // Create implicitly
+            // Create implicitly (IMO already validated above)
             const newVessel = await this.db.insert(schema.vessels).values({
               name: input.vesselName,
-              imo: input.imoNumber,
+              imo: enrollImo,
               type: 'Cargo', // Default
               groups: [],
               createdAt: new Date().toISOString(),
@@ -614,7 +661,27 @@ export class TrpcRouter {
             vesselId = newVessel[0].id;
           }
 
-          return { vesselId };
+          // 3. Mint this vessel's own sync credential — distinct from the
+          // provisioning key just verified above, and never shared with
+          // any other vessel. Re-enrolling an already-known IMO reissues
+          // it (upsert on the vesselId PK, clearing any prior revocation),
+          // which is also how a vessel recovers if it loses its local
+          // database, or how an operator undoes a Reset Credentials: run
+          // setup again with a valid provisioning key and it gets a fresh,
+          // live secret.
+          const rawSecret = crypto.randomBytes(32).toString('hex');
+          const tokenHash = crypto.createHash('sha256').update(rawSecret).digest('hex');
+          const tokenLookupHash = crypto.createHash('sha256').update(rawSecret.substring(0, 8)).digest('hex');
+          const now = new Date().toISOString();
+
+          await this.db.insert(schema.vesselCredentials)
+            .values({ vesselId, tokenHash, tokenLookupHash, issuedAt: now })
+            .onConflictDoUpdate({
+              target: schema.vesselCredentials.vesselId,
+              set: { tokenHash, tokenLookupHash, issuedAt: now, revokedAt: null },
+            });
+
+          return { vesselId, vesselSecret: `ovl_prod_${rawSecret}` };
         }),
     }),
 
@@ -624,7 +691,9 @@ export class TrpcRouter {
           if (!PushEventsCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof PushEventsSchema>;
         })
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
+          await this.verifyVesselCredential(input.vesselId, ctx);
+
           console.log(`Office received ${input.events.length} events from vessel ${input.vesselId}`);
 
           await this.db.insert(schema.vesselSyncStatus)
@@ -633,6 +702,8 @@ export class TrpcRouter {
               target: schema.vesselSyncStatus.vesselId,
               set: { lastSeenAt: new Date().toISOString() },
             });
+
+          const failedIds: string[] = [];
 
           for (const event of input.events) {
             if (event.eventType === 'report_submitted') {
@@ -681,6 +752,7 @@ export class TrpcRouter {
                 }
               } catch (err: any) {
                 console.error('Failed to parse or save report event:', err);
+                failedIds.push(event.id);
               }
             } else if (event.eventType === 'chat_sent') {
               try {
@@ -703,6 +775,7 @@ export class TrpcRouter {
                 }).onConflictDoNothing();
               } catch (err: any) {
                 console.error('Failed to parse or save chat message:', err);
+                failedIds.push(event.id);
               }
             } else if (event.eventType === 'correction_started') {
               // Architecture 8.1/8.2's "Start correction" — the vessel
@@ -727,15 +800,17 @@ export class TrpcRouter {
                 });
               } catch (err: any) {
                 console.error('Failed to parse or save correction_started event:', err);
+                failedIds.push(event.id);
               }
             } else {
               console.warn(`Unrecognized outbox eventType "${event.eventType}" from vessel ${input.vesselId} — dropped.`);
             }
           }
-          
+
           return {
             success: true,
-            processedCount: input.events.length,
+            processedCount: input.events.length - failedIds.length,
+            failedIds,
           };
         }),
 
@@ -744,7 +819,9 @@ export class TrpcRouter {
           if (!PullConfigInputCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof PullConfigInputSchema>;
         })
-        .query(async ({ input }) => {
+        .query(async ({ input, ctx }) => {
+          await this.verifyVesselCredential(input.vesselId, ctx);
+
           // Check the vessel is actually registered before touching
           // vessel_sync_status. That table has an FK onto vessels, so an
           // unknown id used to surface as a raw Postgres foreign-key
@@ -919,9 +996,15 @@ export class TrpcRouter {
           return val as Static<typeof CreateVesselSchema>;
         })
         .mutation(async ({ input }) => {
+          // Ported from ovl/office/vessels/vessel.go's NewVessel, which
+          // validates the IMO before a vessel can exist at all.
+          const imo = input.imo.trim();
+          const imoError = validateImo(imo);
+          if (imoError) throw new TRPCError({ code: 'BAD_REQUEST', message: imoError });
+
           const newVessel = await this.db.insert(schema.vessels).values({
             name: input.name,
-            imo: input.imo,
+            imo,
             type: input.type,
             groups: input.groups || [],
             createdAt: new Date().toISOString(),
@@ -936,6 +1019,18 @@ export class TrpcRouter {
         })
         .mutation(async ({ input }) => {
           const { id, ...updates } = input;
+
+          // Every IMO that passes through here must be well-formed, with
+          // no exemption for values already in the table: the existing
+          // rows were backfilled to valid numbers when this rule landed,
+          // so there is no legacy tier left to grandfather.
+          if (updates.imo !== undefined) {
+            const imo = updates.imo.trim();
+            const imoError = validateImo(imo);
+            if (imoError) throw new TRPCError({ code: 'BAD_REQUEST', message: imoError });
+            updates.imo = imo;
+          }
+
           const updatedVessel = await this.db.update(schema.vessels).set({
             ...updates,
             updatedAt: new Date().toISOString(),
@@ -949,6 +1044,27 @@ export class TrpcRouter {
         })
         .mutation(async ({ input }) => {
           await this.db.delete(schema.vessels).where(eq(schema.vessels.id, input.id));
+          return { success: true };
+        }),
+      // Revokes this vessel's own sync credential without touching the
+      // fleet-wide provisioning keys under Global Settings — for a single
+      // compromised or decommissioned vessel, that's the blast radius that
+      // should be cut off, not every other vessel's ability to sync. Soft
+      // revoke (matches apiKeys.revoke's own pattern) rather than delete,
+      // so issuedAt/history survives — every subsequent pushEvents/
+      // pullConfig from it fails closed (verifyVesselCredential sees
+      // revokedAt set) until someone re-runs its setup wizard with a valid
+      // provisioning key, which reissues a live one.
+      resetCredentials: protectedProcedure
+        .input((val: unknown) => {
+          if (!ResetVesselCredentialsCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof ResetVesselCredentialsSchema>;
+        })
+        .mutation(async ({ input }) => {
+          await this.db
+            .update(schema.vesselCredentials)
+            .set({ revokedAt: new Date().toISOString() })
+            .where(eq(schema.vesselCredentials.vesselId, input.id));
           return { success: true };
         }),
       // Groups are free-form JSONB tags on vessels.groups (architecture
@@ -1600,7 +1716,39 @@ export class TrpcRouter {
     }),
     apiKeys: router({
       list: protectedProcedure.query(async () => {
-        return await this.db.select().from(schema.apiKeys).where(isNull(schema.apiKeys.revokedAt));
+        // Columns listed explicitly rather than `select()`: the bare form
+        // returns the whole row, which shipped tokenHash and
+        // tokenLookupHash — hashes of live credentials — to every browser
+        // that opened Settings. Same reasoning as PUBLIC_USER_COLUMNS on
+        // the vessel side; a column added later has to be opted in rather
+        // than leaking by default.
+        const rows = await this.db
+          .select({
+            id: schema.apiKeys.id,
+            label: schema.apiKeys.label,
+            groupId: schema.apiKeys.groupId,
+            createdBy: schema.apiKeys.createdBy,
+            createdAt: schema.apiKeys.createdAt,
+            lastUsedAt: schema.apiKeys.lastUsedAt,
+            // A short, non-reversible fingerprint so keys stay tellable
+            // apart in the UI. The plaintext token is unrecoverable by
+            // design, and several keys legitimately share a label
+            // ("Sync Key"), which previously left the list showing four
+            // identical rows with no way to know which one to revoke.
+            lookupHash: schema.apiKeys.tokenLookupHash,
+          })
+          .from(schema.apiKeys)
+          .where(isNull(schema.apiKeys.revokedAt))
+          // Without an explicit order Postgres is free to return these in
+          // any sequence, and it does — the list reshuffled between
+          // loads. Every row carries a Revoke button, so a list that
+          // reorders under the pointer is a way to revoke the wrong key.
+          .orderBy(desc(schema.apiKeys.createdAt));
+
+        return rows.map(({ lookupHash, ...k }) => ({
+          ...k,
+          fingerprint: lookupHash.slice(0, 8),
+        }));
       }),
       create: protectedProcedure
         .input((val: unknown) => {

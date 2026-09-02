@@ -33,7 +33,9 @@ export default function OfficeLoginPage() {
   // account exists anywhere yet, in place of the normal sign-in form.
   // After the first Admin is created, hasAnyUser flips to true forever
   // and this branch can never be reached again for this deployment.
-  const { data: setupStatus, isLoading: isSetupLoading } = trpc.setup.status.useQuery();
+  const { data: setupStatus, isLoading: isSetupLoading } = trpc.setup.status.useQuery(undefined, {
+    retry: false
+  });
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -181,7 +183,7 @@ export default function OfficeLoginPage() {
         <Card className="bg-card border-border shadow-sm rounded-md">
           <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-border">
             <div>
-              <SparksLogo className="h-12 w-auto mx-auto mb-4" />
+              <SparksLogo className="h-14 sm:h-16 lg:h-20 w-auto mx-auto mb-5" />
               <CardDescription className="text-muted-foreground mt-1 text-sm">
                 Secure Office Authentication
               </CardDescription>
@@ -257,7 +259,7 @@ function FirstAdminSetup() {
       <div className="w-full max-w-[420px] z-10 p-4">
         <Card className="bg-card border-border shadow-sm rounded-md">
           <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-border">
-            <SparksLogo className="h-12 w-auto mx-auto mb-4" />
+            <SparksLogo className="h-14 sm:h-16 lg:h-20 w-auto mx-auto mb-5" />
             <CardDescription className="text-muted-foreground mt-1 text-sm">
               First-time setup — no account exists yet
             </CardDescription>

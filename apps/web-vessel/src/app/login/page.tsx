@@ -78,7 +78,7 @@ export default function LoginPage() {
         <Card className="bg-card border-border rounded-sm">
           <CardHeader className="space-y-2 text-center pb-6 pt-8 border-b border-border">
             <div>
-              <SparksLogo className="h-12 w-auto mx-auto mb-4" />
+              <SparksLogo className="h-14 sm:h-16 lg:h-20 w-auto mx-auto mb-5" />
               <CardDescription className="text-muted-foreground mt-1 text-sm">
                 Secure Terminal Authentication
               </CardDescription>

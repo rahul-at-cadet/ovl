@@ -792,7 +792,20 @@ export class TrpcRouter {
             await this.db.insert(schema.configStore)
               .values({ key: 'vessel_id', value: response.vesselId, updatedAt: new Date().toISOString() })
               .onConflictDoUpdate({ target: schema.configStore.key, set: { value: response.vesselId, updatedAt: new Date().toISOString() } });
-              
+
+            // Office mints a secret specific to this vessel on enroll —
+            // distinct from the provisioning key just used above, which
+            // only proves "allowed to enroll" and is shared fleet-wide.
+            // Every request after this point (trpc.service.ts's headers()
+            // reads 'api_key' fresh each time) must use this vessel's own
+            // secret instead, or office now rejects it: a provisioning key
+            // no longer authenticates pushEvents/pullConfig at all.
+            if (response.vesselSecret) {
+              await this.db.insert(schema.configStore)
+                .values({ key: 'api_key', value: response.vesselSecret, updatedAt: new Date().toISOString() })
+                .onConflictDoUpdate({ target: schema.configStore.key, set: { value: response.vesselSecret, updatedAt: new Date().toISOString() } });
+            }
+
             return { success: true };
           } catch (e: any) {
             // Revert on failure

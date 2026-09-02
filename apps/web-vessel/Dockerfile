@@ -25,6 +25,10 @@ COPY packages/vessel-database/package.json packages/vessel-database/package.json
 COPY packages/ui/package.json packages/ui/package.json
 RUN npm ci
 COPY . .
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_WEBSITE_DOMAIN
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_WEBSITE_DOMAIN=$NEXT_PUBLIC_WEBSITE_DOMAIN
 RUN npm run build --workspace=@ovl/database
 RUN npm run build --workspace=@ovl/vessel-database
 RUN npm run build --workspace=web-vessel

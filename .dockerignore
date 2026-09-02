@@ -1,0 +1,34 @@
+node_modules
+.next
+.git
+scratch
+browser
+dist
+build
+
+# The Go implementation this monorepo is ported from. 205MB / ~3,000 files
+# that no Dockerfile reads — but `COPY . .` shipped all of it into the
+# build context of every one of the four images, on every build, and any
+# change under it invalidated the COPY layer and forced a full rebuild.
+ovl
+
+# Build/test detritus that likewise isn't a build input. Each of these
+# invalidates `COPY . .` when it changes, which is the expensive part —
+# the layer cache for every step after it is discarded.
+.turbo
+coverage
+*.log
+lint-results*.txt
+.DS_Store
+
+# Local env files must never be baked into an image layer; the compose
+# files pass configuration in at runtime instead.
+.env
+.env.*
+!.env.example
+!.env.azure.example
+
+# Editor/agent state
+.vscode
+.idea
+.claude

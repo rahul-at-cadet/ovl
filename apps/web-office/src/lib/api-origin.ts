@@ -5,4 +5,4 @@
 // URL would send the visitor's own browser looking at their machine,
 // not the server. `next build` always forces NODE_ENV=production for
 // the client bundle, so this needs no separate build-time config.
-export const API_ORIGIN = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3001';
+export const API_ORIGIN = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3001');

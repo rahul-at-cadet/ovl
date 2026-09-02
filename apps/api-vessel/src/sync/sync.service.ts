@@ -259,14 +259,32 @@ export class SyncService {
         await this.trpc.client.sync.pushEvents.mutate({ vesselId, events: pendingEvents });
 
       if (response.success) {
+        // Office reports per-event failures (e.g. a malformed payload) in
+        // failedIds rather than rejecting the whole batch — those events
+        // never actually landed, so marking them processed here would
+        // delete them from the outbox with no record anywhere. Leaving
+        // them unprocessed means they're retried next cycle, same as an
+        // outright request failure.
+        // `event` is annotated rather than inferred: `db` is typed `any`
+        // here, so pendingEvents is any[] and the callback param would be
+        // an implicit any — which api-vessel's own build tolerates but
+        // web-vessel's stricter type-check (it pulls this file in via the
+        // tRPC AppRouter type) rejects at `next build`.
+        const failedIds = new Set<string>(response.failedIds ?? []);
+        const succeeded = pendingEvents.filter((event: { id: string }) => !failedIds.has(event.id));
+
         this.logger.log(
           `Successfully pushed ${response.processedCount} events. Marking locally as processed.`,
         );
-        this.lastPushedCount = response.processedCount ?? pendingEvents.length;
+        this.lastPushedCount = response.processedCount ?? succeeded.length;
+        if (failedIds.size > 0) {
+          this.lastPushError = `${failedIds.size} event(s) rejected by office; will retry next cycle.`;
+          this.logger.warn(this.lastPushError);
+        }
 
         // 2. Mark as processed locally so they aren't sent again
         const now = new Date().toISOString();
-        for (const event of pendingEvents) {
+        for (const event of succeeded) {
           await this.db
             .update(schema.syncOutbox)
             .set({ processedAt: now })
@@ -484,11 +502,13 @@ export class SyncService {
       });
 
       // Remember shore's own answer so the vessel can display both names and
-      // flag a divergence without needing office to be reachable again.
+      // automatically resolve divergence by adopting the office's name/imo on sync.
       if (response.vessel) {
         for (const [key, value] of [
           ['office_vessel_name', response.vessel.name],
           ['office_imo_number', response.vessel.imo],
+          ['vessel_name', response.vessel.name],
+          ['imo_number', response.vessel.imo],
         ] as const) {
           if (!value) continue;
           await this.db
@@ -501,7 +521,7 @@ export class SyncService {
         }
         if (response.vessel.name && identity['vessel_name'] && response.vessel.name !== identity['vessel_name']) {
           this.logger.warn(
-            `Vessel name disagrees with shore: local "${identity['vessel_name']}" vs office "${response.vessel.name}".`,
+            `Vessel name disagreed with shore: local "${identity['vessel_name']}" vs office "${response.vessel.name}". Automatically updated to match office.`,
           );
         }
       }

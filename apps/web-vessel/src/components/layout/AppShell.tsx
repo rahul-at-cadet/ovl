@@ -105,9 +105,9 @@ export function AppShell({ children }: AppShellProps) {
       >
         <div className="h-14 flex items-center px-4 border-b border-sidebar-border relative overflow-hidden">
           {isSidebarOpen || isMobileSidebarOpen ? (
-            <SparksLogo className="h-6 w-auto shrink-0" />
+            <SparksLogo className="h-8 lg:h-9 w-auto shrink-0" />
           ) : (
-            <SparksMark className="h-6 w-6 shrink-0 mx-auto" />
+            <SparksMark className="h-8 w-8 lg:h-9 lg:w-9 shrink-0 mx-auto" />
           )}
           <Button 
             variant="ghost" 

@@ -7,6 +7,7 @@ import { Input } from '@ovl/ui/components/input';
 import { Label } from '@ovl/ui/components/label';
 import { Ship, Globe, Save, Database, User, CheckCircle } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+import { validateImo } from '@/lib/imo';
 import { useRouter } from 'next/navigation';
 import { useToastManager } from '@ovl/ui/components/toast';
 
@@ -37,6 +38,13 @@ export default function SetupPage() {
       }
     }
   }, [setupStatus]);
+
+  // Blocks Enroll, matching what office's edge.enroll will do anyway —
+  // catching it here turns a round-trip rejection into immediate inline
+  // feedback. Shown only once the field is IMO-length so it doesn't
+  // shout mid-typing.
+  const imoError = validateImo(imoNumber.trim());
+  const showImoError = imoNumber.trim().length >= 7 && !!imoError;
 
   // Admin form state
   const [username, setUsername] = useState('master');
@@ -140,7 +148,12 @@ export default function SetupPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="setup-imo-number" className="text-xs font-semibold text-foreground uppercase tracking-wider">IMO Number</Label>
-                <Input disabled={setupStatus?.isConfigured} id="setup-imo-number" value={imoNumber} onChange={e => setImoNumber(e.target.value)} placeholder="e.g. 7381154" className="bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10 font-mono tracking-wider disabled:opacity-70" />
+                <Input disabled={setupStatus?.isConfigured} id="setup-imo-number" value={imoNumber} onChange={e => setImoNumber(e.target.value)} placeholder="e.g. 7381154" inputMode="numeric" maxLength={7} aria-invalid={showImoError} aria-describedby={showImoError ? 'setup-imo-error' : undefined} className={`bg-card focus-visible:ring-ring text-foreground text-sm h-10 font-mono tracking-wider disabled:opacity-70 ${showImoError ? 'border-status-critical' : 'border-border'}`} />
+                {showImoError ? (
+                  <p id="setup-imo-error" role="alert" className="text-xs text-status-critical">
+                    {imoError}
+                  </p>
+                ) : null}
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -175,7 +188,7 @@ export default function SetupPage() {
                 if (setupStatus.hasUsers) return router.push('/');
                 setStep('admin');
               }}
-              disabled={(!vesselName || !imoNumber || !apiKey) && !setupStatus?.isConfigured || enrollMutation.isPending}
+              disabled={((!vesselName || !imoNumber || !apiKey || !!imoError) && !setupStatus?.isConfigured) || enrollMutation.isPending}
               className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-primary/20 rounded-sm h-9 text-sm font-semibold transition-all"
             >
               <Save className="w-4 h-4 mr-2" />

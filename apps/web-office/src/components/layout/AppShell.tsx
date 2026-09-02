@@ -135,9 +135,9 @@ export function AppShell({ children }: AppShellProps) {
       >
         <div className="h-16 flex items-center px-4 border-b border-border overflow-hidden">
           {isSidebarOpen ? (
-            <SparksLogo className="h-6 w-auto shrink-0" />
+            <SparksLogo className="h-8 lg:h-9 w-auto shrink-0" />
           ) : (
-            <SparksMark className="h-6 w-6 shrink-0 mx-auto" />
+            <SparksMark className="h-8 w-8 lg:h-9 lg:w-9 shrink-0 mx-auto" />
           )}
         </div>
 
@@ -184,7 +184,7 @@ export function AppShell({ children }: AppShellProps) {
                 </SheetTrigger>
                 <SheetContent side="left" className="w-[260px] bg-card border-r border-border p-0 flex flex-col">
                   <div className="h-16 flex items-center px-4 border-b border-border shrink-0">
-                    <SparksLogo className="h-6 w-auto shrink-0" />
+                    <SparksLogo className="h-8 w-auto shrink-0" />
                   </div>
                   <div className="flex-1 overflow-y-auto py-6 px-3 space-y-1">
                     {navItems.map((item) => {
@@ -213,7 +213,7 @@ export function AppShell({ children }: AppShellProps) {
 
             {/* Mobile Title */}
             <div className="md:hidden flex items-center gap-2 mr-4">
-               <SparksMark className="h-5 w-5 shrink-0" />
+               <SparksMark className="h-7 w-7 shrink-0" />
                <span className="font-bold tracking-tight">Sparks</span>
             </div>
 

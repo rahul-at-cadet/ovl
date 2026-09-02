@@ -120,7 +120,7 @@ describe('SyncService', () => {
     expect((await svc.getHistory())[0].outcome).toBe('success');
   });
 
-  it('sends its own name and IMO, and flags a divergence from shore', async () => {
+  it('sends its own name and IMO, and adopts shore\'s answer when they differ', async () => {
     const db = makeDb();
     await seedIdentity(db);
     const trpc = makeTrpc(() => ({
@@ -138,7 +138,10 @@ describe('SyncService', () => {
 
     const status = await svc.getStatus();
     expect(status.officeVesselName).toBe('Shore Name');
-    expect(status.nameMismatch).toBe(true);
+    // Shore is authoritative on identity: the vessel reports what it was
+    // configured with, then takes office's answer as the truth rather
+    // than holding both and asking someone to reconcile them by hand.
+    expect(status.vesselName).toBe('Shore Name');
   });
 
   it('re-applies a bundle whose id changed even at the same versionNo', async () => {

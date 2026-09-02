@@ -24,8 +24,7 @@ services:
     restart: unless-stopped
     ports:
       - "3567:3567"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+
     environment:
       POSTGRESQL_CONNECTION_URI: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@host.docker.internal:5432/${POSTGRES_DB}?sslmode=disable"
     healthcheck:
@@ -36,14 +35,15 @@ services:
       retries: 5
 
   api-office:
+    image: api-office-void:latest
+    container_name: api-office-void
     build:
       context: .
       dockerfile: apps/api-office/Dockerfile
     restart: unless-stopped
     ports:
       - "3001:3001"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@host.docker.internal:5432/${POSTGRES_DB}?sslmode=disable
       - SUPERTOKENS_CONNECTION_URI=http://supertokens:3567
@@ -53,6 +53,8 @@ services:
         condition: service_healthy
 
   api-vessel:
+    image: api-vessel-void:latest
+    container_name: api-vessel-void
     build:
       context: .
       dockerfile: apps/api-vessel/Dockerfile
@@ -71,17 +73,27 @@ services:
       - vessel-db-data:/data
 
   web-office:
+    image: web-office-void:latest
+    container_name: web-office-void
     build:
       context: .
       dockerfile: apps/web-office/Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+        - NEXT_PUBLIC_WEBSITE_DOMAIN=${NEXT_PUBLIC_WEBSITE_DOMAIN:-http://localhost:3000}
     restart: unless-stopped
     ports:
       - "3000:3000"
 
   web-vessel:
+    image: web-vessel-void:latest
+    container_name: web-vessel-void
     build:
       context: .
       dockerfile: apps/web-vessel/Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_VESSEL_API_URL:-http://localhost:3003}
+        - NEXT_PUBLIC_WEBSITE_DOMAIN=${NEXT_PUBLIC_VESSEL_WEBSITE_DOMAIN:-http://localhost:3002}
     restart: unless-stopped
     ports:
       - "3002:3002"

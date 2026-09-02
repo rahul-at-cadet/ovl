@@ -215,3 +215,227 @@
     scroll-behavior: auto !important;
   }
 }
+
+/*
+ * Fleet map (Leaflet) theming.
+ *
+ * Two things make this trickier than it looks, and both are why these
+ * are plain, `.leaflet-container`-prefixed rules rather than Tailwind
+ * utilities on the map component:
+ *
+ *  1. `leaflet/dist/leaflet.css` is unlayered, and Tailwind v4 emits its
+ *     utilities inside `@layer utilities`. Unlayered CSS beats *any*
+ *     layered rule regardless of specificity, so utility-based overrides
+ *     on the popup chrome silently lost.
+ *  2. That stylesheet is imported by FleetMapView, which is loaded via
+ *     `next/dynamic` — so its chunk arrives *after* this file. At equal
+ *     specificity the later sheet wins, which is why plain
+ *     `.leaflet-popup-content-wrapper` rules here still lost to
+ *     Leaflet's own `background: white`.
+ *
+ * The extra `.leaflet-container` ancestor lifts these to (0,2,0) so they
+ * win on specificity and load order stops mattering. Without it the
+ * popup renders white with dark-theme foreground text on top — i.e.
+ * invisible.
+ *
+ * The wrapper is reduced to a plain themed shell with no padding; the
+ * popup's own markup supplies all internal structure.
+ */
+.leaflet-container .leaflet-popup-content-wrapper {
+  background: var(--card);
+  color: var(--card-foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 30px -10px rgb(0 0 0 / 0.45);
+  padding: 0;
+}
+
+.leaflet-container .leaflet-popup-content {
+  margin: 0;
+  width: auto !important;
+  line-height: inherit;
+}
+
+.leaflet-container .leaflet-popup-tip {
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: none;
+}
+
+.leaflet-container .leaflet-popup-close-button {
+  top: 0.5rem !important;
+  right: 0.5rem !important;
+  width: 1.25rem !important;
+  height: 1.25rem !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: calc(var(--radius) - 4px);
+  color: var(--muted-foreground) !important;
+  font-weight: 400;
+}
+
+.leaflet-container .leaflet-popup-close-button:hover {
+  background: var(--muted);
+  color: var(--foreground) !important;
+}
+
+.leaflet-container .leaflet-tooltip {
+  background: var(--popover);
+  color: var(--popover-foreground);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  box-shadow: 0 4px 12px -4px rgb(0 0 0 / 0.4);
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 0.25rem 0.5rem;
+}
+
+/* The callout arrow has to be recoloured per direction or it keeps
+   Leaflet's white and detaches from the themed body. */
+.leaflet-container .leaflet-tooltip-top::before { border-top-color: var(--border); }
+.leaflet-container .leaflet-tooltip-bottom::before { border-bottom-color: var(--border); }
+.leaflet-container .leaflet-tooltip-left::before { border-left-color: var(--border); }
+.leaflet-container .leaflet-tooltip-right::before { border-right-color: var(--border); }
+
+/* Attribution/controls sit on the tiles, not on the app surface, so they
+   keep a light scrim — but the harsh pure-white default is toned down. */
+.leaflet-container .leaflet-control-attribution {
+  background: rgb(255 255 255 / 0.75);
+  color: #334155;
+  font-size: 0.65rem;
+}
+.leaflet-container .leaflet-control-attribution a { color: #1e40af; }
+
+/*
+ * Fleet map markers.
+ *
+ * Rendered as Leaflet divIcons rather than SVG CircleMarkers so they can
+ * carry real elevation (layered box-shadows), a halo, and a pulse —
+ * none of which an SVG circle does cleanly. The flat circles they
+ * replaced read as debug output rather than as a fleet display.
+ *
+ * Geometry is driven by --dot (set per marker from the size control) so
+ * one rule set covers every size, and the element is centred on its own
+ * coordinate via the negative margins rather than by Leaflet's
+ * iconAnchor, which would need recomputing per size.
+ */
+/* --dot is published on the map container by MapController and follows
+   the zoom level, so a zoom change restyles these in place instead of
+   rebuilding every icon. The fallback covers the first paint, before
+   that effect has run. */
+.ovl-marker {
+  --dot-size: var(--dot, 12px);
+  position: relative;
+  width: var(--dot-size);
+  height: var(--dot-size);
+  margin-left: calc(var(--dot-size) / -2);
+  margin-top: calc(var(--dot-size) / -2);
+  transition: width 120ms ease, height 120ms ease, margin 120ms ease;
+}
+
+/* The focused vessel steps up from whatever the current zoom size is,
+   so it stays distinguishable at every zoom rather than being pinned to
+   one absolute size. */
+.ovl-marker--selected {
+  --dot-size: calc(var(--dot, 12px) + 5px);
+}
+
+.ovl-marker__dot {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: var(--dot-color);
+  /* White rim lifts the dot off dark coastlines; the paired shadows give
+     it a real edge and a soft contact shadow on the tiles. */
+  border: 2px solid rgb(255 255 255 / 0.94);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.35),
+    0 2px 6px rgb(0 0 0 / 0.28),
+    0 0 0 1px rgb(0 0 0 / 0.18);
+  transition: transform 140ms ease, box-shadow 140ms ease;
+}
+
+.leaflet-marker-icon:hover .ovl-marker__dot {
+  transform: scale(1.18);
+}
+
+/* Selected: a standing ring in the status colour, so the focused vessel
+   stays obvious at any marker size and against any basemap. */
+.ovl-marker--selected .ovl-marker__dot {
+  transform: scale(1.1);
+  box-shadow:
+    0 0 0 3px color-mix(in oklab, var(--dot-color) 45%, transparent),
+    0 2px 6px rgb(0 0 0 / 0.4),
+    0 0 0 1px rgb(0 0 0 / 0.25);
+}
+
+/* Overdue vessels get a slow halo — the one status that wants to be
+   found rather than merely read. */
+.ovl-marker--overdue::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: var(--dot-color);
+  opacity: 0.35;
+  animation: ovl-marker-pulse 2.4s ease-out infinite;
+  pointer-events: none;
+}
+
+@keyframes ovl-marker-pulse {
+  0%   { transform: scale(1);   opacity: 0.35; }
+  70%  { transform: scale(2.4); opacity: 0; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+
+/* Leaflet focuses the marker element on click, and the UA's default
+   focus ring is a rectangle drawn around a round icon — a square box
+   floating over the sea. Suppressed here and re-expressed as a circular
+   ring on the dot itself, so keyboard focus stays visible (and stays
+   round) instead of being removed outright. */
+.leaflet-container .leaflet-marker-icon:focus,
+.leaflet-container .leaflet-interactive:focus {
+  outline: none;
+}
+
+.leaflet-container .leaflet-marker-icon:focus-visible .ovl-marker__dot {
+  box-shadow:
+    0 0 0 3px var(--ring),
+    0 2px 6px rgb(0 0 0 / 0.4),
+    0 0 0 1px rgb(0 0 0 / 0.25);
+}
+
+/*
+ * Fleet map dark basemap.
+ *
+ * OSM publishes only a light raster style, and every hosted dark style
+ * built on OSM data (CARTO, Stadia, Thunderforest) now requires an API
+ * key — CARTO's keyless endpoints watermark each tile "API KEY
+ * REQUIRED". Rather than take on a keyed third-party dependency for
+ * cosmetics, the tiles we already have the right to serve are inverted
+ * in CSS.
+ *
+ * invert + hue-rotate(180deg) is the pairing that matters: invert alone
+ * flips lightness *and* hue, turning blue sea into orange. Rotating the
+ * hue back 180° restores something close to the original colour
+ * relationships with the lightness reversed, so sea stays blue-ish and
+ * land stays neutral. The rest is tuning — OSM's palette is saturated
+ * for a white background and reads as garish once inverted.
+ *
+ * Scoped to .leaflet-tile-pane, never the whole container: markers,
+ * popups and controls live in sibling panes and must not be inverted.
+ */
+.dark .leaflet-container .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.9) saturate(0.55);
+}
+
+/* The attribution strip sits above the tiles and is not inverted, so it
+   needs its own dark treatment or it stays a white bar on a dark map. */
+.dark .leaflet-container .leaflet-control-attribution {
+  background: rgb(0 0 0 / 0.55);
+  color: var(--muted-foreground);
+}
+.dark .leaflet-container .leaflet-control-attribution a {
+  color: var(--primary);
+}

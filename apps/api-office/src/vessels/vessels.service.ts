@@ -20,14 +20,32 @@ export interface VesselPositionView {
 }
 
 /**
+ * Reads a single-letter hemisphere indicator and returns +1/-1 to
+ * multiply the coordinate by — ports vesselpositions.go's asHemisphere.
+ * Returns null for anything that isn't one of the two expected letters:
+ * the field is free text (no enumRef), so an unrecognised value means
+ * the officer's intent is genuinely unknown, not "assume the positive
+ * hemisphere". Treating a stray letter as North/East silently plots the
+ * vessel in the wrong half of the world.
+ */
+function readHemisphere(value: string, positive: string, negative: string): number | null {
+  const first = value.charAt(0).toUpperCase();
+  if (first === positive) return 1;
+  if (first === negative) return -1;
+  return null;
+}
+
+/**
  * Reconstructs decimal position from the Degree/Minutes/Hemisphere
  * triple the officer actually entered — mirrors ovl/office/httpapi/
  * vesselpositions.go's parseLogAbstractPosition (and the identical port
  * already sitting in apps/api-vessel/src/sensors/vms.service.ts's
  * readPosition, kept separate here since the two apps don't share code).
- * Returns null if any of the six sub-fields is missing — a vessel simply
- * doesn't appear on the map until a report has a full Position filled
- * in, rather than plotting a fabricated or partial coordinate.
+ * Returns null if any of the six sub-fields is missing, if a hemisphere
+ * letter is unrecognised, or if the result falls outside real
+ * lat/lon bounds — a vessel simply doesn't appear on the map until a
+ * report has a full, sane Position filled in, rather than plotting a
+ * fabricated, partial or impossible coordinate.
  */
 function readPosition(fields: Record<string, unknown>): { lat: number; lon: number } | null {
   const latDeg = fields.Latitude_Degree;
@@ -46,12 +64,47 @@ function readPosition(fields: Record<string, unknown>): { lat: number; lon: numb
   ) {
     return null;
   }
-  let lat = latDeg + latMin / 60;
-  if (latHemi.toUpperCase() === 'S') lat = -lat;
-  let lon = lonDeg + lonMin / 60;
-  if (lonHemi.toUpperCase() === 'W') lon = -lon;
+
+  const latSign = readHemisphere(latHemi, 'N', 'S');
+  const lonSign = readHemisphere(lonHemi, 'E', 'W');
+  if (latSign === null || lonSign === null) return null;
+
+  // NaN/Infinity would slip past every comparison below and reach
+  // Leaflet as an unplottable marker, so they're excluded up front.
+  if (!Number.isFinite(latDeg) || !Number.isFinite(latMin) || !Number.isFinite(lonDeg) || !Number.isFinite(lonMin)) {
+    return null;
+  }
+
+  // Degrees-and-decimal-minutes (the DDM form this schema uses: whole
+  // degrees + decimal minutes + a hemisphere letter) only has meaning
+  // when minutes stay under 60 and neither component is signed — the
+  // hemisphere letter carries the sign, so a negative degree is
+  // contradictory input rather than a southern/western coordinate.
+  // Neither the Go original nor this port checked it, which let a
+  // fat-fingered 45°90' resolve to a perfectly plausible-looking 46.5°
+  // and plot the vessel ~90 nm from where it actually was.
+  if (latDeg < 0 || latMin < 0 || lonDeg < 0 || lonMin < 0) return null;
+  if (latMin >= 60 || lonMin >= 60) return null;
+
+  const lat = (latDeg + latMin / 60) * latSign;
+  const lon = (lonDeg + lonMin / 60) * lonSign;
+
+  // The range guard the Go original applies and this port had dropped:
+  // without it a typo'd 500-degree latitude reaches the fleet map as a
+  // vessel that's listed but has no drawable marker.
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+
   return { lat, lon };
 }
+
+/**
+ * readPosition is module-private (it's an implementation detail of
+ * getPositions, not part of the service's API) but its rules are the
+ * fleet map's whole correctness story, so it's exposed under an
+ * explicitly test-only name rather than being left untested or promoted
+ * to a public method.
+ */
+export const readPositionForTest = readPosition;
 
 @Injectable()
 export class VesselsService {
@@ -93,8 +146,19 @@ export class VesselsService {
       const existing = latestVersionByReport.get(key);
       if (!existing || r.versionNo > existing.versionNo) latestVersionByReport.set(key, r);
     }
+    // The most recent report that actually carries a position, not
+    // simply the most recent report. Position isn't schema-mandatory and
+    // most Log Abstracts leave it blank, so keying off the latest report
+    // outright made a vessel vanish from the map the moment it filed one
+    // without a Position — even though shore knew exactly where it was
+    // an hour earlier. This is what the Go original's own comment
+    // describes ("whichever report mentioned it last"); its SQL takes
+    // the latest row regardless, which is the behaviour that hides
+    // vessels. Staleness is surfaced via asOf rather than by dropping
+    // the marker.
     const latestByVessel = new Map<string, (typeof reportRows)[number]>();
     for (const r of latestVersionByReport.values()) {
+      if (!readPosition(r.fields as Record<string, unknown>)) continue;
       const existing = latestByVessel.get(r.vesselId);
       if (!existing || new Date(r.eventTime) > new Date(existing.eventTime)) latestByVessel.set(r.vesselId, r);
     }
