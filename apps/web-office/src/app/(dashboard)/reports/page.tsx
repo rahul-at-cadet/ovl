@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@ovl/ui/components/card';
 import { Button } from '@ovl/ui/components/button';
@@ -29,7 +29,42 @@ export default function GlobalReportsPage() {
   const [statusFilter, setStatusFilter] = useState('all');
 
   const utils = trpc.useUtils();
-  const { data: reports = [], isLoading } = trpc.reports.list.useQuery();
+  /**
+   * Paged with useInfiniteQuery. reports.list previously returned a
+   * silently truncated first 100 rows, so the ledger simply ended with no
+   * indication that it had; pages now accumulate as the table is scrolled.
+   */
+  const REPORTS_PAGE = 50;
+  const {
+    data: reportPages,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = trpc.reports.list.useInfiniteQuery(
+    { limit: REPORTS_PAGE },
+    { getNextPageParam: (last) => last.nextCursor ?? undefined },
+  );
+  const reports = reportPages?.pages.flatMap((p) => p.items) ?? [];
+
+  // Sentinel-based infinite scroll, rooted on the table's own scroll box
+  // (the page itself never scrolls, so a viewport-rooted observer would
+  // never fire).
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const root = scrollerRef.current;
+    const target = sentinelRef.current;
+    if (!root || !target) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting) && hasNextPage && !isFetchingNextPage) void fetchNextPage();
+      },
+      { root, rootMargin: '200px' },
+    );
+    io.observe(target);
+    return () => io.disconnect();
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage, reports.length]);
   const markReviewed = trpc.reports.markReviewed.useMutation({
     onSuccess: () => utils.reports.list.invalidate(),
   });
@@ -55,7 +90,10 @@ export default function GlobalReportsPage() {
     // Fixed to the viewport, not the page — a ledger with hundreds of
     // fleet reports shouldn't require scrolling past the header/filters
     // just to see the table; only the table body scrolls internally.
-    <div className="h-[calc(100vh-136px)] lg:h-[calc(100vh-168px)] flex flex-col space-y-6 overflow-hidden">
+    // 136px is the measured chrome at every breakpoint (64px app bar +
+    // 32px content padding + the shell's 40px pb-10); the lg override
+    // subtracted 32px too many and left dead space under the table.
+    <div className="h-[calc(100dvh-136px)] flex flex-col space-y-6 overflow-hidden">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Global Reports Ledger</h1>
@@ -100,7 +138,7 @@ export default function GlobalReportsPage() {
           </div>
         </CardHeader>
         <CardContent className="flex-1 min-h-0 p-0 overflow-hidden">
-          <div className="h-full overflow-auto">
+          <div ref={scrollerRef} className="h-full overflow-auto">
             <Table>
               <TableHeader className="bg-card sticky top-0 z-10">
               <TableRow className="border-border hover:bg-transparent">
@@ -193,6 +231,17 @@ export default function GlobalReportsPage() {
               )}
             </TableBody>
           </Table>
+          {/* Scrolling this into view fetches the next page. */}
+          <div ref={sentinelRef} aria-hidden className="h-px" />
+          {hasNextPage ? (
+            <p className="py-3 text-center text-xs text-muted-foreground" role="status">
+              {isFetchingNextPage ? 'Loading more…' : 'Scroll for more'}
+            </p>
+          ) : reports.length > 0 ? (
+            <p className="py-3 text-center text-xs text-muted-foreground">
+              Showing all {reports.length} report{reports.length === 1 ? '' : 's'}.
+            </p>
+          ) : null}
           </div>
         </CardContent>
       </Card>

@@ -4,6 +4,7 @@ import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@ovl/ui/components/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@ovl/ui/components/table";
 import { Ship } from "lucide-react";
+import { useEffect, useRef } from "react";
 
 const STATUS_LABEL: Record<string, string> = {
   unassigned: "Unassigned",
@@ -33,7 +34,54 @@ const RUN_LABEL: Record<string, string> = {
 
 export function VesselConfigsTab() {
   const { data: rows, isLoading } = trpc.configBundles.vesselConfigs.useQuery();
-  const { data: history = [] } = trpc.configBundles.syncHistory.useQuery({ limit: 25 });
+  /**
+   * Check-in history, paged.
+   *
+   * useInfiniteQuery rather than a growing `limit`: the previous approach
+   * re-requested every earlier row on each step (so the list visibly
+   * re-rendered and jumped as pages arrived) and could never read past
+   * the server's 200-row page cap. Accumulated pages stay mounted, so
+   * appending a page does not disturb what is already on screen.
+   */
+  const HISTORY_PAGE = 25;
+  const {
+    data: historyPages,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = trpc.configBundles.syncHistory.useInfiniteQuery(
+    { limit: HISTORY_PAGE },
+    { getNextPageParam: (last) => last.nextCursor ?? undefined },
+  );
+  const history = historyPages?.pages.flatMap((p) => p.items) ?? [];
+
+  /**
+   * An IntersectionObserver on a sentinel row rather than a scroll
+   * handler: it fires only when the end of the list is actually reached,
+   * costs nothing while scrolling elsewhere, and needs no throttling.
+   * Rooted on the scroll container, not the viewport — the list scrolls
+   * inside a fixed-height box, so a viewport-rooted observer never fires.
+   */
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const root = scrollerRef.current;
+    const target = sentinelRef.current;
+    if (!root || !target) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting) && hasNextPage && !isFetchingNextPage) {
+          void fetchNextPage();
+        }
+      },
+      // A little early, so the next page is usually in place by the time
+      // the reader reaches the bottom.
+      { root, rootMargin: "120px" },
+    );
+    io.observe(target);
+    return () => io.disconnect();
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage, history.length]);
 
   return (
     <div className="space-y-6">
@@ -119,14 +167,14 @@ export function VesselConfigsTab() {
               <p>No check-ins recorded yet</p>
             </div>
           ) : (
+            <div ref={scrollerRef} className="max-h-[26rem] overflow-y-auto">
             <Table>
-              <TableHeader>
+              <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow className="border-border hover:bg-transparent">
                   <TableHead>Received</TableHead>
                   <TableHead>Vessel</TableHead>
                   <TableHead>Outcome</TableHead>
                   <TableHead>Bundle served</TableHead>
-                  <TableHead>Detail</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -145,15 +193,37 @@ export function VesselConfigsTab() {
                       <span className={`text-xs font-medium ${RUN_CLASS[run.outcome] ?? ""}`}>
                         {RUN_LABEL[run.outcome] ?? run.outcome}
                       </span>
+                      {/* The note only exists for the outcomes that failed,
+                          so it belongs with the outcome rather than in a
+                          column of its own that is empty for every served
+                          check-in. */}
+                      {run.note ? (
+                        <span className="mt-0.5 block text-xs text-muted-foreground">{run.note}</span>
+                      ) : null}
                     </TableCell>
                     <TableCell className="text-muted-foreground font-mono text-xs whitespace-nowrap">
                       {run.resolvedBundleId ? `v${run.resolvedBundleVersion}` : "—"}
                     </TableCell>
-                    <TableCell className="text-muted-foreground text-xs">{run.note || "—"}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
+
+            {/* Sentinel — scrolling it into view fetches the next page.
+                Inside the scroll container so the observer can be rooted
+                on it. */}
+            <div ref={sentinelRef} aria-hidden className="h-px" />
+
+            {hasNextPage ? (
+              <p className="py-3 text-center text-xs text-muted-foreground" role="status">
+                {isFetchingNextPage ? "Loading more…" : "Scroll for more"}
+              </p>
+            ) : (
+              <p className="py-3 text-center text-xs text-muted-foreground">
+                Showing all {history.length} check-in{history.length === 1 ? "" : "s"}.
+              </p>
+            )}
+            </div>
           )}
         </CardContent>
       </Card>

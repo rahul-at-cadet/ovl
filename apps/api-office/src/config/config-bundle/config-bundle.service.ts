@@ -1,6 +1,6 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, or, lt, desc } from 'drizzle-orm';
 import * as schema from '@ovl/database';
 import { DATABASE_CONNECTION } from '../../database/database.module';
 import { Scope, ScopeType, validateScope } from '../logic/scope';
@@ -265,7 +265,31 @@ export class ConfigBundleService {
    * `vessels` with a LEFT join on purpose: rows from vessels office does not
    * know are the most diagnostic ones in the table and must not be dropped.
    */
-  async syncHistory(vesselId?: string, limit = 50) {
+  /**
+   * One page of the shore-side check-in log, newest first.
+   *
+   * Keyset-paginated on (receivedAt, id), not offset. This table takes an
+   * insert on every vessel's check-in — every 30 seconds, per vessel — so
+   * by the time a reader asks for the next page, OFFSET n has shifted:
+   * rows already seen reappear on the following page and rows in between
+   * are skipped entirely. Seeking past the last row read is immune to
+   * that, because it names a position in the data rather than a count of
+   * rows to discard.
+   *
+   * id breaks ties on receivedAt: the timestamp is not unique (a fleet
+   * checking in together lands several rows on the same instant), and
+   * without a tiebreaker the sort order is unstable and the seek can
+   * straddle a group of equal timestamps.
+   *
+   * The prior implementation also capped the *reachable* history rather
+   * than the page: callers raised `limit` to read further and silently
+   * saw nothing past row 200 of several thousand.
+   */
+  async syncHistory(
+    vesselId?: string,
+    limit = 50,
+    cursor?: { receivedAt: string; id: string },
+  ) {
     const rows = await this.db
       .select({
         id: schema.syncRuns.id,
@@ -282,9 +306,21 @@ export class ConfigBundleService {
       })
       .from(schema.syncRuns)
       .leftJoin(schema.vessels, eq(schema.syncRuns.vesselId, schema.vessels.id))
-      .where(vesselId ? eq(schema.syncRuns.vesselId, vesselId) : undefined)
-      .orderBy(desc(schema.syncRuns.receivedAt))
-      .limit(Math.min(limit, 200));
+      .where(
+        and(
+          vesselId ? eq(schema.syncRuns.vesselId, vesselId) : undefined,
+          // Strictly after the last row read, in the same (receivedAt, id)
+          // descending order the query sorts by.
+          cursor
+            ? or(
+                lt(schema.syncRuns.receivedAt, cursor.receivedAt),
+                and(eq(schema.syncRuns.receivedAt, cursor.receivedAt), lt(schema.syncRuns.id, cursor.id)),
+              )
+            : undefined,
+        ),
+      )
+      .orderBy(desc(schema.syncRuns.receivedAt), desc(schema.syncRuns.id))
+      .limit(Math.min(Math.max(1, limit), 200));
 
     return rows.map((r) => ({
       ...r,

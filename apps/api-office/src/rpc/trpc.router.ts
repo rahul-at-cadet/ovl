@@ -202,6 +202,11 @@ const UpdateVesselSchema = Type.Object({
 });
 const UpdateVesselCompiler = TypeCompiler.Compile(UpdateVesselSchema);
 
+const GetVesselSchema = Type.Object({
+  id: Type.String(),
+});
+const GetVesselCompiler = TypeCompiler.Compile(GetVesselSchema);
+
 const DeleteVesselSchema = Type.Object({
   id: Type.String(),
 });
@@ -1130,6 +1135,103 @@ export class TrpcRouter {
           };
         });
       }),
+      /**
+       * One vessel's composed detail view — ports handleGetVessel's
+       * vesselDetailView (vessels.go:289), which the port had no
+       * equivalent of at all, so the vessel detail screen could not be
+       * assembled from anything.
+       *
+       * Composed server-side rather than left to the client to fan out:
+       * the screen needs the profile, enrollment state, resolved bundle
+       * and sync status together, and four round trips to paint one page
+       * is the pattern this codebase already went out of its way to
+       * remove elsewhere (see reports' own "one round trip" commit).
+       *
+       * restoreCommands is deliberately absent from this port: the DR
+       * chain (backupcrypto/restorebundle) has no implementation here
+       * yet, so returning an empty array would imply a working feature.
+       */
+      get: protectedProcedure
+        .input((val: unknown) => {
+          if (!GetVesselCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof GetVesselSchema>;
+        })
+        .query(async ({ input }) => {
+          const vessel = (
+            await this.db.select().from(schema.vessels).where(eq(schema.vessels.id, input.id)).limit(1)
+          )[0];
+          if (!vessel) throw new TRPCError({ code: 'NOT_FOUND', message: 'Vessel not found.' });
+
+          const [syncStatus] = await this.db
+            .select()
+            .from(schema.vesselSyncStatus)
+            .where(eq(schema.vesselSyncStatus.vesselId, input.id))
+            .limit(1);
+
+          const [enrollmentRow] = await this.db
+            .select()
+            .from(schema.enrollments)
+            .where(eq(schema.enrollments.vesselId, input.id))
+            .limit(1);
+
+          const [credential] = await this.db
+            .select()
+            .from(schema.vesselCredentials)
+            .where(eq(schema.vesselCredentials.vesselId, input.id))
+            .limit(1);
+
+          const bundle = await this.configBundleService.resolveForVessel(input.id);
+          const [roster, commands] = await Promise.all([
+            this.vesselUsersService.listRoster(input.id),
+            this.vesselUsersService.listCommands(input.id),
+          ]);
+
+          const lastSeenMs = syncStatus?.lastSeenAt ? new Date(syncStatus.lastSeenAt).getTime() : null;
+
+          return {
+            vessel: {
+              id: vessel.id,
+              name: vessel.name,
+              imo: vessel.imo,
+              type: vessel.type,
+              groups: (vessel.groups as string[]) ?? [],
+              createdAt: vessel.createdAt,
+              updatedAt: vessel.updatedAt,
+            },
+            sync: {
+              lastSeenAt: syncStatus?.lastSeenAt ?? null,
+              edgeStatus:
+                lastSeenMs === null ? 'Offline' : Date.now() - lastSeenMs <= ONLINE_THRESHOLD_MS ? 'Online' : 'Offline',
+              appVersion: syncStatus?.appVersion || null,
+              // What the vessel calls itself, as distinct from the
+              // shore-authored name above.
+              reportedName: syncStatus?.reportedName ?? null,
+              reportedImo: syncStatus?.reportedImo ?? null,
+            },
+            // The code hash is never exposed — only whether one is
+            // outstanding, which is all the screen needs to decide
+            // between "issue" and "reissue".
+            enrollment: enrollmentRow
+              ? {
+                  state: enrollmentRow.state,
+                  issuedAt: enrollmentRow.issuedAt,
+                  revokedAt: enrollmentRow.revokedAt,
+                  codeOutstanding: enrollmentRow.state === 'issued' && !!enrollmentRow.codeHash,
+                }
+              : null,
+            // Whether this vessel can currently sync, and since when.
+            // Never the hash — only the fact, which is what makes a
+            // Reset Credentials visible instead of silent.
+            credential: credential
+              ? { issuedAt: credential.issuedAt, revokedAt: credential.revokedAt, active: !credential.revokedAt }
+              : null,
+            bundle: bundle
+              ? { bundleId: bundle.bundleId, versionNo: bundle.versionNo, publishedAt: bundle.publishedAt }
+              : null,
+            users: roster,
+            userCommands: commands,
+          };
+        }),
       // Fleet Map (ports ovl/office/httpapi/vesselpositions.go). See
       // VesselsService.getPositions's own doc comment for the full
       // status-precedence and position-parsing rules.
@@ -1523,53 +1625,90 @@ export class TrpcRouter {
         .query(({ input }) => this.fieldPolicyService.listAssignments(input.schemaName)),
     }),
     reports: router({
-      list: protectedProcedure.query(async () => {
-        const reports = await this.db
-          .select({
-            id: schema.reportVersions.reportId,
-            vesselId: schema.reportVersions.vesselId,
-            versionNo: schema.reportVersions.versionNo,
-            type: schema.reportVersions.eventType,
-            status: schema.reportVersions.state,
-            date: schema.reportVersions.receivedAt,
-            vesselName: schema.vessels.name,
-            vesselImo: schema.vessels.imo,
-            reviewedBy: schema.reportReviews.reviewedBy,
-          })
-          .from(schema.reportVersions)
-          .leftJoin(schema.vessels, eq(schema.reportVersions.vesselId, schema.vessels.id))
-          .leftJoin(
-            schema.reportReviews,
-            and(
-              eq(schema.reportReviews.vesselId, schema.reportVersions.vesselId),
-              eq(schema.reportReviews.reportId, schema.reportVersions.reportId),
-            ),
-          );
+      /**
+       * The fleet report ledger, newest first, one row per report.
+       *
+       * All of this used to happen in Node: every report_versions row was
+       * selected with no limit, deduplicated to the latest version per
+       * reportId with a Map, sorted, and then `.slice(0, 100)`. So the
+       * process read the entire report history into memory on every page
+       * load and discarded all but the first hundred — and the hundredth
+       * row was a silent floor with nothing in the UI to say more existed.
+       *
+       * DISTINCT ON does the deduplication in the database, and the page
+       * is a keyset seek on (received_at, report_id) rather than an
+       * offset: reports land continuously, so an offset shifts under the
+       * reader and duplicates or skips rows between pages.
+       */
+      list: protectedProcedure
+        .input((val: unknown) => {
+          const v = (val ?? {}) as { limit?: number; cursor?: { date: string; id: string } | null };
+          const parsed: { limit: number; cursor?: { date: string; id: string } } = {
+            limit: Math.min(Math.max(1, typeof v.limit === 'number' ? v.limit : 50), 200),
+          };
+          if (v.cursor && typeof v.cursor.date === 'string' && typeof v.cursor.id === 'string') {
+            parsed.cursor = { date: v.cursor.date, id: v.cursor.id };
+          }
+          return parsed;
+        })
+        .query(async ({ input }) => {
+          const { limit, cursor } = input;
 
-        // Corrections (Report.startCorrection) mean a reportId can now
-        // have more than one row here — keep only the highest versionNo
-        // per reportId, so a corrected report shows once, as its current
-        // state, not once per historical version.
-        const latestByReportId = new Map<string, typeof reports[number]>();
-        for (const r of reports) {
-          const existing = latestByReportId.get(r.id);
-          if (!existing || r.versionNo > existing.versionNo) latestByReportId.set(r.id, r);
-        }
+          // Written as SQL rather than assembled in Drizzle's builder
+          // because DISTINCT ON needs its own ORDER BY (by report identity)
+          // that differs from the outer one (by recency) — expressing that
+          // through the builder obscures the one thing worth reading here.
+          const rows = await this.db.execute<{
+            report_id: string;
+            vessel_id: string;
+            event_type: string;
+            state: string;
+            received_at: string;
+            vessel_name: string | null;
+            vessel_imo: string | null;
+            reviewed_by: string | null;
+          }>(sql`
+            WITH latest AS (
+              SELECT DISTINCT ON (rv.vessel_id, rv.report_id)
+                rv.report_id, rv.vessel_id, rv.event_type, rv.state, rv.received_at
+              FROM report_versions rv
+              ORDER BY rv.vessel_id, rv.report_id, rv.version_no DESC
+            )
+            SELECT l.report_id, l.vessel_id, l.event_type, l.state, l.received_at,
+                   v.name AS vessel_name, v.imo AS vessel_imo, rr.reviewed_by
+            FROM latest l
+            LEFT JOIN vessels v ON v.id = l.vessel_id
+            LEFT JOIN report_reviews rr
+              ON rr.vessel_id = l.vessel_id AND rr.report_id = l.report_id
+            ${
+              cursor
+                ? sql`WHERE (l.received_at, l.report_id) < (${cursor.date}::timestamptz, ${cursor.id})`
+                : sql``
+            }
+            ORDER BY l.received_at DESC, l.report_id DESC
+            LIMIT ${limit}
+          `);
 
-        return Array.from(latestByReportId.values())
-          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-          .slice(0, 100)
-          .map(r => ({
-            id: r.id,
-            vessel: r.vesselName || 'Unknown',
-            imo: r.vesselImo || 'Unknown',
-            type: r.type,
-            status: r.status,
-            date: new Date(r.date).toISOString().split('T')[0],
+          const items = rows.rows.map((r) => ({
+            id: r.report_id,
+            vessel: r.vessel_name || 'Unknown',
+            imo: r.vessel_imo || 'Unknown',
+            type: r.event_type,
+            status: r.state,
+            date: new Date(r.received_at).toISOString().split('T')[0],
             by: 'System',
-            reviewed: !!r.reviewedBy,
+            reviewed: !!r.reviewed_by,
+            // Carried so the client can seek from the exact row it last
+            // saw; the display `date` is truncated to a day and cannot.
+            receivedAt: new Date(r.received_at).toISOString(),
           }));
-      }),
+
+          const last = rows.rows[rows.rows.length - 1];
+          const nextCursor =
+            items.length < limit || !last ? null : { date: new Date(last.received_at).toISOString(), id: last.report_id };
+
+          return { items, nextCursor };
+        }),
       // The original's own CSV export (office/httpapi/csvexport.go) is
       // API-key-gated for external/compliance tooling, not a dashboard
       // button — it has no UI trigger anywhere in the original app. This
@@ -2317,19 +2456,47 @@ export class TrpcRouter {
       // vessel repeatedly failing to enrol becomes visible.
       syncHistory: protectedProcedure
         .input((val: unknown) => {
-          const v = (val ?? {}) as { vesselId?: string; limit?: number };
+          const v = (val ?? {}) as {
+            vesselId?: string;
+            limit?: number;
+            // Keyset position: the (receivedAt, id) of the last row the
+            // caller already has, not a row offset.
+            cursor?: { receivedAt: string; id: string } | null;
+          };
           // vesselId stays genuinely optional in the returned type. Spelling it
           // as `vesselId: v.vesselId` would infer `string | undefined` as a
           // *required* property, forcing every caller to pass it explicitly —
           // which is what broke the production type check, since next dev
           // never type-checks and only `next build` catches it.
-          const parsed: { vesselId?: string; limit: number } = {
+          // Named `cursor` for tRPC's useInfiniteQuery convention so the
+          // client can page without a bespoke hook.
+          const parsed: {
+            vesselId?: string;
+            limit: number;
+            cursor?: { receivedAt: string; id: string };
+          } = {
             limit: typeof v.limit === 'number' ? v.limit : 50,
           };
+          if (
+            v.cursor &&
+            typeof v.cursor === 'object' &&
+            typeof v.cursor.receivedAt === 'string' &&
+            typeof v.cursor.id === 'string'
+          ) {
+            parsed.cursor = { receivedAt: v.cursor.receivedAt, id: v.cursor.id };
+          }
           if (typeof v.vesselId === 'string' && v.vesselId) parsed.vesselId = v.vesselId;
           return parsed;
         })
-        .query(({ input }) => this.configBundleService.syncHistory(input.vesselId, input.limit)),
+        .query(async ({ input }) => {
+          const items = await this.configBundleService.syncHistory(input.vesselId, input.limit, input.cursor);
+          // A short page means there is nothing after it, so the client
+          // never makes an extra request just to discover the end.
+          const last = items[items.length - 1];
+          const nextCursor =
+            items.length < input.limit || !last ? null : { receivedAt: last.receivedAt, id: last.id };
+          return { items, nextCursor };
+        }),
     }),
     compliance: router({
       ruleCatalog: protectedProcedure.query(() => this.complianceService.ruleCatalog()),

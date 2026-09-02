@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@ovl/ui/components/card';
 import { Button } from '@ovl/ui/components/button';
@@ -34,6 +35,7 @@ import {
 import { trpc } from '@/lib/trpc';
 import { validateImo } from '@/lib/imo';
 import { useCurrentUser } from '@/lib/useCurrentUser';
+import { useToastManager } from '@ovl/ui/components/toast';
 
 export default function VesselsPage() {
   const [view, setView] = useState<'list' | 'map'>('list');
@@ -57,6 +59,7 @@ export default function VesselsPage() {
   // credentials) asserts the admin role server-side. Surfacing controls a
   // viewer cannot use just produces buttons that 403 on click, so the
   // destructive and credential actions are hidden from them instead.
+  const toastManager = useToastManager();
   const { data: currentUser } = useCurrentUser();
   const isAdmin = (currentUser?.roles ?? []).includes('admin');
 
@@ -94,10 +97,23 @@ export default function VesselsPage() {
     },
   });
 
+  // The list shows no credential state, so without an explicit
+  // confirmation this action closed its dialog and appeared to do
+  // nothing at all — the revoke had happened, but silently.
   const resetCredentialsMutation = trpc.vessels.resetCredentials.useMutation({
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
+      const name = resetCredsTarget?.name ?? 'The vessel';
       setResetCredsTarget(null);
-    }
+      utils.vessels.get.invalidate({ id: variables.id });
+      toastManager.add({
+        title: 'Credentials revoked',
+        description: `${name} can no longer sync. Issue a new enrollment code to bring it back online.`,
+        type: 'success',
+      });
+    },
+    onError: (e) => {
+      toastManager.add({ title: 'Could not revoke credentials', description: e.message, type: 'error' });
+    },
   });
 
   const filteredVessels = vessels.filter((vessel: any) => 
@@ -282,8 +298,19 @@ export default function VesselsPage() {
                           <div className="p-2 rounded-md bg-muted border border-border shadow-sm shrink-0">
                             <Ship className="w-4 h-4 text-foreground" />
                           </div>
-                          <div>
-                            <div className="font-semibold text-foreground group-hover:text-foreground transition-colors">{vessel.name}</div>
+                          <div className="min-w-0">
+                            {/* Drill-in to the detail screen, which the
+                                original has on row click. A link rather
+                                than a row onClick so it keeps middle-click,
+                                open-in-new-tab and keyboard focus, and
+                                doesn't swallow clicks meant for the row's
+                                own action menu. */}
+                            <Link
+                              href={`/vessels/${vessel.id}`}
+                              className="block truncate font-semibold text-foreground transition-colors hover:text-primary hover:underline"
+                            >
+                              {vessel.name}
+                            </Link>
                             <div className="text-xs text-muted-foreground">{vessel.status}</div>
                           </div>
                         </div>
