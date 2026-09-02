@@ -5,6 +5,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { eq } from 'drizzle-orm';
 import * as schema from '@ovl/vessel-database';
 import * as argon2 from 'argon2';
+import { spendDummyVerify, verifyPassword, hashPassword, validatePassword } from './password';
 import * as crypto from 'crypto';
 import { TRPCError } from '@trpc/server';
 
@@ -20,6 +21,12 @@ export class AuthService {
     const users = await this.db.select().from(schema.users).where(eq(schema.users.username, username));
     const user = users[0];
     if (!user) {
+      // Spend a verify's worth of CPU before rejecting. Returning
+      // immediately here made "no such user" resolve in microseconds
+      // while a real username paid argon2's full cost — a gap wide
+      // enough to measure remotely, which is a username oracle on an
+      // unauthenticated endpoint.
+      await spendDummyVerify(pass);
       throw new UnauthorizedException();
     }
     // A deactivated account (local or via a remote setActive command, see
@@ -27,15 +34,14 @@ export class AuthService {
     // this check was previously missing entirely, so deactivation had no
     // real effect: correct credentials still logged a deactivated user in.
     if (!user.active) {
+      // Same reasoning as the unknown-user branch: rejecting without
+      // hashing would make a deactivated account answer measurably
+      // faster than an active one, leaking account state.
+      await spendDummyVerify(pass);
       throw new UnauthorizedException();
     }
 
-    let isValid = false;
-    try {
-      isValid = await argon2.verify(user.passwordHash, pass);
-    } catch {
-      isValid = false;
-    }
+    const isValid = await verifyPassword(user.passwordHash, pass);
 
     if (isValid) {
       const { passwordHash, ...result } = user;
@@ -81,7 +87,7 @@ export class AuthService {
     if (existing.length > 0) {
       throw new TRPCError({ code: 'CONFLICT', message: 'That username is already taken.' });
     }
-    const passwordHash = await argon2.hash(temporaryPassword);
+    const passwordHash = await hashPassword(temporaryPassword);
     const id = crypto.randomUUID();
     await this.db.insert(schema.users).values({
       id,
@@ -117,7 +123,7 @@ export class AuthService {
         const rows = await this.db.select().from(schema.users).where(eq(schema.users.username, cmd.username)).limit(1);
         const user = rows[0];
         if (!user) throw new Error(`reset password for ${cmd.username}: user not found`);
-        const passwordHash = await argon2.hash(cmd.temporaryPassword);
+        const passwordHash = await hashPassword(cmd.temporaryPassword);
         await this.db.update(schema.users)
           .set({ passwordHash, mustChangePassword: true, updatedAt: new Date().toISOString() })
           .where(eq(schema.users.id, user.id));

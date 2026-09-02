@@ -756,9 +756,106 @@ export class TrpcRouter {
           vesselName: configMap['vessel_name'] || '',
           imoNumber: configMap['imo_number'] || configMap['imoNumber'] || '', // Fallback in case of old key
           shoreUrl: configMap['shore_url'] || 'https://api.ovl.com',
-          apiKey: configMap['api_key'] || ''
+          // api_key is deliberately NOT returned. This procedure is
+          // public — it has to be, so the login page can tell a
+          // first-time visitor to go to /setup — and api_key now holds
+          // this vessel's long-lived sync credential, which was being
+          // handed to any unauthenticated caller that asked. It was only
+          // ever read to prefill the wizard's own field, and the code
+          // redemption flow below removes even that need.
         };
       }),
+
+      /**
+       * Redeems a one-time enrollment code issued by office for this
+       * specific vessel, and stores everything the node needs.
+       *
+       * Replaces the old enroll flow, where a human typed the vessel's
+       * name and IMO and office matched on the IMO alone — so anyone
+       * holding a fleet-wide provisioning key could claim to be any
+       * vessel by typing its number. Here the code is the identity:
+       * office resolves which vessel it belongs to and sends the name and
+       * IMO back, so there is nothing on this screen to get wrong or to
+       * disagree with shore about.
+       */
+      redeem: publicProcedure
+        .input((val: unknown) => {
+          const v = val as { shoreUrl: string; code: string };
+          if (!v.shoreUrl?.trim() || !v.code?.trim()) throw new Error('Invalid input');
+          return v;
+        })
+        .mutation(async ({ input }) => {
+          const shoreUrl = input.shoreUrl.trim();
+
+          // Remembered so a failed attempt can restore whatever was here
+          // before, rather than deleting the row outright. An already-
+          // enrolled node that is handed a bad code must not lose the
+          // shore URL it has been syncing against — the rollback below
+          // originally did exactly that, silently unconfiguring a working
+          // vessel because someone mistyped a code.
+          const previousShoreUrl = (
+            await this.db.select().from(schema.configStore).where(eq(schema.configStore.key, 'shore_url')).limit(1)
+          )[0]?.value;
+
+          // The shore URL has to be stored first: TrpcService builds its
+          // client from config_store, so it has nowhere to send the
+          // redemption request until this row exists.
+          await this.db
+            .insert(schema.configStore)
+            .values({ key: 'shore_url', value: shoreUrl, updatedAt: new Date().toISOString() })
+            .onConflictDoUpdate({
+              target: schema.configStore.key,
+              set: { value: shoreUrl, updatedAt: new Date().toISOString() },
+            });
+
+          try {
+            const response = await this.trpcService.client.edge.redeem.mutate({ code: input.code.trim() });
+
+            const now = new Date().toISOString();
+            const rows = [
+              { key: 'vessel_id', value: response.vesselId },
+              // Identity comes from shore, so the two sides cannot
+              // disagree about it in the first place.
+              { key: 'vessel_name', value: response.vesselName },
+              { key: 'imo_number', value: response.imoNumber },
+              // This vessel's own sync credential, not a shared key.
+              { key: 'api_key', value: response.vesselSecret },
+            ];
+            for (const r of rows) {
+              await this.db
+                .insert(schema.configStore)
+                .values({ key: r.key, value: r.value, updatedAt: now })
+                .onConflictDoUpdate({
+                  target: schema.configStore.key,
+                  set: { value: r.value, updatedAt: now },
+                });
+            }
+
+            return { success: true, vesselName: response.vesselName, imoNumber: response.imoNumber };
+          } catch (e: any) {
+            // Restore the previous shore URL rather than clearing it, so
+            // a failed attempt leaves the node exactly as it was. Only a
+            // node that had none to begin with ends up with none.
+            const now = new Date().toISOString();
+            if (previousShoreUrl === undefined) {
+              await this.db.delete(schema.configStore).where(eq(schema.configStore.key, 'shore_url'));
+            } else {
+              await this.db
+                .insert(schema.configStore)
+                .values({ key: 'shore_url', value: previousShoreUrl, updatedAt: now })
+                .onConflictDoUpdate({
+                  target: schema.configStore.key,
+                  set: { value: previousShoreUrl, updatedAt: now },
+                });
+            }
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: e?.message?.includes('not recognised')
+                ? 'That enrollment code was not accepted. Check it was typed correctly, or ask the office for a new one.'
+                : `Could not reach the office at ${shoreUrl}: ${e.message}`,
+            });
+          }
+        }),
       enroll: publicProcedure
         .input((val: unknown) => {
           const v = val as { vesselName: string; imoNumber: string; shoreUrl: string; apiKey: string };

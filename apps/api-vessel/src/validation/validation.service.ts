@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { DATABASE_CONNECTION } from '../database/database.module';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
@@ -8,6 +8,7 @@ import { SchemaRegistryService } from '../reports/schema-registry.service';
 import { validationConfigFor } from './config';
 import { evaluateFieldRules } from './field-rules';
 import { evaluatePlausibilityRules } from './plausibility';
+import { decodeBundle, schemaConfigFor } from '../config/config-wire';
 import { evaluateContinuity } from './precheck';
 import { policyStateForEvent } from './policy';
 import { revalidate } from './cascade';
@@ -48,6 +49,8 @@ function isInChain(state: string): boolean {
 
 @Injectable()
 export class ValidationService {
+  private readonly logger = new Logger(ValidationService.name);
+
   constructor(
     @Inject(DATABASE_CONNECTION)
     private readonly db: BetterSQLite3Database<typeof schema>,
@@ -66,12 +69,19 @@ export class ValidationService {
     const rows = await this.db.select().from(schema.configStore).where(eq(schema.configStore.key, 'config_bundle'));
     if (rows.length === 0) return empty;
     try {
-      const bundle = JSON.parse(rows[0].value);
-      const bareSchemaName = schemaName.replace(/\.json$/, '');
-      const match = (bundle.schemas || []).find((s: any) => s.schemaName === bareSchemaName);
+      // Version-gated rather than bare-parsed: a bundle from a newer
+      // office (or a pre-format one still in local storage) is refused
+      // and the vessel falls back to "everything optional", instead of
+      // half-applying a document whose shape it cannot vouch for.
+      const bundle = decodeBundle(rows[0].value);
+      const match = schemaConfigFor(bundle, schemaName);
       if (!match) return empty;
       return { policy: match.policy || {}, prefill: match.prefill || {}, events: match.events || {} };
-    } catch {
+    } catch (e: any) {
+      // Falling back to defaults is the designed degradation, but it
+      // must not be silent — an operator seeing every field turn
+      // optional needs to know office is ahead of this node.
+      this.logger.warn(`Ignoring stored config bundle: ${e.message}`);
       return empty;
     }
   }

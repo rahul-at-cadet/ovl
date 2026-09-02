@@ -19,48 +19,57 @@ export default function SetupPage() {
   const [step, setStep] = useState<Step>('intro');
   const { data: setupStatus, refetch } = trpc.setup.status.useQuery();
 
-  // Identity form state
-  const [vesselName, setVesselName] = useState('');
-  const [imoNumber, setImoNumber] = useState('');
+  // Identity form state. Name and IMO are no longer entered here: the
+  // enrollment code identifies the vessel, and office sends its name and
+  // IMO back on redemption. Asking the crew to retype an identity that
+  // shore already holds only created a way for the two to disagree.
   const [shoreUrl, setShoreUrl] = useState('https://api.ovl.com');
-  const [apiKey, setApiKey] = useState('');
+  const [code, setCode] = useState('');
 
   // Prefill when status is fetched
   useEffect(() => {
     if (setupStatus) {
-      if (setupStatus.vesselName) setVesselName(setupStatus.vesselName);
-      if (setupStatus.imoNumber) setImoNumber(setupStatus.imoNumber);
       if (setupStatus.shoreUrl) setShoreUrl(setupStatus.shoreUrl);
-      if (setupStatus.apiKey) setApiKey(setupStatus.apiKey);
-      
+
       if (setupStatus.isConfigured && step === 'intro') {
         setStep('identity');
       }
     }
   }, [setupStatus]);
 
-  // Blocks Enroll, matching what office's edge.enroll will do anyway —
-  // catching it here turns a round-trip rejection into immediate inline
-  // feedback. Shown only once the field is IMO-length so it doesn't
-  // shout mid-typing.
-  const imoError = validateImo(imoNumber.trim());
-  const showImoError = imoNumber.trim().length >= 7 && !!imoError;
-
   // Admin form state
   const [username, setUsername] = useState('master');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
-  const enrollMutation = trpc.setup.enroll.useMutation();
+  const redeemMutation = trpc.setup.redeem.useMutation();
   const createMasterMutation = trpc.setup.createMaster.useMutation();
+
+  // 16 base32 characters, however the crew chose to type them — office
+  // canonicalises before comparing, so dashes, spaces and case are all
+  // accepted and this only checks there's a plausible amount of code.
+  const codeCharCount = code.replace(/[^A-Za-z0-9]/g, '').length;
+  const codeLooksComplete = codeCharCount === 16;
 
   const handleEnroll = async () => {
     try {
-      await enrollMutation.mutateAsync({ vesselName, imoNumber, shoreUrl, apiKey });
+      const result = await redeemMutation.mutateAsync({ shoreUrl, code });
       await refetch();
+      toastManager.add({
+        title: `Enrolled as ${result.vesselName}`,
+        description: `IMO ${result.imoNumber}. Identity and sync credential collected from the office.`,
+        type: 'success',
+      });
       setStep('admin');
-    } catch (e) {
-      toastManager.add({ title: 'Failed to enroll', description: 'Please check your inputs and try again.', type: 'error' });
+    } catch (e: any) {
+      toastManager.add({
+        title: 'Could not enrol this node',
+        // The server distinguishes a rejected code from an unreachable
+        // office, and which one it was determines what the crew should
+        // do next, so its message is surfaced rather than replaced.
+        description: e?.message ?? 'Please check the code and try again.',
+        type: 'error',
+      });
     }
   };
 
@@ -134,28 +143,30 @@ export default function SetupPage() {
       {step === 'identity' && (
         <Card className="bg-card border-border overflow-hidden rounded-sm">
           <CardHeader className="border-b border-border pb-4">
-            <CardTitle className="text-sm font-semibold tracking-tight text-foreground">Identity Configuration</CardTitle>
-            <CardDescription className="text-xs text-muted-foreground">Must exactly match the shore-side registry.</CardDescription>
+            <CardTitle className="text-sm font-semibold tracking-tight text-foreground">Enrol This Node</CardTitle>
+            <CardDescription className="text-xs text-muted-foreground">
+              The office issues a single-use code for this vessel. The node collects its own name, IMO
+              and sync credential when the code is redeemed — nothing else needs entering here.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6 pt-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <Label htmlFor="setup-vessel-name" className="text-xs font-semibold text-foreground uppercase tracking-wider">Vessel Name</Label>
-                <div className="relative">
-                  <Ship className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input disabled={setupStatus?.isConfigured} id="setup-vessel-name" value={vesselName} onChange={e => setVesselName(e.target.value)} placeholder="e.g. Seawise Giant" className="pl-9 bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10 disabled:opacity-70" />
-                </div>
+            {/* Once configured, identity is shore's answer rather than
+                anything typed on board, so it's shown read-only. */}
+            {setupStatus?.isConfigured ? (
+              <div className="rounded-md border border-status-ok/25 bg-status-ok/10 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wider text-status-ok">Enrolled</p>
+                <p className="mt-1 text-sm text-foreground">
+                  {setupStatus.vesselName || 'Unnamed vessel'}
+                  {setupStatus.imoNumber ? (
+                    <span className="ml-2 font-mono text-xs text-muted-foreground">IMO {setupStatus.imoNumber}</span>
+                  ) : null}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Identity is maintained by the office and refreshed on every sync.
+                </p>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="setup-imo-number" className="text-xs font-semibold text-foreground uppercase tracking-wider">IMO Number</Label>
-                <Input disabled={setupStatus?.isConfigured} id="setup-imo-number" value={imoNumber} onChange={e => setImoNumber(e.target.value)} placeholder="e.g. 7381154" inputMode="numeric" maxLength={7} aria-invalid={showImoError} aria-describedby={showImoError ? 'setup-imo-error' : undefined} className={`bg-card focus-visible:ring-ring text-foreground text-sm h-10 font-mono tracking-wider disabled:opacity-70 ${showImoError ? 'border-status-critical' : 'border-border'}`} />
-                {showImoError ? (
-                  <p id="setup-imo-error" role="alert" className="text-xs text-status-critical">
-                    {imoError}
-                  </p>
-                ) : null}
-              </div>
-            </div>
+            ) : null}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <Label htmlFor="setup-shore-url" className="text-xs font-semibold text-foreground uppercase tracking-wider">Shore Uplink URL</Label>
@@ -165,8 +176,25 @@ export default function SetupPage() {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="setup-api-key" className="text-xs font-semibold text-foreground uppercase tracking-wider">Office API Key</Label>
-                <Input disabled={setupStatus?.isConfigured} type="password" placeholder="ovl_prod_..." id="setup-api-key" value={apiKey} onChange={e => setApiKey(e.target.value)} className="bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10 font-mono disabled:opacity-70" />
+                <Label htmlFor="setup-code" className="text-xs font-semibold text-foreground uppercase tracking-wider">Enrollment Code</Label>
+                <Input
+                  disabled={setupStatus?.isConfigured}
+                  id="setup-code"
+                  value={code}
+                  onChange={e => setCode(e.target.value)}
+                  placeholder="XXXX-XXXX-XXXX-XXXX"
+                  autoComplete="off"
+                  spellCheck={false}
+                  // Not masked: it's transcribed from paper on a bridge and
+                  // is single-use, so being able to check what was typed
+                  // matters more than hiding it.
+                  className="bg-card border-border focus-visible:ring-ring text-foreground text-sm h-10 font-mono uppercase tracking-widest disabled:opacity-70"
+                />
+                {!setupStatus?.isConfigured && codeCharCount > 0 && !codeLooksComplete ? (
+                  <p className="text-xs text-muted-foreground">
+                    {codeCharCount} of 16 characters — dashes, spaces and case don&apos;t matter.
+                  </p>
+                ) : null}
               </div>
             </div>
           </CardContent>
@@ -188,11 +216,11 @@ export default function SetupPage() {
                 if (setupStatus.hasUsers) return router.push('/');
                 setStep('admin');
               }}
-              disabled={((!vesselName || !imoNumber || !apiKey || !!imoError) && !setupStatus?.isConfigured) || enrollMutation.isPending}
+              disabled={((!shoreUrl.trim() || !codeLooksComplete) && !setupStatus?.isConfigured) || redeemMutation.isPending}
               className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-primary/20 rounded-sm h-9 text-sm font-semibold transition-all"
             >
               <Save className="w-4 h-4 mr-2" />
-              {enrollMutation.isPending ? 'Enrolling...' : setupStatus?.isConfigured ? (setupStatus.hasUsers ? 'Go to Dashboard' : 'Continue to Admin Setup') : 'Enroll & Continue'}
+              {redeemMutation.isPending ? 'Enrolling...' : setupStatus?.isConfigured ? (setupStatus.hasUsers ? 'Go to Dashboard' : 'Continue to Admin Setup') : 'Enroll & Continue'}
             </Button>
           </CardFooter>
         </Card>

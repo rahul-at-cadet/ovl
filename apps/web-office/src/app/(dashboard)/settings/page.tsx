@@ -8,14 +8,22 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@ovl/ui/components/tab
 import { Settings, Globe, Shield, Key, Bell, KeyRound, Copy, CheckCircle2, Trash2, Ship, Pencil, X, Loader2, Server, Database, Clock } from 'lucide-react';
 import { useState } from 'react';
 import { trpc } from '@/lib/trpc';
+import { useCurrentUser } from '@/lib/useCurrentUser';
 
 export default function SettingsPage() {
   const [copied, setCopied] = useState<string | null>(null);
   const [newRawToken, setNewRawToken] = useState<string | null>(null);
   const [newKeyLabel, setNewKeyLabel] = useState('');
 
+  // The API Keys tab is admin-only server-side (apiKeys.list and both
+  // mutations assert the role), so the UI has to know too — otherwise a
+  // viewer sees the tab, gets an empty list because the query 403s, and
+  // reads "No active API keys" as fact rather than as "not allowed".
+  const { data: currentUser } = useCurrentUser();
+  const isAdmin = (currentUser?.roles ?? []).includes('admin');
+
   const utils = trpc.useUtils();
-  const { data: apiKeys = [], isLoading } = trpc.apiKeys.list.useQuery();
+  const { data: apiKeys = [], isLoading } = trpc.apiKeys.list.useQuery(undefined, { enabled: isAdmin });
 
   const createMutation = trpc.apiKeys.create.useMutation({
     onSuccess: (data) => {
@@ -124,13 +132,20 @@ export default function SettingsPage() {
               <Shield className="w-4 h-4 mr-3" />
               Security & Auth
             </TabsTrigger>
-            <TabsTrigger 
-              value="apikeys" 
-              className="w-full justify-start px-4 py-2.5 text-sm font-medium data-[state=active]:bg-muted data-[state=active]:text-foreground text-muted-foreground hover:bg-card transition-all rounded-md"
-            >
-              <Key className="w-4 h-4 mr-3" />
-              API Keys
-            </TabsTrigger>
+            {/* Hidden rather than shown-and-broken for non-admins: the
+                whole tab is admin-gated server-side, so offering it to a
+                viewer only produces an empty list and a button that
+                403s. Matches the original, which hides Administration
+                from non-admins outright. */}
+            {isAdmin ? (
+              <TabsTrigger
+                value="apikeys"
+                className="w-full justify-start px-4 py-2.5 text-sm font-medium data-[state=active]:bg-muted data-[state=active]:text-foreground text-muted-foreground hover:bg-card transition-all rounded-md"
+              >
+                <Key className="w-4 h-4 mr-3" />
+                API Keys
+              </TabsTrigger>
+            ) : null}
             <TabsTrigger
               value="notifications"
               className="w-full justify-start px-4 py-2.5 text-sm font-medium data-[state=active]:bg-muted data-[state=active]:text-foreground text-muted-foreground hover:bg-card transition-all rounded-md"
@@ -311,6 +326,13 @@ export default function SettingsPage() {
                           </Button>
                         </div>
                       ))}
+                    </div>
+                  ) : !isAdmin ? (
+                    // Distinct from "there are none": saying "no active
+                    // API keys" to someone who simply cannot see them
+                    // states something false.
+                    <div className="py-6 text-center text-sm text-muted-foreground">
+                      Only an Admin can view or manage API credentials.
                     </div>
                   ) : (
                     <div className="text-center text-muted-foreground py-4 text-sm">No active API keys.</div>

@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@ovl/ui/components/card';
 import { Button } from '@ovl/ui/components/button';
 import { Input } from '@ovl/ui/components/input';
-import { Ship, Search, Plus, Activity, Wifi, WifiOff, Edit, Trash2, Users, List, Map as MapIcon, KeyRound } from 'lucide-react';
+import { Ship, Search, Plus, Activity, Wifi, WifiOff, Edit, Trash2, Users, List, Map as MapIcon, KeyRound, Ticket, Copy, CheckCircle2 } from 'lucide-react';
 import { Badge } from '@ovl/ui/components/badge';
 import { VesselUsersDialog } from './VesselUsersDialog';
 
@@ -33,6 +33,7 @@ import {
 
 import { trpc } from '@/lib/trpc';
 import { validateImo } from '@/lib/imo';
+import { useCurrentUser } from '@/lib/useCurrentUser';
 
 export default function VesselsPage() {
   const [view, setView] = useState<'list' | 'map'>('list');
@@ -48,6 +49,16 @@ export default function VesselsPage() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [usersTarget, setUsersTarget] = useState<{ id: string; name: string } | null>(null);
   const [resetCredsTarget, setResetCredsTarget] = useState<{ id: string; name: string } | null>(null);
+  const [enrollTarget, setEnrollTarget] = useState<{ id: string; name: string } | null>(null);
+  const [issuedCode, setIssuedCode] = useState<{ code: string; vesselName: string; imo: string } | null>(null);
+  const [codeCopied, setCodeCopied] = useState(false);
+
+  // Every mutation on this page (provision, edit, delete, enrollment,
+  // credentials) asserts the admin role server-side. Surfacing controls a
+  // viewer cannot use just produces buttons that 403 on click, so the
+  // destructive and credential actions are hidden from them instead.
+  const { data: currentUser } = useCurrentUser();
+  const isAdmin = (currentUser?.roles ?? []).includes('admin');
 
   const utils = trpc.useUtils();
   const { data: vessels = [], isLoading } = trpc.vessels.list.useQuery();
@@ -71,6 +82,16 @@ export default function VesselsPage() {
       utils.vessels.list.invalidate();
       setDeleteTarget(null);
     }
+  });
+
+  // The issued code is returned exactly once — only its hash is stored —
+  // so it's held here to be shown until the operator explicitly dismisses
+  // it, never auto-cleared.
+  const issueEnrollmentMutation = trpc.vessels.issueEnrollment.useMutation({
+    onSuccess: (data) => {
+      setIssuedCode({ code: data.code, vesselName: data.vesselName, imo: data.imo });
+      setEnrollTarget(null);
+    },
   });
 
   const resetCredentialsMutation = trpc.vessels.resetCredentials.useMutation({
@@ -136,6 +157,39 @@ export default function VesselsPage() {
     if (resetCredsTarget) resetCredentialsMutation.mutate({ id: resetCredsTarget.id });
   };
 
+  const confirmIssueEnrollment = () => {
+    if (enrollTarget) issueEnrollmentMutation.mutate({ vesselId: enrollTarget.id });
+  };
+
+  /**
+   * navigator.clipboard is undefined outside a secure context, which this
+   * deployment commonly is (plain HTTP behind nginx), so the execCommand
+   * path is a real fallback rather than legacy belt-and-braces — matching
+   * how Settings copies an API key.
+   */
+  const copyCode = (text: string) => {
+    const viaFallback = () => {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+      } finally {
+        document.body.removeChild(ta);
+      }
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).catch(viaFallback);
+    } else {
+      viaFallback();
+    }
+    setCodeCopied(true);
+    setTimeout(() => setCodeCopied(false), 2000);
+  };
+
   return (
     // Fixed to the viewport, not the page — same fix as Reports/Users:
     // only the vessel table scrolls internally.
@@ -182,10 +236,12 @@ export default function VesselsPage() {
               Map
             </Button>
           </div>
-          <Button onClick={openNewDialog} className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-9 text-sm font-semibold shadow-sm shrink-0 transition-all">
-            <Plus className="w-4 h-4 mr-2" />
-            Provision Node
-          </Button>
+          {isAdmin ? (
+            <Button onClick={openNewDialog} className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-9 text-sm font-semibold shadow-sm shrink-0 transition-all">
+              <Plus className="w-4 h-4 mr-2" />
+              Provision Node
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -271,22 +327,44 @@ export default function VesselsPage() {
                             <Edit className="w-4 h-4" />
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-48 bg-background border-border">
-                            <DropdownMenuItem onClick={() => openEditDialog(vessel)} className="hover:bg-muted cursor-pointer text-foreground focus:bg-muted focus:text-foreground">
-                              <Edit className="mr-2 h-4 w-4" />
-                              <span>Edit Vessel</span>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => setUsersTarget({ id: vessel.id, name: vessel.name })} className="hover:bg-muted cursor-pointer text-foreground focus:bg-muted focus:text-foreground">
-                              <Users className="mr-2 h-4 w-4" />
-                              <span>Manage Users</span>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => setResetCredsTarget({ id: vessel.id, name: vessel.name })} className="hover:bg-muted cursor-pointer text-foreground focus:bg-muted focus:text-foreground">
-                              <KeyRound className="mr-2 h-4 w-4" />
-                              <span>Reset Credentials</span>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleDelete(vessel.id, vessel.name)} className="text-status-critical hover:bg-status-critical/10 cursor-pointer focus:bg-status-critical/10 focus:text-status-critical">
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              <span>Delete Vessel</span>
-                            </DropdownMenuItem>
+                            {/* Edit and Manage Users are admin-gated server-side
+                                (vessels.update, vessels.users.*) just like the
+                                actions below, so a viewer would only reach a
+                                403 after filling the form. */}
+                            {isAdmin ? (
+                              <>
+                                <DropdownMenuItem onClick={() => openEditDialog(vessel)} className="hover:bg-muted cursor-pointer text-foreground focus:bg-muted focus:text-foreground">
+                                  <Edit className="mr-2 h-4 w-4" />
+                                  <span>Edit Vessel</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => setUsersTarget({ id: vessel.id, name: vessel.name })} className="hover:bg-muted cursor-pointer text-foreground focus:bg-muted focus:text-foreground">
+                                  <Users className="mr-2 h-4 w-4" />
+                                  <span>Manage Users</span>
+                                </DropdownMenuItem>
+                              </>
+                            ) : (
+                              <DropdownMenuItem disabled className="text-muted-foreground">
+                                <span>View only — no actions available</span>
+                              </DropdownMenuItem>
+                            )}
+                            {isAdmin ? (
+                              <DropdownMenuItem onClick={() => setEnrollTarget({ id: vessel.id, name: vessel.name })} className="hover:bg-muted cursor-pointer text-foreground focus:bg-muted focus:text-foreground">
+                                <Ticket className="mr-2 h-4 w-4" />
+                                <span>Issue Enrollment Code</span>
+                              </DropdownMenuItem>
+                            ) : null}
+                            {isAdmin ? (
+                              <DropdownMenuItem onClick={() => setResetCredsTarget({ id: vessel.id, name: vessel.name })} className="hover:bg-muted cursor-pointer text-foreground focus:bg-muted focus:text-foreground">
+                                <KeyRound className="mr-2 h-4 w-4" />
+                                <span>Reset Credentials</span>
+                              </DropdownMenuItem>
+                            ) : null}
+                            {isAdmin ? (
+                              <DropdownMenuItem onClick={() => handleDelete(vessel.id, vessel.name)} className="text-status-critical hover:bg-status-critical/10 cursor-pointer focus:bg-status-critical/10 focus:text-status-critical">
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                <span>Delete Vessel</span>
+                              </DropdownMenuItem>
+                            ) : null}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </td>
@@ -426,6 +504,76 @@ export default function VesselsPage() {
               variant="destructive"
             >
               {resetCredentialsMutation.isPending ? 'Resetting...' : 'Reset Credentials'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!enrollTarget} onOpenChange={(open) => !open && setEnrollTarget(null)}>
+        <DialogContent className="sm:max-w-[440px] bg-background border-border text-foreground">
+          <DialogHeader>
+            <DialogTitle className="text-foreground">Issue enrollment code?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Generates a single-use code for{' '}
+            <span className="font-medium text-foreground">{enrollTarget?.name}</span>. The crew enter it
+            during setup and the node collects its own identity and sync credential — nothing else needs
+            to be typed in on board.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Any code already outstanding for this vessel stops working.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEnrollTarget(null)} className="bg-transparent border-border text-foreground hover:bg-muted hover:text-foreground">
+              Cancel
+            </Button>
+            <Button
+              onClick={confirmIssueEnrollment}
+              disabled={issueEnrollmentMutation.isPending}
+              className="bg-primary hover:bg-primary/90 text-primary-foreground"
+            >
+              {issueEnrollmentMutation.isPending ? 'Issuing…' : 'Issue Code'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Shown once and never again — only the code's hash is stored — so
+          this closes on an explicit acknowledgement, never on a timer or
+          as a side effect of copying (a clipboard write can fail silently
+          outside a secure context). */}
+      <Dialog open={!!issuedCode} onOpenChange={(open) => !open && setIssuedCode(null)}>
+        <DialogContent className="sm:max-w-[480px] bg-background border-border text-foreground">
+          <DialogHeader>
+            <DialogTitle className="text-foreground">Enrollment code for {issuedCode?.vesselName}</DialogTitle>
+          </DialogHeader>
+
+          <p className="text-sm text-muted-foreground">
+            Give this to the vessel now. It cannot be shown again — if it&apos;s lost, issue a new one.
+          </p>
+
+          <div className="rounded-md border border-status-ok/25 bg-status-ok/10 p-4">
+            <div className="flex items-center gap-2">
+              <code className="flex-1 select-all text-center font-mono text-lg tracking-[0.2em] text-status-ok">
+                {issuedCode?.code}
+              </code>
+              <Button
+                variant="outline"
+                onClick={() => issuedCode && copyCode(issuedCode.code)}
+                aria-label="Copy enrollment code"
+                className="h-9 w-9 shrink-0 border-status-ok/30 bg-status-ok/10 p-0 text-status-ok hover:bg-status-ok/20"
+              >
+                {codeCopied ? <CheckCircle2 className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              </Button>
+            </div>
+            <p className="mt-2 text-center text-xs text-status-ok/80">
+              Single use · {issuedCode?.vesselName} · IMO {issuedCode?.imo}
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button onClick={() => setIssuedCode(null)} className="bg-primary hover:bg-primary/90 text-primary-foreground">
+              Done
             </Button>
           </DialogFooter>
         </DialogContent>

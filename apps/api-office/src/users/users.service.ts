@@ -3,6 +3,7 @@ import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { eq } from 'drizzle-orm';
 import * as schema from '@ovl/database';
 import * as argon2 from 'argon2';
+import { hashPassword, verifyPassword, validatePassword } from '../auth/password';
 import EmailPassword from 'supertokens-node/recipe/emailpassword';
 import supertokens from 'supertokens-node';
 import { DATABASE_CONNECTION } from '../database/database.module';
@@ -100,9 +101,7 @@ export class UsersService {
       );
     }
 
-    const passwordHash = await argon2.hash(temporaryPassword, {
-      type: argon2.argon2id,
-    });
+    const passwordHash = await hashPassword(temporaryPassword);
 
     const now = new Date().toISOString();
     const [created] = await this.db
@@ -181,9 +180,7 @@ export class UsersService {
       throw new BadRequestException(`Failed to reset password: ${updateResult.status}`);
     }
 
-    const passwordHash = await argon2.hash(temporaryPassword, {
-      type: argon2.argon2id,
-    });
+    const passwordHash = await hashPassword(temporaryPassword);
 
     const [updated] = await this.db
       .update(schema.users)
@@ -215,11 +212,15 @@ export class UsersService {
     const user = results[0];
     if (!user) throw new NotFoundException('User not found');
 
-    const match = await argon2.verify(user.passwordHash, currentPassword);
+    const match = await verifyPassword(user.passwordHash, currentPassword);
     if (!match) throw new BadRequestException('Current password is incorrect');
 
-    if (newPassword.length < 8) {
-      throw new BadRequestException('New password must be at least 8 characters');
+    // Both bounds, not just the floor: argon2's cost scales with input
+    // length, so an unbounded field lets an authenticated caller make
+    // the server do arbitrary work.
+    const invalid = validatePassword(newPassword);
+    if (invalid) {
+      throw new BadRequestException(invalid);
     }
 
     // Updating only this table's own shadow copy would leave the real
@@ -237,7 +238,7 @@ export class UsersService {
       throw new BadRequestException(`Failed to update password: ${updateResult.status}`);
     }
 
-    const newHash = await argon2.hash(newPassword, { type: argon2.argon2id });
+    const newHash = await hashPassword(newPassword);
     const [updated] = await this.db
       .update(schema.users)
       .set({

@@ -19,6 +19,8 @@ import { Scope } from '../config/logic/scope';
 import { effectiveSeverities } from '../config/logic/compliance';
 import { continuityConfigFor, revalidate, type ContinuityReport, type Severity } from '../config/logic/continuity';
 import { validateImo } from '../vessels/logic/imo';
+import { canonicalizeCode, generateEnrollmentCode, isRedeemable, type EnrollmentState } from '../vessels/logic/enrollment';
+import * as argon2 from 'argon2';
 import { SupertokensService } from '../auth/supertokens.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { UsersService } from '../users/users.service';
@@ -209,6 +211,24 @@ const ResetVesselCredentialsSchema = Type.Object({
   id: Type.String(),
 });
 const ResetVesselCredentialsCompiler = TypeCompiler.Compile(ResetVesselCredentialsSchema);
+
+const IssueEnrollmentSchema = Type.Object({
+  vesselId: Type.String(),
+});
+const IssueEnrollmentCompiler = TypeCompiler.Compile(IssueEnrollmentSchema);
+
+const RevokeEnrollmentSchema = Type.Object({
+  vesselId: Type.String(),
+});
+const RevokeEnrollmentCompiler = TypeCompiler.Compile(RevokeEnrollmentSchema);
+
+// The redemption request carries only the code. It is self-identifying:
+// office resolves which vessel it belongs to by matching the code, which
+// is precisely what removes IMO as an unauthenticated identity claim.
+const RedeemEnrollmentSchema = Type.Object({
+  code: Type.String(),
+});
+const RedeemEnrollmentCompiler = TypeCompiler.Compile(RedeemEnrollmentSchema);
 
 const RenameVesselGroupSchema = Type.Object({
   from: Type.String(),
@@ -479,6 +499,71 @@ export class TrpcRouter {
   }
 
   /**
+   * Loads the office user behind a session and asserts a role.
+   *
+   * This is a method rather than a tRPC middleware because the role
+   * check needs SupertokensService, and middleware is defined at module
+   * scope before DI has constructed anything (see isAuthed's own
+   * comment). protectedProcedure therefore proves only that *a session
+   * exists* — it says nothing about what that account may do, so every
+   * privileged procedure has to assert its role explicitly, the same way
+   * the REST UsersController already does with requireAdmin.
+   */
+  private async assertRole(ctx: { session: { getUserId(): string } }, role: string, action: string): Promise<void> {
+    const localUser = await this.supertokensService.getLocalUser(ctx.session.getUserId());
+    const roles = Array.isArray(localUser?.roles) ? (localUser!.roles as string[]) : [];
+    if (!roles.includes(role)) {
+      throw new TRPCError({ code: 'FORBIDDEN', message: action });
+    }
+  }
+
+  /**
+   * Guards the destructive and credential-bearing procedures — the same
+   * set ovl/office/httpapi gates behind requireAdmin (apikeys.go:44,
+   * users.go:17, vesselgroups.go:35, vessels.go:260/397/454/531,
+   * vesselusers.go:110). Without it any authenticated account, including
+   * a viewer, could mint an enrollment code and take over a vessel.
+   */
+  private assertAdmin(ctx: { session: { getUserId(): string } }): Promise<void> {
+    return this.assertRole(ctx, 'admin', 'Admin role required.');
+  }
+
+  /**
+   * Guards schema/field-policy/compliance authoring — ports
+   * requireConfigManager (schemaversions.go:20).
+   */
+  private assertConfigManager(ctx: { session: { getUserId(): string } }): Promise<void> {
+    return this.assertRole(ctx, 'configManager', 'Only a Config Manager may author configuration.');
+  }
+
+  /**
+   * Issues (or reissues) this vessel's long-lived sync credential and
+   * returns the plaintext exactly once — only the hash is stored, so it
+   * is unrecoverable afterwards.
+   *
+   * Upserting on the vesselId primary key means reissuing replaces the
+   * previous secret in place and clears any revocation: that is how a
+   * vessel recovers after losing its local database, and how an operator
+   * undoes a Reset Credentials. The old secret stops working the moment
+   * this returns.
+   */
+  private async mintVesselCredential(vesselId: string): Promise<string> {
+    const rawSecret = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawSecret).digest('hex');
+    const tokenLookupHash = crypto.createHash('sha256').update(rawSecret.substring(0, 8)).digest('hex');
+    const now = new Date().toISOString();
+
+    await this.db.insert(schema.vesselCredentials)
+      .values({ vesselId, tokenHash, tokenLookupHash, issuedAt: now })
+      .onConflictDoUpdate({
+        target: schema.vesselCredentials.vesselId,
+        set: { tokenHash, tokenLookupHash, issuedAt: now, revokedAt: null },
+      });
+
+    return `ovl_prod_${rawSecret}`;
+  }
+
+  /**
    * Re-checks every report in (vesselId, schemaName)'s chain against the
    * continuity rules (architecture 8.3) after a report version lands —
    * ports office/syncservice/cascade.go's runCascade near-verbatim. Any
@@ -663,25 +748,89 @@ export class TrpcRouter {
 
           // 3. Mint this vessel's own sync credential — distinct from the
           // provisioning key just verified above, and never shared with
-          // any other vessel. Re-enrolling an already-known IMO reissues
-          // it (upsert on the vesselId PK, clearing any prior revocation),
-          // which is also how a vessel recovers if it loses its local
-          // database, or how an operator undoes a Reset Credentials: run
-          // setup again with a valid provisioning key and it gets a fresh,
-          // live secret.
-          const rawSecret = crypto.randomBytes(32).toString('hex');
-          const tokenHash = crypto.createHash('sha256').update(rawSecret).digest('hex');
-          const tokenLookupHash = crypto.createHash('sha256').update(rawSecret.substring(0, 8)).digest('hex');
-          const now = new Date().toISOString();
+          // any other vessel.
+          const vesselSecret = await this.mintVesselCredential(vesselId);
 
-          await this.db.insert(schema.vesselCredentials)
-            .values({ vesselId, tokenHash, tokenLookupHash, issuedAt: now })
-            .onConflictDoUpdate({
-              target: schema.vesselCredentials.vesselId,
-              set: { tokenHash, tokenLookupHash, issuedAt: now, revokedAt: null },
+          return { vesselId, vesselSecret };
+        }),
+
+      /**
+       * Exchanges a one-time enrollment code for this vessel's identity
+       * and sync credential — ports enrollment.Redeem.
+       *
+       * publicProcedure, not edgeProcedure: the code *is* the credential
+       * here, so requiring a fleet-wide provisioning key as well would
+       * reintroduce the shared secret this flow exists to remove. A
+       * vessel being set up has nothing else to present.
+       *
+       * The vessel sends no id, name or IMO. Office matches the code
+       * against every issued enrollment and the winner determines which
+       * vessel this is, so identity can no longer be asserted by typing
+       * someone else's IMO.
+       */
+      redeem: publicProcedure
+        .input((val: unknown) => {
+          if (!RedeemEnrollmentCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof RedeemEnrollmentSchema>;
+        })
+        .mutation(async ({ input }) => {
+          const code = canonicalizeCode(input.code);
+          if (!code) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Enrollment code is required.' });
+
+          // Linear argon2 scan over issued enrollments. Deliberate, and
+          // the same call the Go original makes: the code is
+          // self-identifying, so there is no id to look up by — only the
+          // code itself. Redemption is a one-time human-driven bootstrap
+          // bounded by fleet size, not a per-request hot path (contrast
+          // vessel_credentials, which carries a lookup hash precisely
+          // because that check runs on every sync RPC).
+          const candidates = await this.db
+            .select()
+            .from(schema.enrollments)
+            .where(eq(schema.enrollments.state, 'issued'));
+
+          let matched: (typeof candidates)[number] | undefined;
+          for (const candidate of candidates) {
+            if (!isRedeemable(candidate.state as EnrollmentState, candidate.codeHash)) continue;
+            if (await argon2.verify(candidate.codeHash, code).catch(() => false)) {
+              matched = candidate;
+              break;
+            }
+          }
+
+          if (!matched) {
+            throw new TRPCError({
+              code: 'UNAUTHORIZED',
+              message: 'Enrollment code is not recognised, or has already been used.',
             });
+          }
 
-          return { vesselId, vesselSecret: `ovl_prod_${rawSecret}` };
+          const vessel = (
+            await this.db.select().from(schema.vessels).where(eq(schema.vessels.id, matched.vesselId)).limit(1)
+          )[0];
+          if (!vessel) {
+            throw new TRPCError({ code: 'NOT_FOUND', message: 'The vessel this code was issued for no longer exists.' });
+          }
+
+          // Single use: the hash is cleared, not merely the state flag,
+          // so the same code can never verify again even if a later code
+          // path forgets to check state first.
+          const now = new Date().toISOString();
+          await this.db
+            .update(schema.enrollments)
+            .set({ state: 'enrolled', codeHash: '', updatedAt: now })
+            .where(eq(schema.enrollments.vesselId, matched.vesselId));
+
+          const vesselSecret = await this.mintVesselCredential(vessel.id);
+
+          // Identity travels back with the credential, so the vessel can
+          // display who it is without anyone having typed it in.
+          return {
+            vesselId: vessel.id,
+            vesselSecret,
+            vesselName: vessel.name,
+            imoNumber: vessel.imo,
+          };
         }),
     }),
 
@@ -995,7 +1144,8 @@ export class TrpcRouter {
           if (!CreateVesselCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof CreateVesselSchema>;
         })
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
+          await this.assertAdmin(ctx);
           // Ported from ovl/office/vessels/vessel.go's NewVessel, which
           // validates the IMO before a vessel can exist at all.
           const imo = input.imo.trim();
@@ -1017,7 +1167,8 @@ export class TrpcRouter {
           if (!UpdateVesselCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof UpdateVesselSchema>;
         })
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
+          await this.assertAdmin(ctx);
           const { id, ...updates } = input;
 
           // Every IMO that passes through here must be well-formed, with
@@ -1042,7 +1193,8 @@ export class TrpcRouter {
           if (!DeleteVesselCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof DeleteVesselSchema>;
         })
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
+          await this.assertAdmin(ctx);
           await this.db.delete(schema.vessels).where(eq(schema.vessels.id, input.id));
           return { success: true };
         }),
@@ -1060,13 +1212,87 @@ export class TrpcRouter {
           if (!ResetVesselCredentialsCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof ResetVesselCredentialsSchema>;
         })
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
+          await this.assertAdmin(ctx);
           await this.db
             .update(schema.vesselCredentials)
             .set({ revokedAt: new Date().toISOString() })
             .where(eq(schema.vesselCredentials.vesselId, input.id));
           return { success: true };
         }),
+
+      /**
+       * Issues a one-time enrollment code for one vessel — ports
+       * enrollment.Issue/Reissue. The plaintext is returned exactly once
+       * and only its argon2id hash is stored, so it cannot be recovered
+       * later; reissuing replaces the previous code in place rather than
+       * accumulating history (there is at most one enrollment per
+       * vessel, keyed on vesselId).
+       *
+       * argon2id rather than a fast hash: issuing is a rare,
+       * human-driven admin action, and one hashing primitive for every
+       * secret this project stores is simpler than two.
+       */
+      issueEnrollment: protectedProcedure
+        .input((val: unknown) => {
+          if (!IssueEnrollmentCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof IssueEnrollmentSchema>;
+        })
+        .mutation(async ({ input, ctx }) => {
+          await this.assertAdmin(ctx);
+          const vessel = (
+            await this.db.select().from(schema.vessels).where(eq(schema.vessels.id, input.vesselId)).limit(1)
+          )[0];
+          if (!vessel) throw new TRPCError({ code: 'NOT_FOUND', message: 'Vessel not found.' });
+
+          const code = generateEnrollmentCode();
+          const codeHash = await argon2.hash(canonicalizeCode(code), { type: argon2.argon2id });
+          const now = new Date().toISOString();
+
+          await this.db
+            .insert(schema.enrollments)
+            .values({
+              vesselId: vessel.id,
+              state: 'issued',
+              codeHash,
+              // The vessel's crew choose their own Master password during
+              // setup, so office does not pre-generate one. These columns
+              // exist for the original's printable-sheet flow and are left
+              // empty rather than filled with a credential nobody uses.
+              initialMasterUsername: '',
+              initialMasterPasswordHash: '',
+              issuedAt: now,
+              revokedAt: null,
+              updatedAt: now,
+            })
+            .onConflictDoUpdate({
+              target: schema.enrollments.vesselId,
+              set: { state: 'issued', codeHash, issuedAt: now, revokedAt: null, updatedAt: now },
+            });
+
+          return { code, vesselName: vessel.name, imo: vessel.imo };
+        }),
+
+      /**
+       * Invalidates an outstanding code. Clears the hash as well as the
+       * state so it can never verify again, matching Revoke's own rule in
+       * the original.
+       */
+      revokeEnrollment: protectedProcedure
+        .input((val: unknown) => {
+          if (!RevokeEnrollmentCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof RevokeEnrollmentSchema>;
+        })
+        .mutation(async ({ input, ctx }) => {
+          await this.assertAdmin(ctx);
+          const now = new Date().toISOString();
+          await this.db
+            .update(schema.enrollments)
+            .set({ state: 'revoked', codeHash: '', revokedAt: now, updatedAt: now })
+            .where(eq(schema.enrollments.vesselId, input.vesselId));
+          return { success: true };
+        }),
+
       // Groups are free-form JSONB tags on vessels.groups (architecture
       // 12.4), not a first-class entity — no dedicated groups table, by
       // design (ports ovl/office/httpapi/vesselgroups.go exactly,
@@ -1079,7 +1305,8 @@ export class TrpcRouter {
           if (!RenameVesselGroupCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof RenameVesselGroupSchema>;
         })
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
+          await this.assertAdmin(ctx);
           if (!input.from || !input.to) throw new TRPCError({ code: 'BAD_REQUEST', message: 'from and to are both required' });
           const all = await this.db.select({ id: schema.vessels.id, groups: schema.vessels.groups }).from(schema.vessels);
           let updated = 0;
@@ -1097,7 +1324,8 @@ export class TrpcRouter {
           if (!DeleteVesselGroupCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof DeleteVesselGroupSchema>;
         })
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
+          await this.assertAdmin(ctx);
           if (!input.group) throw new TRPCError({ code: 'BAD_REQUEST', message: 'group is required' });
           const all = await this.db.select({ id: schema.vessels.id, groups: schema.vessels.groups }).from(schema.vessels);
           let updated = 0;
@@ -1134,6 +1362,7 @@ export class TrpcRouter {
             return val as Static<typeof QueueCreateUserSchema>;
           })
           .mutation(async ({ input, ctx }) => {
+            await this.assertAdmin(ctx);
             const localUser = await this.supertokensService.getLocalUser(ctx.session.getUserId());
             const issuedBy = localUser?.username || 'office';
             return this.vesselUsersService.queueCreate(input.vesselId, input.username, input.role, issuedBy);
@@ -1144,6 +1373,7 @@ export class TrpcRouter {
             return val as Static<typeof QueueUsernameActionSchema>;
           })
           .mutation(async ({ input, ctx }) => {
+            await this.assertAdmin(ctx);
             const localUser = await this.supertokensService.getLocalUser(ctx.session.getUserId());
             const issuedBy = localUser?.username || 'office';
             return this.vesselUsersService.queueResetPassword(input.vesselId, input.username, issuedBy);
@@ -1154,6 +1384,7 @@ export class TrpcRouter {
             return val as Static<typeof QueueSetRoleSchema>;
           })
           .mutation(async ({ input, ctx }) => {
+            await this.assertAdmin(ctx);
             const localUser = await this.supertokensService.getLocalUser(ctx.session.getUserId());
             const issuedBy = localUser?.username || 'office';
             return this.vesselUsersService.queueSetRole(input.vesselId, input.username, input.role, issuedBy);
@@ -1164,6 +1395,7 @@ export class TrpcRouter {
             return val as Static<typeof QueueSetActiveSchema>;
           })
           .mutation(async ({ input, ctx }) => {
+            await this.assertAdmin(ctx);
             const localUser = await this.supertokensService.getLocalUser(ctx.session.getUserId());
             const issuedBy = localUser?.username || 'office';
             return this.vesselUsersService.queueSetActive(input.vesselId, input.username, input.active, issuedBy);
@@ -1174,6 +1406,7 @@ export class TrpcRouter {
             return val as Static<typeof QueueSetCanSubmitSchema>;
           })
           .mutation(async ({ input, ctx }) => {
+            await this.assertAdmin(ctx);
             const localUser = await this.supertokensService.getLocalUser(ctx.session.getUserId());
             const issuedBy = localUser?.username || 'office';
             return this.vesselUsersService.queueSetCanSubmit(input.vesselId, input.username, input.canSubmit, issuedBy);
@@ -1196,7 +1429,8 @@ export class TrpcRouter {
           if (!UpdateOfficeUserCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof UpdateOfficeUserSchema>;
         })
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
+          await this.assertAdmin(ctx);
           const { id, ...updates } = input;
           const updatedUser = await this.db.update(schema.users).set({
             ...updates,
@@ -1209,7 +1443,8 @@ export class TrpcRouter {
           if (!DeleteOfficeUserCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof DeleteOfficeUserSchema>;
         })
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
+          await this.assertAdmin(ctx);
           await this.db.delete(schema.users).where(eq(schema.users.id, input.id));
           return { success: true };
         }),
@@ -1275,7 +1510,8 @@ export class TrpcRouter {
           if (!SaveFieldPolicyCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof SaveFieldPolicySchema>;
         })
-        .mutation(({ input }) => {
+        .mutation(async ({ input, ctx }) => {
+          await this.assertConfigManager(ctx);
           const scope: Scope = { type: input.scopeType as Scope['type'], key: input.scopeKey };
           return this.fieldPolicyService.save(input.schemaName, scope, input.policy, input.prefill, input.events);
         }),
@@ -1715,7 +1951,13 @@ export class TrpcRouter {
         }),
     }),
     apiKeys: router({
-      list: protectedProcedure.query(async () => {
+      // Admin-only, matching handleListAPIKeys (apikeys.go:44). Even
+      // without the token itself, the list is an inventory of live fleet
+      // credentials — labels, ages and fingerprints — and every mutation
+      // beside it is admin-gated, so leaving the read open would just
+      // hand a viewer the map.
+      list: protectedProcedure.query(async ({ ctx }) => {
+        await this.assertAdmin(ctx);
         // Columns listed explicitly rather than `select()`: the bare form
         // returns the whole row, which shipped tokenHash and
         // tokenLookupHash — hashes of live credentials — to every browser
@@ -1755,7 +1997,8 @@ export class TrpcRouter {
           if (!CreateApiKeyCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof CreateApiKeySchema>;
         })
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
+          await this.assertAdmin(ctx);
           const rawToken = crypto.randomBytes(32).toString('hex');
           const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
           const tokenLookupHash = crypto.createHash('sha256').update(rawToken.substring(0, 8)).digest('hex');
@@ -1779,7 +2022,8 @@ export class TrpcRouter {
           if (!RevokeApiKeyCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof RevokeApiKeySchema>;
         })
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
+          await this.assertAdmin(ctx);
           await this.db
             .update(schema.apiKeys)
             .set({ revokedAt: new Date().toISOString() })
@@ -1913,13 +2157,19 @@ export class TrpcRouter {
           if (!PreviewSchemaUploadCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof PreviewSchemaUploadSchema>;
         })
-        .mutation(({ input }) => this.schemaVersionsService.preview(input.schemaName, input.content)),
+        .mutation(async ({ input, ctx }) => {
+          await this.assertConfigManager(ctx);
+          return this.schemaVersionsService.preview(input.schemaName, input.content);
+        }),
       publish: protectedProcedure
         .input((val: unknown) => {
           if (!PublishSchemaCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof PublishSchemaSchema>;
         })
-        .mutation(({ input }) => this.schemaVersionsService.publish(input)),
+        .mutation(async ({ input, ctx }) => {
+          await this.assertConfigManager(ctx);
+          return this.schemaVersionsService.publish(input);
+        }),
     }),
     // Ports ovl/office/httpapi/commercial.go — office-authored data
     // (architecture 12.2, Commercial Editor role): the only two schemas
@@ -2047,13 +2297,19 @@ export class TrpcRouter {
           if (!PublishConfigBundleCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof PublishConfigBundleSchema>;
         })
-        .mutation(({ input }) => this.configBundleService.publish(input.label || '')),
+        .mutation(async ({ input, ctx }) => {
+          await this.assertConfigManager(ctx);
+          return this.configBundleService.publish(input.label || '');
+        }),
       assign: protectedProcedure
         .input((val: unknown) => {
           if (!AssignBundleCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof AssignBundleSchema>;
         })
-        .mutation(({ input }) => this.configBundleService.assign(input.scope as Scope, input.bundleId)),
+        .mutation(async ({ input, ctx }) => {
+          await this.assertConfigManager(ctx);
+          return this.configBundleService.assign(input.scope as Scope, input.bundleId);
+        }),
       listAssignments: protectedProcedure.query(() => this.configBundleService.listAssignments()),
       vesselConfigs: protectedProcedure.query(() => this.configBundleService.vesselConfigs()),
       // Shore-side sync history. Optionally narrowed to one vessel; without a
@@ -2083,23 +2339,30 @@ export class TrpcRouter {
           if (!SaveProfileAssignmentCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof SaveProfileAssignmentSchema>;
         })
-        .mutation(({ input }) => this.complianceService.saveProfile(input.scope as Scope, input.profiles)),
+        .mutation(async ({ input, ctx }) => {
+          await this.assertConfigManager(ctx);
+          return this.complianceService.saveProfile(input.scope as Scope, input.profiles);
+        }),
       listCadenceRules: protectedProcedure.query(() => this.complianceService.listCadenceRules()),
       saveCadenceRule: protectedProcedure
         .input((val: unknown) => {
           if (!SaveCadenceRuleCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof SaveCadenceRuleSchema>;
         })
-        .mutation(({ input }) =>
-          this.complianceService.saveCadenceRule(input.scope as Scope, input.minReportIntervalHours, input.maxGapHours),
-        ),
+        .mutation(async ({ input, ctx }) => {
+          await this.assertConfigManager(ctx);
+          return this.complianceService.saveCadenceRule(input.scope as Scope, input.minReportIntervalHours, input.maxGapHours);
+        }),
       listRuleSeverities: protectedProcedure.query(() => this.complianceService.listRuleSeverities()),
       saveRuleSeverity: protectedProcedure
         .input((val: unknown) => {
           if (!SaveRuleSeverityCompiler.Check(val)) throw new Error('Invalid input');
           return val as Static<typeof SaveRuleSeveritySchema>;
         })
-        .mutation(({ input }) => this.complianceService.saveRuleSeverity(input.scope as Scope, input.severities)),
+        .mutation(async ({ input, ctx }) => {
+          await this.assertConfigManager(ctx);
+          return this.complianceService.saveRuleSeverity(input.scope as Scope, input.severities);
+        }),
     }),
   });
 }
