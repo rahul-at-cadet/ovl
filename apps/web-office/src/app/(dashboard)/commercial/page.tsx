@@ -13,6 +13,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@ovl/ui/components/dialog';
 import { Plus, FileText, Loader2, AlertCircle } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+import { useCurrentUser } from '@/lib/useCurrentUser';
+import { StatusBadge } from '@ovl/ui/components/status-badge';
+import Link from 'next/link';
 
 // Ports ovl/web/office/src/screens/commercial/{CommercialScreen,
 // CommercialReportForm}.tsx — office-authored data (architecture 12.2,
@@ -77,6 +80,13 @@ export default function CommercialPage() {
   const utils = trpc.useUtils();
   const { data: reports = [], isLoading } = trpc.commercial.list.useQuery({ schemaName });
   const { data: vessels = [] } = trpc.vessels.list.useQuery();
+
+  // commercial.create asserts commercialEditor server-side (ports
+  // requireCommercialEditor, commercial.go:30), so offering the action to
+  // anyone else only produces a button that 403s on submit — after they
+  // have filled in the form.
+  const { data: currentUser } = useCurrentUser();
+  const canEdit = (currentUser?.roles ?? []).includes('commercialEditor');
   const { data: schemaFieldsResult } = trpc.schemas.getFields.useQuery({ schemaName }, { enabled: isCreateOpen });
 
   const [vesselId, setVesselId] = useState('');
@@ -140,10 +150,12 @@ export default function CommercialPage() {
           <p className="text-muted-foreground mt-1 text-sm">Office-authored cargo nominations and commercial periods.</p>
         </div>
         <Dialog open={isCreateOpen} onOpenChange={handleOpenCreate}>
-          <Button onClick={() => setIsCreateOpen(true)} className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-9 text-sm font-medium shadow-sm">
-            <Plus className="w-4 h-4 mr-2" />
-            New {tab === 'periods' ? 'Commercial Period' : 'Cargo Nomination'}
-          </Button>
+          {canEdit ? (
+            <Button onClick={() => setIsCreateOpen(true)} className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-9 text-sm font-medium shadow-sm">
+              <Plus className="w-4 h-4 mr-2" />
+              New {tab === 'periods' ? 'Commercial Period' : 'Cargo Nomination'}
+            </Button>
+          ) : null}
           <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto bg-background border-border text-foreground">
             <DialogHeader>
               <DialogTitle>New {tab === 'periods' ? 'Commercial Period' : 'Cargo Nomination'}</DialogTitle>
@@ -264,7 +276,17 @@ export default function CommercialPage() {
                     <TableRow key={r.id} className="border-border hover:bg-muted transition-colors">
                       <TableCell>
                         <div className="flex flex-col">
-                          <span className="font-semibold text-foreground">{r.vessel}</span>
+                          {/* Commercial reports live in report_versions like
+                              any other, so the shared detail screen already
+                              serves them — remarks, chat and the audit trail
+                              included. Without this link none of that was
+                              reachable for office-authored reports at all. */}
+                          <Link
+                            href={`/reports/${r.id}`}
+                            className="font-semibold text-foreground transition-colors hover:text-primary hover:underline"
+                          >
+                            {r.vessel}
+                          </Link>
                           <span className="text-xs text-muted-foreground">IMO {r.imo}</span>
                         </div>
                       </TableCell>
@@ -275,9 +297,11 @@ export default function CommercialPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline" className="bg-status-ok/10 text-status-ok border-status-ok/25">
-                          {r.status}
-                        </Badge>
+                        {/* Was hardcoded green regardless of the actual
+                            state, so an invalidated or remarked commercial
+                            report read as healthy. StatusBadge is the one
+                            place a status turns into colour in this app. */}
+                        <StatusBadge status={r.status} />
                       </TableCell>
                       <TableCell className="text-muted-foreground">{new Date(r.date).toLocaleString()}</TableCell>
                     </TableRow>
