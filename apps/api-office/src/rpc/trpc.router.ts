@@ -4,7 +4,7 @@ import { Type, Static } from '@sinclair/typebox';
 import { TypeCompiler } from '@sinclair/typebox/compiler';
 import { DATABASE_CONNECTION } from '../database/database.module';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { eq, isNull, desc, sql, and, gt } from 'drizzle-orm';
+import { eq, isNull, desc, sql, and, gt, type SQL } from 'drizzle-orm';
 import * as crypto from 'crypto';
 import * as schema from '@ovl/database';
 
@@ -1652,17 +1652,81 @@ export class TrpcRouter {
        */
       list: protectedProcedure
         .input((val: unknown) => {
-          const v = (val ?? {}) as { limit?: number; cursor?: { date: string; id: string } | null };
-          const parsed: { limit: number; cursor?: { date: string; id: string } } = {
+          const v = (val ?? {}) as {
+            limit?: number;
+            cursor?: { date: string; id: string } | null;
+            vesselId?: string;
+            group?: string;
+            state?: string;
+            eventType?: string;
+            schema?: string;
+            dateFrom?: string;
+            dateTo?: string;
+            invalidatedOnly?: boolean;
+            hasRemarks?: boolean;
+            search?: string;
+          };
+          const parsed: {
+            limit: number;
+            cursor?: { date: string; id: string };
+            vesselId?: string;
+            group?: string;
+            state?: string;
+            eventType?: string;
+            schema?: string;
+            dateFrom?: string;
+            dateTo?: string;
+            invalidatedOnly?: boolean;
+            hasRemarks?: boolean;
+            search?: string;
+          } = {
             limit: Math.min(Math.max(1, typeof v.limit === 'number' ? v.limit : 50), 200),
           };
           if (v.cursor && typeof v.cursor.date === 'string' && typeof v.cursor.id === 'string') {
             parsed.cursor = { date: v.cursor.date, id: v.cursor.id };
           }
+          // Empty strings are what an unset <select> sends; treating them
+          // as filters would match nothing and look like a broken page.
+          for (const k of ['vesselId', 'group', 'state', 'eventType', 'schema', 'dateFrom', 'dateTo', 'search'] as const) {
+            const raw = v[k];
+            if (typeof raw === 'string' && raw.trim()) (parsed as Record<string, unknown>)[k] = raw.trim();
+          }
+          if (v.invalidatedOnly === true) parsed.invalidatedOnly = true;
+          if (v.hasRemarks === true) parsed.hasRemarks = true;
           return parsed;
         })
         .query(async ({ input }) => {
           const { limit, cursor } = input;
+
+          // Ports parseReportFilter (reports.go:234). Filters apply to the
+          // deduplicated row — i.e. the report's *current* state — so
+          // "show me invalidated reports" means the ones invalidated now,
+          // not the ones that ever passed through that state.
+          const conditions = [
+            cursor ? sql`(l.received_at, l.report_id) < (${cursor.date}::timestamptz, ${cursor.id})` : null,
+            input.vesselId ? sql`l.vessel_id = ${input.vesselId}::uuid` : null,
+            input.state ? sql`l.state = ${input.state}` : null,
+            input.eventType ? sql`l.event_type = ${input.eventType}` : null,
+            input.schema ? sql`l.schema_kind = ${input.schema}` : null,
+            // Matched against event_time, not received_at: the operator is
+            // asking when something happened at sea, not when shore
+            // happened to receive it — those differ by the whole length of
+            // an outage.
+            input.dateFrom ? sql`l.event_time >= ${input.dateFrom}::timestamptz` : null,
+            input.dateTo ? sql`l.event_time <= ${input.dateTo}::timestamptz` : null,
+            input.invalidatedOnly ? sql`l.state = 'invalidated'` : null,
+            input.group ? sql`v.groups @> ${JSON.stringify([input.group])}::jsonb` : null,
+            input.hasRemarks
+              ? sql`EXISTS (SELECT 1 FROM remarks rm WHERE rm.vessel_id = l.vessel_id AND rm.report_id = l.report_id)`
+              : null,
+            input.search
+              ? sql`(v.name ILIKE ${'%' + input.search + '%'} OR v.imo ILIKE ${'%' + input.search + '%'} OR l.report_id ILIKE ${'%' + input.search + '%'})`
+              : null,
+            // Typed predicate rather than `.filter(Boolean)`, which does
+            // not narrow `T | null` away for sql.join.
+          ].filter((c): c is SQL => c !== null);
+
+          const where = conditions.length ? sql`WHERE ${sql.join(conditions, sql` AND `)}` : sql``;
 
           // Written as SQL rather than assembled in Drizzle's builder
           // because DISTINCT ON needs its own ORDER BY (by report identity)
@@ -1674,27 +1738,25 @@ export class TrpcRouter {
             event_type: string;
             state: string;
             received_at: string;
+            schema_kind: string;
             vessel_name: string | null;
             vessel_imo: string | null;
             reviewed_by: string | null;
           }>(sql`
             WITH latest AS (
               SELECT DISTINCT ON (rv.vessel_id, rv.report_id)
-                rv.report_id, rv.vessel_id, rv.event_type, rv.state, rv.received_at
+                rv.report_id, rv.vessel_id, rv.event_type, rv.state, rv.received_at,
+                rv.event_time, rv.schema_kind
               FROM report_versions rv
               ORDER BY rv.vessel_id, rv.report_id, rv.version_no DESC
             )
             SELECT l.report_id, l.vessel_id, l.event_type, l.state, l.received_at,
-                   v.name AS vessel_name, v.imo AS vessel_imo, rr.reviewed_by
+                   l.schema_kind, v.name AS vessel_name, v.imo AS vessel_imo, rr.reviewed_by
             FROM latest l
             LEFT JOIN vessels v ON v.id = l.vessel_id
             LEFT JOIN report_reviews rr
               ON rr.vessel_id = l.vessel_id AND rr.report_id = l.report_id
-            ${
-              cursor
-                ? sql`WHERE (l.received_at, l.report_id) < (${cursor.date}::timestamptz, ${cursor.id})`
-                : sql``
-            }
+            ${where}
             ORDER BY l.received_at DESC, l.report_id DESC
             LIMIT ${limit}
           `);
@@ -1708,6 +1770,7 @@ export class TrpcRouter {
             date: new Date(r.received_at).toISOString().split('T')[0],
             by: 'System',
             reviewed: !!r.reviewed_by,
+            schema: r.schema_kind,
             // Carried so the client can seek from the exact row it last
             // saw; the display `date` is truncated to a day and cannot.
             receivedAt: new Date(r.received_at).toISOString(),

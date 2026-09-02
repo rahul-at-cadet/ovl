@@ -8,7 +8,7 @@ import { Input } from '@ovl/ui/components/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@ovl/ui/components/table';
 import { StatusBadge } from '@ovl/ui/components/status-badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ovl/ui/components/select';
-import { Search, FileText, ChevronRight, CheckCircle2, Download, Loader2 } from 'lucide-react';
+import { Search, FileText, ChevronRight, CheckCircle2, Download, Loader2, Flag, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 
 // See apps/web-office/src/app/(dashboard)/page.tsx's own comment on
@@ -27,6 +27,24 @@ function downloadCsv(csv: string, filename: string) {
 export default function GlobalReportsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [vesselFilter, setVesselFilter] = useState('all');
+  const [schemaFilter, setSchemaFilter] = useState('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [remarksOnly, setRemarksOnly] = useState(false);
+
+  // Debounced so each keystroke doesn't start a new paged query; the
+  // filters now run server-side, so every change is a round trip.
+  // Option lists for the vessel/schema selects. Small, cached queries —
+  // the fleet and the curated schema set are both bounded.
+  const { data: vesselOptions = [] } = trpc.vessels.list.useQuery();
+  const { data: schemaOptions = [] } = trpc.schemas.list.useQuery();
+
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 250);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
 
   const utils = trpc.useUtils();
   /**
@@ -42,7 +60,21 @@ export default function GlobalReportsPage() {
     hasNextPage,
     isFetchingNextPage,
   } = trpc.reports.list.useInfiniteQuery(
-    { limit: REPORTS_PAGE },
+    {
+      limit: REPORTS_PAGE,
+      // Filtering has to happen server-side now that the list is paged:
+      // filtering the loaded pages in the browser would only ever search
+      // the rows already fetched, silently hiding matches further down.
+      ...(debouncedSearch ? { search: debouncedSearch } : {}),
+      ...(statusFilter !== 'all' ? { state: statusFilter } : {}),
+      ...(vesselFilter !== 'all' ? { vesselId: vesselFilter } : {}),
+      ...(schemaFilter !== 'all' ? { schema: schemaFilter } : {}),
+      ...(dateFrom ? { dateFrom: new Date(dateFrom).toISOString() } : {}),
+      // Inclusive of the chosen day: a bare date parses to midnight, which
+      // would exclude everything that happened during it.
+      ...(dateTo ? { dateTo: new Date(dateTo + 'T23:59:59.999Z').toISOString() } : {}),
+      ...(remarksOnly ? { hasRemarks: true } : {}),
+    },
     { getNextPageParam: (last) => last.nextCursor ?? undefined },
   );
   const reports = reportPages?.pages.flatMap((p) => p.items) ?? [];
@@ -80,11 +112,48 @@ export default function GlobalReportsPage() {
     }
   };
 
-  const filteredReports = reports.filter((report: any) => {
-    const matchesSearch = report.vessel.toLowerCase().includes(searchQuery.toLowerCase()) || report.imo.includes(searchQuery);
-    const matchesStatus = statusFilter === 'all' || report.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  // The server already applied every filter, so the rows are the result.
+  const filteredReports = reports;
+
+  const activeFilterCount =
+    (debouncedSearch ? 1 : 0) +
+    (statusFilter !== 'all' ? 1 : 0) +
+    (vesselFilter !== 'all' ? 1 : 0) +
+    (schemaFilter !== 'all' ? 1 : 0) +
+    (dateFrom ? 1 : 0) +
+    (dateTo ? 1 : 0) +
+    (remarksOnly ? 1 : 0);
+
+  // Base UI's <Select.Value> renders the raw value, not the chosen item's
+  // text, unless the root is given an items map — without these the
+  // triggers read "all" and a bare vessel UUID instead of their labels.
+  const statusItems: Record<string, string> = {
+    all: 'All Statuses',
+    draft: 'Draft',
+    submitted: 'Submitted',
+    remarked: 'Remarked',
+    invalidated: 'Invalidated',
+  };
+  const vesselItems: Record<string, string> = {
+    all: 'All Vessels',
+    ...Object.fromEntries((vesselOptions as { id: string; name: string }[]).map((v) => [v.id, v.name])),
+  };
+  const schemaItems: Record<string, string> = {
+    all: 'All Schemas',
+    ...Object.fromEntries(
+      (schemaOptions as { schemaName: string }[]).map((sc) => [sc.schemaName, sc.schemaName.replace(/\.json$/, '')]),
+    ),
+  };
+
+  const clearFilters = () => {
+    setSearchQuery('');
+    setStatusFilter('all');
+    setVesselFilter('all');
+    setSchemaFilter('all');
+    setDateFrom('');
+    setDateTo('');
+    setRemarksOnly(false);
+  };
 
   return (
     // Fixed to the viewport, not the page — a ledger with hundreds of
@@ -103,28 +172,9 @@ export default function GlobalReportsPage() {
 
       <Card className="flex-1 flex flex-col bg-card border-border shadow-sm min-h-0 overflow-hidden">
         <CardHeader className="pb-3 border-b border-border shrink-0">
-          <div className="flex flex-col lg:flex-row items-center justify-between gap-4">
-            <CardTitle>Fleet Reports</CardTitle>
-            <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
-              <div className="relative w-full lg:w-64">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search by IMO or Vessel..."
-                  className="pl-9 bg-card border-border h-9"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </div>
-              <Select value={statusFilter} onValueChange={(val) => setStatusFilter(val || 'all')}>
-                <SelectTrigger className="w-[140px] h-9 bg-card border-border text-foreground">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent className="bg-card border-border text-foreground">
-                  <SelectItem value="all">All Statuses</SelectItem>
-                  <SelectItem value="draft">Draft</SelectItem>
-                  <SelectItem value="submitted">Submitted</SelectItem>
-                </SelectContent>
-              </Select>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-4">
+              <CardTitle>Fleet Reports</CardTitle>
               <Button
                 variant="outline"
                 onClick={handleExport}
@@ -134,6 +184,95 @@ export default function GlobalReportsPage() {
                 {isExporting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
                 Export CSV
               </Button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by IMO or Vessel..."
+                  className="pl-9 bg-card border-border h-9"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
+              <Select items={statusItems} value={statusFilter} onValueChange={(val) => setStatusFilter(val || 'all')}>
+                <SelectTrigger className="w-[150px] h-9 bg-card border-border text-foreground">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent className="bg-card border-border text-foreground">
+                  <SelectItem value="all">All Statuses</SelectItem>
+                  <SelectItem value="draft">Draft</SelectItem>
+                  <SelectItem value="submitted">Submitted</SelectItem>
+                  {/* States the ledger actually contains — the previous
+                      two-value select could not express "show me what went
+                      wrong", which is the reason to open this screen. */}
+                  <SelectItem value="remarked">Remarked</SelectItem>
+                  <SelectItem value="invalidated">Invalidated</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select items={vesselItems} value={vesselFilter} onValueChange={(val) => setVesselFilter(val || 'all')}>
+                <SelectTrigger className="w-[170px] h-9 bg-card border-border text-foreground">
+                  <SelectValue placeholder="Vessel" />
+                </SelectTrigger>
+                <SelectContent className="bg-card border-border text-foreground">
+                  <SelectItem value="all">All Vessels</SelectItem>
+                  {vesselOptions.map((v: { id: string; name: string }) => (
+                    <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select items={schemaItems} value={schemaFilter} onValueChange={(val) => setSchemaFilter(val || 'all')}>
+                <SelectTrigger className="w-[170px] h-9 bg-card border-border text-foreground">
+                  <SelectValue placeholder="Schema" />
+                </SelectTrigger>
+                <SelectContent className="bg-card border-border text-foreground">
+                  <SelectItem value="all">All Schemas</SelectItem>
+                  {schemaOptions.map((sc: { schemaName: string }) => (
+                    <SelectItem key={sc.schemaName} value={sc.schemaName}>{sc.schemaName.replace(/\.json$/, '')}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {/* Dates filter on event time — when it happened at sea, not
+                  when shore received it; after an outage those differ by
+                  the length of the outage. */}
+              <Input
+                type="date"
+                aria-label="Event date from"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="h-9 w-[150px] bg-card border-border text-foreground"
+              />
+              <Input
+                type="date"
+                aria-label="Event date to"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="h-9 w-[150px] bg-card border-border text-foreground"
+              />
+
+              <Button
+                variant={remarksOnly ? 'default' : 'outline'}
+                onClick={() => setRemarksOnly((v) => !v)}
+                aria-pressed={remarksOnly}
+                className={`h-9 shrink-0 ${remarksOnly ? '' : 'border-border bg-card text-muted-foreground hover:text-foreground'}`}
+              >
+                <Flag className="mr-2 h-4 w-4" />
+                Remarked
+              </Button>
+
+              {activeFilterCount > 0 ? (
+                <Button
+                  variant="ghost"
+                  onClick={clearFilters}
+                  className="h-9 shrink-0 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="mr-1.5 h-4 w-4" />
+                  Clear ({activeFilterCount})
+                </Button>
+              ) : null}
             </div>
           </div>
         </CardHeader>
