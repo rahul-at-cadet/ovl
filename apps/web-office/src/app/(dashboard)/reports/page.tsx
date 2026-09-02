@@ -162,7 +162,7 @@ export default function GlobalReportsPage() {
     // 136px is the measured chrome at every breakpoint (64px app bar +
     // 32px content padding + the shell's 40px pb-10); the lg override
     // subtracted 32px too many and left dead space under the table.
-    <div className="h-[calc(100dvh-136px)] flex flex-col space-y-6 overflow-hidden">
+    <div className="h-[calc(100dvh-96px)] lg:h-[calc(100dvh-112px)] flex flex-col space-y-6 overflow-hidden">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Global Reports Ledger</h1>

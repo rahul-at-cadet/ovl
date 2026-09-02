@@ -284,6 +284,11 @@ const ReportHistorySchema = Type.Object({
 });
 const ReportHistoryCompiler = TypeCompiler.Compile(ReportHistorySchema);
 
+const GetEnumSchema = Type.Object({
+  enumRef: Type.String(),
+});
+const GetEnumCompiler = TypeCompiler.Compile(GetEnumSchema);
+
 const GetSchemaFieldsSchema = Type.Object({
   schemaName: Type.String(),
 });
@@ -2439,6 +2444,17 @@ export class TrpcRouter {
     }),
     schemas: router({
       list: protectedProcedure.query(() => this.schemaVersionsService.list()),
+      /**
+       * A field's controlled vocabulary, so a form can offer the codes
+       * instead of a free-text box the operator has to already know the
+       * answers for.
+       */
+      getEnum: protectedProcedure
+        .input((val: unknown) => {
+          if (!GetEnumCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof GetEnumSchema>;
+        })
+        .query(({ input }) => this.schemaVersionsService.getEnum(input.enumRef)),
       // Field definitions (name/label/section) for the latest published
       // version of a schema — drives the report detail screen's section
       // grouping, ported from the original's own sections.ts/
@@ -2589,6 +2605,24 @@ export class TrpcRouter {
     }),
     configBundles: router({
       list: protectedProcedure.query(() => this.configBundleService.list()),
+      history: protectedProcedure
+        .input((val: unknown) => {
+          const v = (val ?? {}) as { limit?: number; cursor?: { publishedAt: string; id: string } | null };
+          const parsed: { limit: number; cursor?: { publishedAt: string; id: string } } = {
+            limit: Math.min(Math.max(1, typeof v.limit === 'number' ? v.limit : 25), 200),
+          };
+          if (v.cursor && typeof v.cursor.publishedAt === 'string' && typeof v.cursor.id === 'string') {
+            parsed.cursor = { publishedAt: v.cursor.publishedAt, id: v.cursor.id };
+          }
+          return parsed;
+        })
+        .query(async ({ input }) => {
+          const items = await this.configBundleService.history(input.limit, input.cursor);
+          const last = items[items.length - 1];
+          const nextCursor =
+            items.length < input.limit || !last ? null : { publishedAt: last.publishedAt, id: last.id };
+          return { items, nextCursor };
+        }),
       preview: protectedProcedure.query(() => this.configBundleService.preview()),
       publish: protectedProcedure
         .input((val: unknown) => {

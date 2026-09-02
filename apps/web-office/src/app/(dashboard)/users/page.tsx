@@ -145,7 +145,7 @@ export default function UsersPage() {
   return (
     // Fixed to the viewport, not the page — same fix as Global Reports
     // Ledger: only the directory table scrolls internally.
-    <div className="h-[calc(100vh-136px)] lg:h-[calc(100vh-168px)] flex flex-col space-y-8 overflow-hidden">
+    <div className="h-[calc(100dvh-96px)] lg:h-[calc(100dvh-112px)] flex flex-col space-y-8 overflow-hidden">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border pb-6 shrink-0">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">User Access Management</h1>
@@ -436,8 +436,14 @@ export default function UsersPage() {
             <DialogTitle className="text-foreground">Reset Password</DialogTitle>
           </DialogHeader>
 
+          {/* Body and footer are separate children of DialogContent.
+              DialogFooter bleeds to the popup's edges with negative
+              margins, which only cancel the popup's own padding when it is
+              a direct child — nested inside this py-4 wrapper it left the
+              wrapper's bottom padding showing as a strip under the
+              buttons. */}
           {!resetPasswordGenerated ? (
-            <div className="py-4">
+            <div>
               <p className="text-sm text-foreground mb-4">
                 This will generate a new temporary password for <span className="font-medium">{resetTarget?.username}</span> and
                 invalidate their current one. They will be required to change it on next login.
@@ -445,21 +451,9 @@ export default function UsersPage() {
               {resetPasswordMutation.error && (
                 <p className="text-sm text-status-critical mb-4">{resetPasswordMutation.error.message}</p>
               )}
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setResetTarget(null)} className="bg-transparent border-border text-foreground hover:bg-muted hover:text-foreground">
-                  Cancel
-                </Button>
-                <Button
-                  onClick={() => resetTarget && resetPasswordMutation.mutate({ id: resetTarget.id })}
-                  disabled={resetPasswordMutation.isPending}
-                  variant="destructive"
-                >
-                  {resetPasswordMutation.isPending ? 'Resetting...' : 'Confirm Reset'}
-                </Button>
-              </DialogFooter>
             </div>
           ) : (
-            <div className="py-4">
+            <div>
               <div className="bg-card border border-border rounded-md p-4 mt-2">
                 <p className="text-sm text-muted-foreground mb-1 font-medium uppercase tracking-wider text-xs">New Temporary Password</p>
                 <CopyField value={resetPasswordGenerated} />
@@ -467,10 +461,26 @@ export default function UsersPage() {
               <p className="text-xs text-muted-foreground mt-4">
                 Please provide this password to the user. It will only be shown once.
               </p>
-              <DialogFooter className="mt-6">
-                <Button onClick={() => setResetTarget(null)} className="bg-primary hover:bg-primary/90 text-primary-foreground">Done</Button>
-              </DialogFooter>
             </div>
+          )}
+
+          {!resetPasswordGenerated ? (
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setResetTarget(null)} className="bg-transparent border-border text-foreground hover:bg-muted hover:text-foreground">
+                Cancel
+              </Button>
+              <Button
+                onClick={() => resetTarget && resetPasswordMutation.mutate({ id: resetTarget.id })}
+                disabled={resetPasswordMutation.isPending}
+                variant="destructive"
+              >
+                {resetPasswordMutation.isPending ? 'Resetting...' : 'Confirm Reset'}
+              </Button>
+            </DialogFooter>
+          ) : (
+            <DialogFooter>
+              <Button onClick={() => setResetTarget(null)} className="bg-primary hover:bg-primary/90 text-primary-foreground">Done</Button>
+            </DialogFooter>
           )}
         </DialogContent>
       </Dialog>

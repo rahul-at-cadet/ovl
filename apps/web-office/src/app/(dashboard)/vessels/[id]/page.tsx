@@ -139,7 +139,7 @@ export default function VesselDetailPage() {
     (sync.reportedImo && sync.reportedImo !== vessel.imo);
 
   return (
-    <div className="h-[calc(100dvh-136px)] flex flex-col space-y-6 overflow-hidden">
+    <div className="h-[calc(100dvh-96px)] lg:h-[calc(100dvh-112px)] flex flex-col space-y-6 overflow-hidden">
       <div className="shrink-0 border-b border-border pb-6">
         <Link
           href="/vessels"

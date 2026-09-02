@@ -109,7 +109,7 @@ export default function SettingsPage() {
     // deployment with a real number of keys you lost the navigation and
     // the "Generate New Key" control the moment you scrolled down to
     // read the list.
-    <div className="h-[calc(100dvh-136px)] flex flex-col space-y-6 overflow-hidden max-w-6xl">
+    <div className="h-[calc(100dvh-96px)] lg:h-[calc(100dvh-112px)] flex flex-col space-y-6 overflow-hidden max-w-6xl">
       <div className="border-b border-border pb-6 shrink-0">
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">Global Settings</h1>
         <p className="text-muted-foreground mt-1.5 text-sm font-medium">Configure shore-side system preferences, security policies, and edge integrations.</p>

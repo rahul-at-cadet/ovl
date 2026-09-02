@@ -128,8 +128,38 @@ export class ConfigBundleService {
     return this.toSummary(inserted[0]);
   }
 
+  /**
+   * Every bundle. Kept unpaginated because the assignment picker needs the
+   * full set to resolve a bundle by id — paginating it here would make
+   * that picker silently omit older bundles.
+   */
   async list() {
     const rows = await this.db.select().from(schema.configBundles).orderBy(desc(schema.configBundles.publishedAt));
+    return rows.map((r) => this.toSummary(r));
+  }
+
+  /**
+   * One page of publish history, newest first — the same keyset seek on
+   * (publishedAt, id) the check-in log uses, for the same reason: a new
+   * publish lands at the top and would shift an offset under the reader.
+   *
+   * Separate from list() rather than a parameter on it, so the picker
+   * above cannot accidentally inherit a page limit.
+   */
+  async history(limit = 25, cursor?: { publishedAt: string; id: string }) {
+    const rows = await this.db
+      .select()
+      .from(schema.configBundles)
+      .where(
+        cursor
+          ? or(
+              lt(schema.configBundles.publishedAt, cursor.publishedAt),
+              and(eq(schema.configBundles.publishedAt, cursor.publishedAt), lt(schema.configBundles.id, cursor.id)),
+            )
+          : undefined,
+      )
+      .orderBy(desc(schema.configBundles.publishedAt), desc(schema.configBundles.id))
+      .limit(Math.min(Math.max(1, limit), 200));
     return rows.map((r) => this.toSummary(r));
   }
 

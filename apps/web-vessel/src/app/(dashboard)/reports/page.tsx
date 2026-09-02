@@ -97,7 +97,11 @@ export default function ReportsPage() {
                   }}
                 />
               </div>
-              <Select value={statusFilter} onValueChange={(val) => { setStatusFilter(val || 'all'); setCurrentPage(1); }}>
+              <Select
+                items={{ all: 'All Statuses', draft: 'Draft', ready: 'Ready', submitted: 'Submitted' }}
+                value={statusFilter}
+                onValueChange={(val) => { setStatusFilter(val || 'all'); setCurrentPage(1); }}
+              >
                 <SelectTrigger className="w-full sm:w-44">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>

@@ -588,9 +588,13 @@ export function FieldPolicyTab() {
       <Card className="bg-card border-border">
         <CardContent className="p-6">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <div className="flex items-center gap-4">
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">Schema</label>
+            {/* items-end, matching ScopeSelector's own alignment: with
+                items-center the schema control sat ~10px below the scope
+                and vessel ones, since those align their (taller) label +
+                select stacks to the baseline of the row. */}
+            <div className="flex flex-wrap items-end gap-4">
+              <div className="space-y-1 min-w-[9rem] max-w-[15rem] flex-1">
+                <label className="block text-xs text-muted-foreground uppercase font-semibold tracking-wider">Schema</label>
                 {/* Native <select>, not the Select component: this sits directly
                     above the 400+ row virtualized Field Policy table, and the
                     Base UI Select's floating tree hung the whole tab on change
@@ -599,7 +603,7 @@ export function FieldPolicyTab() {
                   value={selectedSchema}
                   onChange={(e) => setSelectedSchema(e.target.value || "")}
                   disabled={schemasLoading}
-                  className="w-48 bg-background border border-border text-foreground rounded-md h-9 px-2 text-sm disabled:opacity-50"
+                  className="w-full bg-background border border-border text-foreground rounded-md h-9 px-2 text-sm disabled:opacity-50"
                 >
                   {!selectedSchema && <option value="" disabled>Select Schema</option>}
                   {schemas?.map(s => (

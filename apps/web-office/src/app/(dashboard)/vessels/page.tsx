@@ -216,7 +216,7 @@ export default function VesselsPage() {
     // exactly where the vessel list has the most rows to show. dvh
     // rather than vh so mobile browser chrome collapsing doesn't leave
     // the table overflowing behind it.
-    <div className="h-[calc(100dvh-136px)] flex flex-col space-y-6 overflow-hidden">
+    <div className="h-[calc(100dvh-96px)] lg:h-[calc(100dvh-112px)] flex flex-col space-y-6 overflow-hidden">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border pb-6 shrink-0">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Fleet Management</h1>

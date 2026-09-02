@@ -72,6 +72,95 @@ function coerceFieldValue(type: string, raw: string | undefined): unknown {
   return raw;
 }
 
+/**
+ * One field of the schema-driven form.
+ *
+ * Its own component because an enum field needs its own query, and hooks
+ * cannot be called from inside the parent's .map(). Fields whose schema
+ * declares an enumRef render as a select over the controlled vocabulary
+ * rather than a free-text box — the previous form let an operator type
+ * anything into Incoterm, including values the schema does not permit,
+ * and only found out at submit.
+ */
+function SchemaFormField({
+  field,
+  value,
+  onChange,
+  error,
+  longText,
+}: {
+  field: any;
+  value: string;
+  onChange: (v: string) => void;
+  error?: string;
+  longText: boolean;
+}) {
+  const { data: enumValues = [] } = trpc.schemas.getEnum.useQuery(
+    { enumRef: field.enumRef ?? '' },
+    { enabled: !!field.enumRef },
+  );
+
+  const invalid = !!error;
+  const describedBy = field.description ? `${field.name}-desc` : undefined;
+
+  return (
+    <div className={`space-y-1.5 ${longText ? 'sm:col-span-2' : ''}`}>
+      <Label htmlFor={field.name} className="text-foreground text-sm flex items-center">
+        {field.label}
+        {/* The unit belongs with the label, not hidden in a description —
+            entering tonnes where cubic metres were wanted is a silent
+            error otherwise. */}
+        {field.unit ? <span className="ml-1 text-muted-foreground">({field.unit})</span> : null}
+        {field.schemaMandatory && <span className="text-status-critical ml-1">*</span>}
+      </Label>
+
+      {field.enumRef && enumValues.length > 0 ? (
+        <Select
+          items={Object.fromEntries(enumValues.map((v: any) => [v.code, `${v.code} — ${v.label}`]))}
+          value={value || undefined}
+          onValueChange={(v) => onChange(v ?? '')}
+        >
+          <SelectTrigger id={field.name} className={`w-full bg-card text-foreground ${invalid ? 'border-status-critical/50' : 'border-border'}`}>
+            <SelectValue placeholder={`Select ${field.label.toLowerCase()}…`} />
+          </SelectTrigger>
+          <SelectContent className="bg-card border-border text-foreground">
+            {enumValues.map((v: any) => (
+              <SelectItem key={v.code} value={v.code}>{v.code} — {v.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : longText ? (
+        <Textarea
+          id={field.name}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          maxLength={field.maxLength ?? undefined}
+          aria-describedby={describedBy}
+          className={`bg-card focus-visible:ring-primary text-foreground ${invalid ? 'border-status-critical/50' : 'border-border'}`}
+        />
+      ) : (
+        <Input
+          id={field.name}
+          type={nativeInputType(field.type)}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          maxLength={field.maxLength ?? undefined}
+          aria-describedby={describedBy}
+          className={`bg-card focus-visible:ring-primary text-foreground ${invalid ? 'border-status-critical/50' : 'border-border'}`}
+        />
+      )}
+
+      {/* The schema carries a description for most fields and the form
+          discarded it, leaving terse labels like "Seller code" with no
+          indication of what belongs in them. */}
+      {field.description && !invalid ? (
+        <p id={describedBy} className="text-xs text-muted-foreground">{field.description}</p>
+      ) : null}
+      {invalid ? <p className="text-xs text-status-critical">{error}</p> : null}
+    </div>
+  );
+}
+
 export default function CommercialPage() {
   const [tab, setTab] = useState<Tab>('periods');
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -143,7 +232,7 @@ export default function CommercialPage() {
   const findingByField = new Map((findings || []).map((f) => [f.field, f.message]));
 
   return (
-    <div className="h-[calc(100vh-136px)] lg:h-[calc(100vh-168px)] flex flex-col space-y-6 overflow-hidden">
+    <div className="h-[calc(100dvh-96px)] lg:h-[calc(100dvh-112px)] flex flex-col space-y-6 overflow-hidden">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Commercial</h1>
@@ -178,8 +267,14 @@ export default function CommercialPage() {
 
             <div className="space-y-2">
               <Label className="text-foreground">Vessel</Label>
-              <Select value={vesselId} onValueChange={(v) => v && selectVessel(v)}>
-                <SelectTrigger className="bg-card border-border text-foreground">
+              <Select
+                // Without items the trigger shows the vessel's UUID, since
+                // Base UI renders Select.Value as the raw value.
+                items={Object.fromEntries(vessels.map((v: any) => [v.id, `${v.imo} — ${v.name}`]))}
+                value={vesselId}
+                onValueChange={(v) => v && selectVessel(v)}
+              >
+                <SelectTrigger className="w-full bg-card border-border text-foreground">
                   <SelectValue placeholder="Select a vessel…" />
                 </SelectTrigger>
                 <SelectContent className="bg-card border-border text-foreground">
@@ -197,30 +292,14 @@ export default function CommercialPage() {
                 {schemaFieldsResult.fields
                   .filter((f) => f.name !== 'IMO')
                   .map((f) => (
-                    <div key={f.name} className={`space-y-1.5 ${isLongTextField(f) ? 'sm:col-span-2' : ''}`}>
-                      <Label className="text-foreground text-sm flex items-center">
-                        {f.label}
-                        {f.schemaMandatory && <span className="text-status-critical ml-1">*</span>}
-                      </Label>
-                      {isLongTextField(f) ? (
-                        <Textarea
-                          value={fieldValues[f.name] ?? ''}
-                          onChange={(e) => setFieldValues((prev) => ({ ...prev, [f.name]: e.target.value }))}
-                          maxLength={f.maxLength ?? undefined}
-                          className={`bg-card border-border focus-visible:ring-primary text-foreground ${findingByField.has(f.name) ? 'border-status-critical/50' : ''}`}
-                        />
-                      ) : (
-                        <Input
-                          type={nativeInputType(f.type)}
-                          value={fieldValues[f.name] ?? ''}
-                          onChange={(e) => setFieldValues((prev) => ({ ...prev, [f.name]: e.target.value }))}
-                          className={`bg-card border-border focus-visible:ring-primary text-foreground ${findingByField.has(f.name) ? 'border-status-critical/50' : ''}`}
-                        />
-                      )}
-                      {findingByField.has(f.name) && (
-                        <p className="text-xs text-status-critical">{findingByField.get(f.name)}</p>
-                      )}
-                    </div>
+                    <SchemaFormField
+                      key={f.name}
+                      field={f}
+                      longText={isLongTextField(f)}
+                      value={fieldValues[f.name] ?? ''}
+                      onChange={(v) => setFieldValues((prev) => ({ ...prev, [f.name]: v }))}
+                      error={findingByField.get(f.name)}
+                    />
                   ))}
               </div>
             )}

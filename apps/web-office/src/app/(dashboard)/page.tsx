@@ -56,7 +56,7 @@ export default function OfficeDashboardPage() {
     // (not the 136/168 split Reports/Users use) because this page's own
     // layout switch and AppShell's p-4→lg:p-8 padding switch both land
     // on the same lg breakpoint.
-    <div className="flex flex-col gap-6 lg:h-[calc(100vh-168px)] lg:overflow-hidden">
+    <div className="flex flex-col gap-6 lg:h-[calc(100dvh-112px)] lg:overflow-hidden">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border pb-6 shrink-0">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Fleet Overview</h1>

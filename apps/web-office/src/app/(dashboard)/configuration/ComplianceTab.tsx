@@ -256,7 +256,11 @@ function RuleSeveritiesPanel() {
             {(catalog?.overridable ?? Object.keys(RULE_LABELS)).map((ruleId) => (
               <div key={ruleId} className="flex items-center justify-between px-4 py-2">
                 <span className="text-sm text-foreground">{ruleLabel(ruleId)}</span>
-                <Select value={severities[ruleId] ?? "default"} onValueChange={(v: any) => v && setSeverity(ruleId, v)}>
+                <Select
+                  items={Object.fromEntries(SEVERITY_OPTIONS.map((s) => [s, s === "default" ? "(default)" : s]))}
+                  value={severities[ruleId] ?? "default"}
+                  onValueChange={(v: any) => v && setSeverity(ruleId, v)}
+                >
                   <SelectTrigger className="w-32 bg-background border-border">
                     <SelectValue />
                   </SelectTrigger>

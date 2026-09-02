@@ -45,7 +45,7 @@ export class SchemaVersionsService implements OnModuleInit {
    * clobbers a real admin-uploaded version.
    */
   async onModuleInit() {
-    const curatedDir = path.join(process.cwd(), 'src', 'schemas');
+    const curatedDir = this.schemasDir();
     if (!fs.existsSync(curatedDir)) {
       this.logger.warn(`Curated schemas directory not found at ${curatedDir}`);
       return;
@@ -103,6 +103,72 @@ export class SchemaVersionsService implements OnModuleInit {
     if (!latest) return null;
     const parsed = this.parseContent(latest.content);
     return { fields: parsed.fields ?? [], version: latest.version };
+  }
+
+  /**
+   * Resolves an `enumRef` to its controlled vocabulary — ports
+   * schema/enums.go's ResolveEnum.
+   *
+   * The allowlist is the original's, verbatim: a schema may only point at
+   * these seven files, so a malformed or hostile enumRef cannot be used
+   * to read arbitrary JSON off disk. offshore-modes ships alongside them
+   * but is deliberately excluded there, and is excluded here too — its
+   * file has a different shape and the original refuses to resolve it.
+   *
+   * Codes stay in file order: the vocabulary is authored in a meaningful
+   * sequence and re-sorting it alphabetically would scramble that.
+   */
+  private static readonly ENUM_ALLOWLIST = new Set([
+    'event-types',
+    'fuel-types',
+    'incoterms',
+    'charter-types',
+    'port-call-purposes',
+    'operational-modes',
+    'voyage-types',
+  ]);
+
+  private readonly enumCache = new Map<string, { code: string; label: string }[]>();
+
+  getEnum(enumRef: string): { code: string; label: string }[] {
+    if (!SchemaVersionsService.ENUM_ALLOWLIST.has(enumRef)) return [];
+    const cached = this.enumCache.get(enumRef);
+    if (cached) return cached;
+
+    const file = path.join(this.schemasDir(), 'enums', `${enumRef}.json`);
+    try {
+      const doc = JSON.parse(fs.readFileSync(file, 'utf8')) as {
+        values?: { code?: string; label?: string }[];
+      };
+      const values = (doc.values ?? [])
+        .filter((v): v is { code: string; label?: string } => typeof v.code === 'string')
+        .map((v) => ({ code: v.code, label: v.label ?? v.code }));
+      this.enumCache.set(enumRef, values);
+      return values;
+    } catch {
+      // A missing or unreadable vocabulary degrades the field to free
+      // text rather than failing the whole form.
+      return [];
+    }
+  }
+
+  /**
+   * Locates the bundled `src/schemas` directory.
+   *
+   * Both call sites previously assumed process.cwd() is the app root,
+   * which holds under Docker (WORKDIR is the app) but not when the built
+   * server is started from the repo root — there the curated-schema seed
+   * silently found nothing and logged a warning nobody was watching for.
+   * Falling back to a path derived from this module's own location makes
+   * it independent of how the process was launched.
+   */
+  private schemasDir(): string {
+    const candidates = [
+      path.join(process.cwd(), 'src', 'schemas'),
+      // dist/config/schema-versions -> the app root
+      path.resolve(__dirname, '..', '..', '..', 'src', 'schemas'),
+    ];
+    return candidates.find((c) => fs.existsSync(c)) ?? candidates[0];
   }
 
   private parseContent(content: Buffer): { fields?: SchemaField[]; eventTypes?: string[] } {

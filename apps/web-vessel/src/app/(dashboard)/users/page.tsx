@@ -153,7 +153,11 @@ export default function UsersPage() {
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="role" className="text-foreground">Role</Label>
-                    <Select value={newRole} onValueChange={(val) => setNewRole(val || 'Able Seaman')}>
+                    <Select
+                      items={{ 'Chief Engineer': 'Chief Engineer', 'Second Officer': 'Second Officer', 'Able Seaman': 'Able Seaman' }}
+                      value={newRole}
+                      onValueChange={(val) => setNewRole(val || 'Able Seaman')}
+                    >
                       <SelectTrigger className="bg-card border-border focus-visible:ring-ring">
                         <SelectValue placeholder="Select a role" />
                       </SelectTrigger>
@@ -327,7 +331,11 @@ export default function UsersPage() {
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
               <Label htmlFor="edit-role" className="text-foreground">Security Role</Label>
-              <Select value={editRoleValue} onValueChange={(val) => val && setEditRoleValue(val)}>
+              <Select
+                items={{ Master: 'Master', 'Chief Engineer': 'Chief Engineer', 'Second Officer': 'Second Officer', 'Able Seaman': 'Able Seaman' }}
+                value={editRoleValue}
+                onValueChange={(val) => val && setEditRoleValue(val)}
+              >
                 <SelectTrigger className="bg-card border-border focus-visible:ring-ring">
                   <SelectValue placeholder="Select a role" />
                 </SelectTrigger>

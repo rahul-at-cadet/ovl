@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@ovl/ui/components/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@ovl/ui/components/card";
 import { Button } from "@ovl/ui/components/button";
@@ -375,7 +375,42 @@ function SchemasTab() {
 }
 
 function BundlesTab() {
-  const { data: bundles, isLoading, refetch } = trpc.configBundles.list.useQuery();
+  /**
+   * Publish history, paged. The table previously rendered every bundle
+   * ever published in one unbounded, unscrolled list, so the card grew
+   * with the deployment's age and pushed the page into a long scroll.
+   */
+  const HISTORY_PAGE = 25;
+  const {
+    data: historyPages,
+    isLoading,
+    refetch,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = trpc.configBundles.history.useInfiniteQuery(
+    { limit: HISTORY_PAGE },
+    { getNextPageParam: (last) => last.nextCursor ?? undefined },
+  );
+  const bundles = historyPages?.pages.flatMap((p) => p.items);
+
+  // Sentinel rooted on the table's own scroll box; the page itself does
+  // not scroll, so a viewport-rooted observer would never fire.
+  const historyScrollerRef = useRef<HTMLDivElement | null>(null);
+  const historySentinelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const root = historyScrollerRef.current;
+    const target = historySentinelRef.current;
+    if (!root || !target) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting) && hasNextPage && !isFetchingNextPage) void fetchNextPage();
+      },
+      { root, rootMargin: "120px" },
+    );
+    io.observe(target);
+    return () => io.disconnect();
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage, bundles?.length]);
   const { data: preview } = trpc.configBundles.preview.useQuery();
   const { data: assignments } = trpc.configBundles.listAssignments.useQuery();
   const { data: vessels = [] } = trpc.vessels.list.useQuery();
@@ -492,8 +527,9 @@ function BundlesTab() {
               <p>No config bundles published yet</p>
             </div>
           ) : (
+            <div ref={historyScrollerRef} className="max-h-[26rem] overflow-y-auto">
             <Table>
-              <TableHeader>
+              <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow className="border-border hover:bg-transparent">
                   <TableHead>Label</TableHead>
                   <TableHead>Contents</TableHead>
@@ -552,6 +588,18 @@ function BundlesTab() {
                 ))}
               </TableBody>
             </Table>
+            {/* Scrolling this into view fetches the next page. */}
+            <div ref={historySentinelRef} aria-hidden className="h-px" />
+            {hasNextPage ? (
+              <p className="py-3 text-center text-xs text-muted-foreground" role="status">
+                {isFetchingNextPage ? "Loading more…" : "Scroll for more"}
+              </p>
+            ) : (
+              <p className="py-3 text-center text-xs text-muted-foreground">
+                Showing all {bundles?.length ?? 0} publish{(bundles?.length ?? 0) === 1 ? "" : "es"}.
+              </p>
+            )}
+            </div>
           )}
         </CardContent>
       </Card>

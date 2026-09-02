@@ -788,6 +788,7 @@ export function ReportForm({ reportId }: ReportFormProps) {
                                 const isLockedEventField = isEventLockField(field) && !!report.eventType;
                                 return (
                                   <Select
+                                    items={Object.fromEntries(enumValues.map((code) => [code, code]))}
                                     onValueChange={controllerField.onChange}
                                     value={controllerField.value ?? ''}
                                     disabled={isLockedEventField}

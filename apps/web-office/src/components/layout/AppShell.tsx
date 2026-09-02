@@ -333,8 +333,12 @@ export function AppShell({ children }: AppShellProps) {
         </header>
 
         {/* Page Content */}
-        <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto p-4 lg:p-8">
-          <div className="max-w-7xl mx-auto min-h-full pb-10">
+        <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto p-4 pb-4 lg:p-8 lg:pb-4">
+          {/* pb-10 removed: <main> already contributes its own p-4/lg:p-8 of
+              breathing room, so the extra 40px only stacked on top of it —
+              72px of dead space under every page, and the fixed-height
+              screens had to subtract it just to avoid overflowing. */}
+          <div className="max-w-7xl mx-auto min-h-full">
             {children}
           </div>
         </main>

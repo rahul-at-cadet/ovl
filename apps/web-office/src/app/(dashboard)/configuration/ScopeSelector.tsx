@@ -49,7 +49,7 @@ export function ScopeSelector({ scope, onChange, vessels, allowFleet = true }: S
   return (
     <div className="flex flex-wrap items-end gap-4">
       <div className="space-y-1 flex-1 min-w-[9rem] max-w-[15rem]">
-        <label className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">Scope</label>
+        <label className="block text-xs text-muted-foreground uppercase font-semibold tracking-wider">Scope</label>
         <select
           value={scope.type}
           onChange={(e) => {
@@ -68,7 +68,7 @@ export function ScopeSelector({ scope, onChange, vessels, allowFleet = true }: S
 
       {scope.type === "group" && (
         <div className="space-y-1 flex-1 min-w-[9rem] max-w-[15rem]">
-          <label className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">Group</label>
+          <label className="block text-xs text-muted-foreground uppercase font-semibold tracking-wider">Group</label>
           <select
             value={scope.key || ""}
             onChange={(e) => e.target.value && onChange({ type: "group", key: e.target.value })}
@@ -88,7 +88,7 @@ export function ScopeSelector({ scope, onChange, vessels, allowFleet = true }: S
 
       {scope.type === "vessel" && (
         <div className="space-y-1 flex-1 min-w-[9rem] max-w-[15rem]">
-          <label className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">Vessel</label>
+          <label className="block text-xs text-muted-foreground uppercase font-semibold tracking-wider">Vessel</label>
           <select
             value={scope.key || ""}
             onChange={(e) => e.target.value && onChange({ type: "vessel", key: e.target.value })}
