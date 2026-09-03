@@ -4,7 +4,7 @@ import { Type, Static } from '@sinclair/typebox';
 import { TypeCompiler } from '@sinclair/typebox/compiler';
 import { DATABASE_CONNECTION } from '../database/database.module';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { eq, isNull, desc, sql, and, gt, type SQL } from 'drizzle-orm';
+import { eq, isNull, desc, sql, and, gt, inArray, type SQL } from 'drizzle-orm';
 import * as crypto from 'crypto';
 import * as schema from '@ovl/database';
 
@@ -13,6 +13,7 @@ import { SchemaVersionsService } from '../config/schema-versions/schema-versions
 import { FieldPolicyService } from '../config/field-policy/field-policy.service';
 import { ComplianceService } from '../config/compliance/compliance.service';
 import { ConfigBundleService, type SyncHistoryFilters, type SyncHistorySort } from '../config/config-bundle/config-bundle.service';
+import { toIso, toIsoOrNull } from '../common/iso-time';
 import { VesselUsersService } from '../vessels/vessel-users.service';
 import { VesselsService } from '../vessels/vessels.service';
 import { RestoreBundleService } from '../vessels/restore-bundle.service';
@@ -124,6 +125,21 @@ function formatRelativeTime(thenMs: number): string {
 // fleet-wide sync health, so the two views can never disagree about
 // what "online" means.
 const ONLINE_THRESHOLD_MS = 5 * 60 * 1000;
+
+/**
+ * How stale api_keys.last_used_at is allowed to get before a sync
+ * bothers to update it. A vessel checks in every thirty seconds, so
+ * writing on every request would put a database write in front of every
+ * sync to answer a question nobody needs to the second.
+ */
+const API_KEY_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
+
+/**
+ * Ceiling on one bulk review. Generous enough for a night's reporting
+ * across a fleet, low enough that a runaway client cannot ask for a
+ * single statement with a hundred thousand parameters in it.
+ */
+const BULK_REVIEW_LIMIT = 500;
 
 export const createContext = ({
   req,
@@ -452,6 +468,11 @@ const MarkReviewedSchema = Type.Object({
 });
 const MarkReviewedCompiler = TypeCompiler.Compile(MarkReviewedSchema);
 
+const BulkMarkReviewedSchema = Type.Object({
+  reportIds: Type.Array(Type.String()),
+});
+const BulkMarkReviewedCompiler = TypeCompiler.Compile(BulkMarkReviewedSchema);
+
 const CreateApiKeySchema = Type.Object({
   label: Type.String(),
   groupId: Type.Optional(Type.String()),
@@ -630,6 +651,50 @@ export class TrpcRouter {
 
     if (keys.length === 0 || keys[0].tokenHash !== ctx.tokenHash || keys[0].revokedAt) {
       throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid or revoked API key' });
+    }
+    await this.touchApiKey(keys[0]);
+  }
+
+  /**
+   * Records that a key was just used.
+   *
+   * api_keys.last_used_at has always been on the schema and shown on the
+   * API Access screen, but nothing ever wrote it — "Last used" was
+   * permanently blank, which reads as "never used" for a key a vessel
+   * has been syncing with every thirty seconds.
+   *
+   * Deliberately a column update rather than an api_key_events row.
+   * Vessels check in on a 30-second cycle, so a row per request would add
+   * roughly three thousand rows per vessel per day to a table meant to
+   * hold a handful of administrative milestones. Throttled on top of
+   * that, because the answer only needs to be good to the minute and
+   * writing on every request would put a write in front of every sync.
+   */
+  private async touchApiKey(key: { id: string; lastUsedAt: string | null }): Promise<void> {
+    const now = Date.now();
+    if (key.lastUsedAt && now - new Date(key.lastUsedAt).getTime() < API_KEY_TOUCH_INTERVAL_MS) return;
+    try {
+      await this.db
+        .update(schema.apiKeys)
+        .set({ lastUsedAt: new Date(now).toISOString() })
+        .where(eq(schema.apiKeys.id, key.id));
+    } catch (err: any) {
+      // Never fail a sync over bookkeeping. The vessel's report matters
+      // more than knowing precisely when its key was last seen.
+      console.warn(`Could not stamp last-used on api key ${key.id}: ${err.message}`);
+    }
+  }
+
+  /**
+   * Appends one milestone to a key's activity log — ports
+   * store.RecordAPIKeyEvent. Only rare, administrative moments land here
+   * (see touchApiKey for why usage does not).
+   */
+  private async recordApiKeyEvent(apiKeyId: string, kind: string): Promise<void> {
+    try {
+      await this.db.insert(schema.apiKeyEvents).values({ apiKeyId, kind, at: new Date().toISOString() });
+    } catch (err: any) {
+      console.warn(`Could not record ${kind} event for api key ${apiKeyId}: ${err.message}`);
     }
   }
 
@@ -2537,6 +2602,65 @@ export class TrpcRouter {
 
           return { reviewed: true, reviewedBy };
         }),
+      /**
+       * Clears a whole selection at once — ports design handoff B3's bulk
+       * "mark reviewed" (POST /api/reports/mark-reviewed).
+       *
+       * Reviewing is the office's daily grind: a night's worth of log
+       * abstracts arrives together and is signed off together, and doing
+       * that one request at a time meant a round trip per row.
+       *
+       * Reports that no longer exist are reported back rather than
+       * failing the batch — a stale browser tab holding ids another admin
+       * has since removed must not stop the rest being signed off.
+       */
+      bulkMarkReviewed: protectedProcedure
+        .input((val: unknown) => {
+          if (!BulkMarkReviewedCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof BulkMarkReviewedSchema>;
+        })
+        .mutation(async ({ input, ctx }) => {
+          const ids = Array.from(new Set(input.reportIds.filter(Boolean)));
+          if (ids.length === 0) return { reviewed: 0, missing: [] as string[] };
+          if (ids.length > BULK_REVIEW_LIMIT) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: `Too many reports in one request (limit ${BULK_REVIEW_LIMIT}).`,
+            });
+          }
+
+          const localUser = await this.supertokensService.getLocalUser(ctx.session.getUserId());
+          const reviewedBy = localUser?.username || 'unknown';
+          const reviewedAt = new Date().toISOString();
+
+          // One query to resolve every vessel id, not one per report:
+          // report_reviews is keyed on (vesselId, reportId) and the
+          // caller only sends report ids.
+          const rows = await this.db
+            .selectDistinct({
+              reportId: schema.reportVersions.reportId,
+              vesselId: schema.reportVersions.vesselId,
+            })
+            .from(schema.reportVersions)
+            .where(inArray(schema.reportVersions.reportId, ids));
+
+          const found = new Map(rows.map((r) => [r.reportId, r.vesselId]));
+          const missing = ids.filter((id) => !found.has(id));
+          if (found.size === 0) return { reviewed: 0, missing };
+
+          await this.db
+            .insert(schema.reportReviews)
+            .values(
+              Array.from(found, ([reportId, vesselId]) => ({ vesselId, reportId, reviewedBy, reviewedAt })),
+            )
+            .onConflictDoUpdate({
+              target: [schema.reportReviews.vesselId, schema.reportReviews.reportId],
+              set: { reviewedBy, reviewedAt },
+            });
+
+          return { reviewed: found.size, missing };
+        }),
+
       // Architecture 12.3/design handoff B4's per-report chat wall —
       // mirrors the vessel side's reports.getChat/sendChatMessage
       // (apps/api-vessel/src/reports/reports.service.ts) so both apps
@@ -2780,9 +2904,42 @@ export class TrpcRouter {
             createdAt: new Date().toISOString(),
           }).returning();
 
+          await this.recordApiKeyEvent(newKey[0].id, 'created');
+
           return {
             key: newKey[0],
             rawToken: `ovl_prod_${rawToken}`,
+          };
+        }),
+      /**
+       * One key's activity log — ports handleListAPIKeyEvents. Not-found
+       * on an unknown key rather than an empty list, so the screen can
+       * tell "no activity yet" apart from "another admin deleted this".
+       */
+      listEvents: protectedProcedure
+        .input((val: unknown) => {
+          if (!RevokeApiKeyCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof RevokeApiKeySchema>;
+        })
+        .query(async ({ input, ctx }) => {
+          await this.assertAdmin(ctx);
+          const [key] = await this.db
+            .select({ id: schema.apiKeys.id, lastUsedAt: schema.apiKeys.lastUsedAt })
+            .from(schema.apiKeys)
+            .where(eq(schema.apiKeys.id, input.id))
+            .limit(1);
+          if (!key) throw new TRPCError({ code: 'NOT_FOUND', message: 'No such API key.' });
+
+          const events = await this.db
+            .select({ kind: schema.apiKeyEvents.kind, at: schema.apiKeyEvents.at })
+            .from(schema.apiKeyEvents)
+            .where(eq(schema.apiKeyEvents.apiKeyId, input.id))
+            .orderBy(desc(schema.apiKeyEvents.at));
+
+          return {
+            // Usage is a column, not a stream of events — see touchApiKey.
+            lastUsedAt: toIsoOrNull(key.lastUsedAt),
+            events: events.map((e) => ({ kind: e.kind, at: toIso(e.at) })),
           };
         }),
       revoke: protectedProcedure
@@ -2796,6 +2953,7 @@ export class TrpcRouter {
             .update(schema.apiKeys)
             .set({ revokedAt: new Date().toISOString() })
             .where(eq(schema.apiKeys.id, input.id));
+          await this.recordApiKeyEvent(input.id, 'revoked');
           return { success: true };
         }),
     }),
