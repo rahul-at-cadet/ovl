@@ -11,6 +11,7 @@ import { useState, useRef, useEffect } from 'react';
 import { trpc } from '@/lib/trpc';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@ovl/ui/components/tabs';
 import { AuditTrail } from './AuditTrail';
+import { Attachments } from './Attachments';
 import { useCurrentUser } from '@/lib/useCurrentUser';
 import { sectionsInOrder, sectionLabel, type SchemaFieldLike } from '@/lib/sections';
 
@@ -167,6 +168,7 @@ export default function ReportDetailPage() {
       <Tabs defaultValue="report" className="w-full">
         <TabsList className="mb-4 justify-start bg-transparent gap-2">
           <TabsTrigger value="report" className="data-[state=active]:bg-muted">Report</TabsTrigger>
+          <TabsTrigger value="attachments" className="data-[state=active]:bg-muted">Attachments</TabsTrigger>
           <TabsTrigger value="audit" className="data-[state=active]:bg-muted">Audit trail</TabsTrigger>
         </TabsList>
 
@@ -288,6 +290,10 @@ export default function ReportDetailPage() {
               })()}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="attachments" className="mt-0">
+          <Attachments reportId={id} vesselId={report.vesselId} />
         </TabsContent>
 
         <TabsContent value="audit" className="mt-0">
