@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 
 // Ports ovl/vessel/httpapi/locks.go's lockManager (architecture 9.5).
 // In-memory only, on purpose — it does not survive a process restart,
@@ -27,6 +28,7 @@ function key(reportId: string, section: string): string {
 
 @Injectable()
 export class LockManagerService {
+  private readonly logger = new Logger(LockManagerService.name);
   private readonly locks = new Map<string, SectionLock>();
 
   /**
@@ -99,19 +101,34 @@ export class LockManagerService {
   }
 
   /**
-   * Removes every lock expired as of now, across all reports. Unlike
-   * the original's timer-driven sweep (which broadcasts each release
-   * over SSE), this port has no live-push transport (see the module's
-   * own comment) — a lock simply stops appearing in the next
-   * locks.list poll or acquire/holder check once expired, which is
-   * already correct without an explicit sweep. Kept anyway as a
-   * periodic cleanup so `this.locks` doesn't grow unbounded with
-   * long-expired entries nobody has touched since.
+   * Removes every lock expired as of now, across all reports.
+   *
+   * Unlike the original's timer-driven sweep (which also broadcasts each
+   * release over SSE), this port has no live-push transport — the client
+   * polls, so an expired lock simply stops appearing in the next
+   * locks.list call. Correctness never depended on this running.
+   *
+   * Memory did, and this method's own comment used to claim it ran
+   * periodically while nothing ever called it. Every (report, section)
+   * pair ever locked therefore stayed in the map for the life of the
+   * process — small per entry, unbounded over a long voyage. It is now
+   * actually scheduled.
    */
+  @Cron(CronExpression.EVERY_10_MINUTES)
   sweep(): void {
     const now = Date.now();
-    for (const [k, lock] of this.locks) {
-      if (isExpired(lock, now)) this.locks.delete(k);
+    let removed = 0;
+    for (const [k, lock] of [...this.locks]) {
+      if (isExpired(lock, now)) {
+        this.locks.delete(k);
+        removed++;
+      }
     }
+    if (removed > 0) this.logger.debug(`Swept ${removed} expired section lock(s).`);
+  }
+
+  /** How many entries the map is holding — for the sweep's own tests. */
+  size(): number {
+    return this.locks.size;
   }
 }

@@ -124,3 +124,47 @@ describe('listVersions', () => {
     await expect(svc.listVersions('nope')).rejects.toThrow(/not found/i);
   });
 });
+
+describe('LockManagerService.sweep', () => {
+  it('drops expired locks so the map does not grow for the life of the process', () => {
+    // The method's own comment claimed it ran periodically while nothing
+    // called it, so every (report, section) pair ever locked stayed in
+    // memory. Correctness never depended on the sweep — an expired lock
+    // already stops appearing — but memory did.
+    jest.useFakeTimers();
+    try {
+      const locks = new LockManagerService();
+      locks.acquire('r-1', 'S1', 'u1', 'mate', 'officer');
+      locks.acquire('r-2', 'S2', 'u2', 'chief', 'officer');
+      expect(locks.size()).toBe(2);
+
+      // Still inside the 5-minute TTL.
+      jest.setSystemTime(Date.now() + 60_000);
+      locks.sweep();
+      expect(locks.size()).toBe(2);
+
+      jest.setSystemTime(Date.now() + 10 * 60_000);
+      locks.sweep();
+      expect(locks.size()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('leaves a live lock alone while sweeping an expired one beside it', () => {
+    jest.useFakeTimers();
+    try {
+      const locks = new LockManagerService();
+      locks.acquire('r-1', 'Old', 'u1', 'mate', 'officer');
+      jest.setSystemTime(Date.now() + 6 * 60_000);
+      locks.acquire('r-1', 'Fresh', 'u2', 'chief', 'officer');
+
+      locks.sweep();
+
+      expect(locks.snapshot('r-1').map((l) => l.section)).toEqual(['Fresh']);
+      expect(locks.size()).toBe(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
