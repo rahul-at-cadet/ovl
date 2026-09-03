@@ -145,13 +145,6 @@ function formatRelativeTime(thenMs: number): string {
 // what "online" means.
 const ONLINE_THRESHOLD_MS = 5 * 60 * 1000;
 
-/**
- * How stale api_keys.last_used_at is allowed to get before a sync
- * bothers to update it. A vessel checks in every thirty seconds, so
- * writing on every request would put a database write in front of every
- * sync to answer a question nobody needs to the second.
- */
-const API_KEY_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
 
 /**
  * Ceiling on one bulk review. Generous enough for a night's reporting
@@ -602,17 +595,6 @@ const BulkMarkReviewedSchema = Type.Object({
 });
 const BulkMarkReviewedCompiler = TypeCompiler.Compile(BulkMarkReviewedSchema);
 
-const CreateApiKeySchema = Type.Object({
-  label: Type.String(),
-  groupId: Type.Optional(Type.String()),
-});
-const CreateApiKeyCompiler = TypeCompiler.Compile(CreateApiKeySchema);
-
-const RevokeApiKeySchema = Type.Object({
-  id: UuidString(),
-});
-const RevokeApiKeyCompiler = TypeCompiler.Compile(RevokeApiKeySchema);
-
 const PublishSchemaSchema = Type.Object({
   schemaName: Type.String(),
   version: Type.String(),
@@ -774,75 +756,17 @@ export class TrpcRouter {
   ) {}
 
   /**
-   * Confirms the bearer token isEdgeAuthed hashed actually belongs to a
-   * live, unrevoked row in api_keys. isEdgeAuthed itself only checks the
-   * header's *shape* (it runs before DI construction, with no `this.db`
-   * to query) — every edgeProcedure handler must call this before doing
-   * anything else, or it accepts any string shaped like
-   * "Bearer ovl_prod_...", real key or not.
-   */
-  private async verifyEdgeApiKey(ctx: { tokenLookupHash: string; tokenHash: string }): Promise<void> {
-    const keys = await this.db.select().from(schema.apiKeys)
-      .where(eq(schema.apiKeys.tokenLookupHash, ctx.tokenLookupHash));
-
-    if (keys.length === 0 || keys[0].tokenHash !== ctx.tokenHash || keys[0].revokedAt) {
-      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid or revoked API key' });
-    }
-    await this.touchApiKey(keys[0]);
-  }
-
-  /**
-   * Records that a key was just used.
+   * Confirms the bearer token belongs specifically to this vesselId.
    *
-   * api_keys.last_used_at has always been on the schema and shown on the
-   * API Access screen, but nothing ever wrote it — "Last used" was
-   * permanently blank, which reads as "never used" for a key a vessel
-   * has been syncing with every thirty seconds.
+   * The credential is minted per vessel when it redeems its enrollment
+   * code (edge.redeem), and every sync.pushEvents/pullConfig call must
+   * present that same vessel's own secret rather than any other's.
    *
-   * Deliberately a column update rather than an api_key_events row.
-   * Vessels check in on a 30-second cycle, so a row per request would add
-   * roughly three thousand rows per vessel per day to a table meant to
-   * hold a handful of administrative milestones. Throttled on top of
-   * that, because the answer only needs to be good to the minute and
-   * writing on every request would put a write in front of every sync.
-   */
-  private async touchApiKey(key: { id: string; lastUsedAt: string | null }): Promise<void> {
-    const now = Date.now();
-    if (key.lastUsedAt && now - new Date(key.lastUsedAt).getTime() < API_KEY_TOUCH_INTERVAL_MS) return;
-    try {
-      await this.db
-        .update(schema.apiKeys)
-        .set({ lastUsedAt: new Date(now).toISOString() })
-        .where(eq(schema.apiKeys.id, key.id));
-    } catch (err: any) {
-      // Never fail a sync over bookkeeping. The vessel's report matters
-      // more than knowing precisely when its key was last seen.
-      console.warn(`Could not stamp last-used on api key ${key.id}: ${err.message}`);
-    }
-  }
-
-  /**
-   * Appends one milestone to a key's activity log — ports
-   * store.RecordAPIKeyEvent. Only rare, administrative moments land here
-   * (see touchApiKey for why usage does not).
-   */
-  private async recordApiKeyEvent(apiKeyId: string, kind: string): Promise<void> {
-    try {
-      await this.db.insert(schema.apiKeyEvents).values({ apiKeyId, kind, at: new Date().toISOString() });
-    } catch (err: any) {
-      console.warn(`Could not record ${kind} event for api key ${apiKeyId}: ${err.message}`);
-    }
-  }
-
-  /**
-   * Confirms the bearer token belongs specifically to this vesselId, not
-   * merely to some valid provisioning key — provisioning keys (checked by
-   * verifyEdgeApiKey) are deliberately shared across a whole fleet and
-   * only ever prove "allowed to enroll", so they can't be the credential
-   * that separates one vessel's sync traffic from another's. edge.enroll
-   * mints this secret per vessel; every sync.pushEvents/pullConfig call
-   * must present that same vessel's own secret, not any other vessel's or
-   * the original provisioning key.
+   * This replaced a fleet-wide provisioning key, which could only ever
+   * prove "allowed to enroll" and so could not separate one vessel's
+   * traffic from another's — anyone holding it could claim to be any
+   * vessel by typing its IMO. That key mechanism has since been removed
+   * outright; enrollment codes are the only way in.
    */
   private async verifyVesselCredential(vesselId: string, ctx: { tokenHash: string }): Promise<void> {
     const rows = await this.db.select().from(schema.vesselCredentials)
@@ -1128,63 +1052,6 @@ export class TrpcRouter {
       }),
 
     edge: router({
-      enroll: edgeProcedure
-        .input((val: unknown) => {
-          if (!EnrollEdgeCompiler.Check(val)) throw new Error('Invalid input');
-          return val as Static<typeof EnrollEdgeSchema>;
-        })
-        .mutation(async ({ input, ctx }) => {
-          await this.verifyEdgeApiKey(ctx);
-
-          // Validated before the lookup, not just on the implicit-create
-          // path: a malformed IMO can't identify a real hull either way,
-          // and rejecting it here means a typo is reported as a typo
-          // rather than silently registering a second vessel.
-          const enrollImo = input.imoNumber.trim();
-          const enrollImoError = validateImo(enrollImo);
-          if (enrollImoError) throw new TRPCError({ code: 'BAD_REQUEST', message: enrollImoError });
-
-          // 2. Lookup Vessel by IMO
-          const existing = await this.db.select().from(schema.vessels).where(eq(schema.vessels.imo, enrollImo));
-          
-          let vesselId;
-          if (existing.length > 0) {
-            vesselId = existing[0].id;
-          } else {
-            // Create implicitly (IMO already validated above)
-            const newVessel = await this.db.insert(schema.vessels).values({
-              name: input.vesselName,
-              imo: enrollImo,
-              type: 'Cargo', // Default
-              groups: [],
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-            }).returning();
-            vesselId = newVessel[0].id;
-          }
-
-          // 3. Mint this vessel's own sync credential — distinct from the
-          // provisioning key just verified above, and never shared with
-          // any other vessel.
-          const vesselSecret = await this.mintVesselCredential(vesselId);
-
-          return { vesselId, vesselSecret };
-        }),
-
-      /**
-       * Exchanges a one-time enrollment code for this vessel's identity
-       * and sync credential — ports enrollment.Redeem.
-       *
-       * publicProcedure, not edgeProcedure: the code *is* the credential
-       * here, so requiring a fleet-wide provisioning key as well would
-       * reintroduce the shared secret this flow exists to remove. A
-       * vessel being set up has nothing else to present.
-       *
-       * The vessel sends no id, name or IMO. Office matches the code
-       * against every issued enrollment and the winner determines which
-       * vessel this is, so identity can no longer be asserted by typing
-       * someone else's IMO.
-       */
       redeem: publicProcedure
         .input((val: unknown) => {
           if (!RedeemEnrollmentCompiler.Check(val)) throw new Error('Invalid input');
@@ -1928,7 +1795,7 @@ export class TrpcRouter {
       // fleet-wide provisioning keys under Global Settings — for a single
       // compromised or decommissioned vessel, that's the blast radius that
       // should be cut off, not every other vessel's ability to sync. Soft
-      // revoke (matches apiKeys.revoke's own pattern) rather than delete,
+      // Soft revoke rather than delete,
       // so issuedAt/history survives — every subsequent pushEvents/
       // pullConfig from it fails closed (verifyVesselCredential sees
       // revokedAt set) until someone re-runs its setup wizard with a valid
@@ -3043,121 +2910,6 @@ export class TrpcRouter {
             .set({ resolved: input.resolved, resolvedAt: input.resolved ? new Date().toISOString() : null })
             .where(eq(schema.remarks.id, input.id));
           return { resolved: input.resolved };
-        }),
-    }),
-    apiKeys: router({
-      // Admin-only, matching handleListAPIKeys (apikeys.go:44). Even
-      // without the token itself, the list is an inventory of live fleet
-      // credentials — labels, ages and fingerprints — and every mutation
-      // beside it is admin-gated, so leaving the read open would just
-      // hand a viewer the map.
-      list: protectedProcedure.query(async ({ ctx }) => {
-        await this.assertAdmin(ctx);
-        // Columns listed explicitly rather than `select()`: the bare form
-        // returns the whole row, which shipped tokenHash and
-        // tokenLookupHash — hashes of live credentials — to every browser
-        // that opened Settings. Same reasoning as PUBLIC_USER_COLUMNS on
-        // the vessel side; a column added later has to be opted in rather
-        // than leaking by default.
-        const rows = await this.db
-          .select({
-            id: schema.apiKeys.id,
-            label: schema.apiKeys.label,
-            groupId: schema.apiKeys.groupId,
-            createdBy: schema.apiKeys.createdBy,
-            createdAt: schema.apiKeys.createdAt,
-            lastUsedAt: schema.apiKeys.lastUsedAt,
-            // A short, non-reversible fingerprint so keys stay tellable
-            // apart in the UI. The plaintext token is unrecoverable by
-            // design, and several keys legitimately share a label
-            // ("Sync Key"), which previously left the list showing four
-            // identical rows with no way to know which one to revoke.
-            lookupHash: schema.apiKeys.tokenLookupHash,
-          })
-          .from(schema.apiKeys)
-          .where(isNull(schema.apiKeys.revokedAt))
-          // Without an explicit order Postgres is free to return these in
-          // any sequence, and it does — the list reshuffled between
-          // loads. Every row carries a Revoke button, so a list that
-          // reorders under the pointer is a way to revoke the wrong key.
-          .orderBy(desc(schema.apiKeys.createdAt));
-
-        return rows.map(({ lookupHash, ...k }) => ({
-          ...k,
-          fingerprint: lookupHash.slice(0, 8),
-        }));
-      }),
-      create: protectedProcedure
-        .input((val: unknown) => {
-          if (!CreateApiKeyCompiler.Check(val)) throw new Error('Invalid input');
-          return val as Static<typeof CreateApiKeySchema>;
-        })
-        .mutation(async ({ input, ctx }) => {
-          await this.assertAdmin(ctx);
-          const rawToken = crypto.randomBytes(32).toString('hex');
-          const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
-          const tokenLookupHash = crypto.createHash('sha256').update(rawToken.substring(0, 8)).digest('hex');
-          
-          const newKey = await this.db.insert(schema.apiKeys).values({
-            label: input.label,
-            tokenHash,
-            tokenLookupHash,
-            groupId: input.groupId || null,
-            createdBy: 'System',
-            createdAt: new Date().toISOString(),
-          }).returning();
-
-          await this.recordApiKeyEvent(newKey[0].id, 'created');
-
-          return {
-            key: newKey[0],
-            rawToken: `ovl_prod_${rawToken}`,
-          };
-        }),
-      /**
-       * One key's activity log — ports handleListAPIKeyEvents. Not-found
-       * on an unknown key rather than an empty list, so the screen can
-       * tell "no activity yet" apart from "another admin deleted this".
-       */
-      listEvents: protectedProcedure
-        .input((val: unknown) => {
-          if (!RevokeApiKeyCompiler.Check(val)) throw new Error('Invalid input');
-          return val as Static<typeof RevokeApiKeySchema>;
-        })
-        .query(async ({ input, ctx }) => {
-          await this.assertAdmin(ctx);
-          const [key] = await this.db
-            .select({ id: schema.apiKeys.id, lastUsedAt: schema.apiKeys.lastUsedAt })
-            .from(schema.apiKeys)
-            .where(eq(schema.apiKeys.id, input.id))
-            .limit(1);
-          if (!key) throw new TRPCError({ code: 'NOT_FOUND', message: 'No such API key.' });
-
-          const events = await this.db
-            .select({ kind: schema.apiKeyEvents.kind, at: schema.apiKeyEvents.at })
-            .from(schema.apiKeyEvents)
-            .where(eq(schema.apiKeyEvents.apiKeyId, input.id))
-            .orderBy(desc(schema.apiKeyEvents.at));
-
-          return {
-            // Usage is a column, not a stream of events — see touchApiKey.
-            lastUsedAt: toIsoOrNull(key.lastUsedAt),
-            events: events.map((e) => ({ kind: e.kind, at: toIso(e.at) })),
-          };
-        }),
-      revoke: protectedProcedure
-        .input((val: unknown) => {
-          if (!RevokeApiKeyCompiler.Check(val)) throw new Error('Invalid input');
-          return val as Static<typeof RevokeApiKeySchema>;
-        })
-        .mutation(async ({ input, ctx }) => {
-          await this.assertAdmin(ctx);
-          await this.db
-            .update(schema.apiKeys)
-            .set({ revokedAt: new Date().toISOString() })
-            .where(eq(schema.apiKeys.id, input.id));
-          await this.recordApiKeyEvent(input.id, 'revoked');
-          return { success: true };
         }),
     }),
     setup: router({

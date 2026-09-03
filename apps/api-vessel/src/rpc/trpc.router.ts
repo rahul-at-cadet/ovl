@@ -978,67 +978,6 @@ export class TrpcRouter {
             });
           }
         }),
-      enroll: publicProcedure
-        .input((val: unknown) => {
-          const v = val as { vesselName: string; imoNumber: string; shoreUrl: string; apiKey: string };
-          if (!v.vesselName || !v.imoNumber || !v.shoreUrl || !v.apiKey) throw new Error('Invalid input');
-          return v;
-        })
-        .mutation(async ({ input }) => {
-          // 1. Save preliminary identity (including API Key)
-          const configs = [
-            { key: 'vessel_name', value: input.vesselName },
-            { key: 'imo_number', value: input.imoNumber },
-            { key: 'shore_url', value: input.shoreUrl },
-            { key: 'api_key', value: input.apiKey }
-          ];
-          
-          for (const c of configs) {
-            await this.db.insert(schema.configStore)
-              .values({ key: c.key, value: c.value, updatedAt: new Date().toISOString() })
-              .onConflictDoUpdate({ target: schema.configStore.key, set: { value: c.value, updatedAt: new Date().toISOString() } });
-          }
-
-          // 2. Call Office API to enroll and get true UUID
-          // At this point, the TrpcService client will use the 'api_key' we just saved above!
-          try {
-            const response = await this.trpcService.client.edge.enroll.mutate({
-              vesselName: input.vesselName,
-              imoNumber: input.imoNumber
-            });
-
-            // Save the true UUID to configStore
-            await this.db.insert(schema.configStore)
-              .values({ key: 'vessel_id', value: response.vesselId, updatedAt: new Date().toISOString() })
-              .onConflictDoUpdate({ target: schema.configStore.key, set: { value: response.vesselId, updatedAt: new Date().toISOString() } });
-
-            // Office mints a secret specific to this vessel on enroll —
-            // distinct from the provisioning key just used above, which
-            // only proves "allowed to enroll" and is shared fleet-wide.
-            // Every request after this point (trpc.service.ts's headers()
-            // reads 'api_key' fresh each time) must use this vessel's own
-            // secret instead, or office now rejects it: a provisioning key
-            // no longer authenticates pushEvents/pullConfig at all.
-            if (response.vesselSecret) {
-              await this.db.insert(schema.configStore)
-                .values({ key: 'api_key', value: response.vesselSecret, updatedAt: new Date().toISOString() })
-                .onConflictDoUpdate({ target: schema.configStore.key, set: { value: response.vesselSecret, updatedAt: new Date().toISOString() } });
-            }
-
-            return { success: true };
-          } catch (e: any) {
-            // Revert on failure
-            await this.db.delete(schema.configStore).where(eq(schema.configStore.key, 'api_key'));
-            throw new TRPCError({ code: 'BAD_REQUEST', message: `Failed to authenticate with Office API: ${e.message}` });
-          }
-        }),
-      // Wizard step 3, mirroring the original's handleSetupMaster
-      // (ovl/vessel/httpapi/setup.go) — a dedicated bootstrap path for the
-      // very first user, distinct from users.create/AuthService.createLocalUser
-      // (which deliberately reject role=master, since every user after the
-      // first must go through an authenticated admin). Unlike createLocalUser,
-      // the master chooses their own password here and is logged in
-      // immediately, rather than getting a generated temporary one.
       createMaster: publicProcedure
         .input((val: unknown) => {
           const v = val as { username: string; password: string };

@@ -247,9 +247,9 @@ export class SyncService {
       imoNumber: config['imo_number'] ?? config['imoNumber'] ?? null,
       shoreUrl: config['shore_url'] ?? null,
       // What shore calls this same vessel, captured on the last successful
-      // check-in. A mismatch is legitimate and permanent — edge.enroll
-      // matches on IMO and ignores the name the vessel sent — so it has to
-      // be shown rather than silently reconciled.
+      // check-in. Shore is authoritative on identity and a local rename
+      // never propagates upward, so a divergence is a real state worth
+      // showing rather than silently reconciling.
       officeVesselName: config['office_vessel_name'] ?? null,
       officeImoNumber: config['office_imo_number'] ?? null,
       nameMismatch:

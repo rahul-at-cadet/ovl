@@ -12,10 +12,10 @@
  *
  * Returns null when valid, or a human-readable reason when not.
  *
- * On the vessel side this gates the setup wizard's Enroll button, which
- * only pre-empts the rejection office's edge.enroll would return anyway
- * — office validates every IMO it is given, on both the match and
- * create paths, so there is nothing an invalid number could enrol as.
+ * On the vessel side this only checks a number an operator typed before
+ * anything is sent. Identity itself no longer comes from this field:
+ * redeeming an enrollment code returns the vessel's name and IMO from
+ * shore, so there is nothing here for an invalid number to enrol as.
  */
 export function validateImo(imo: string): string | null {
   if (imo.length === 0) {

@@ -5,79 +5,13 @@ import { Button } from '@ovl/ui/components/button';
 import { Input } from '@ovl/ui/components/input';
 import { Label } from '@ovl/ui/components/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@ovl/ui/components/tabs';
-import { Settings, Globe, Shield, Key, Bell, KeyRound, Copy, CheckCircle2, Trash2, Ship, Pencil, X, Loader2, Server, Database, Clock } from 'lucide-react';
+import { Settings, Globe, Shield, Bell, Trash2, Ship, Pencil, X, Loader2, Server, Database, Clock } from 'lucide-react';
 import { useState } from 'react';
 import { trpc } from '@/lib/trpc';
-import { useCurrentUser } from '@/lib/useCurrentUser';
 
 export default function SettingsPage() {
-  const [copied, setCopied] = useState<string | null>(null);
-  const [newRawToken, setNewRawToken] = useState<string | null>(null);
-  const [newKeyLabel, setNewKeyLabel] = useState('');
-
-  // The API Keys tab is admin-only server-side (apiKeys.list and both
-  // mutations assert the role), so the UI has to know too — otherwise a
-  // viewer sees the tab, gets an empty list because the query 403s, and
-  // reads "No active API keys" as fact rather than as "not allowed".
-  const { data: currentUser } = useCurrentUser();
-  const isAdmin = (currentUser?.roles ?? []).includes('admin');
-
   const utils = trpc.useUtils();
-  const { data: apiKeys = [], isLoading } = trpc.apiKeys.list.useQuery(undefined, { enabled: isAdmin });
 
-  const createMutation = trpc.apiKeys.create.useMutation({
-    onSuccess: (data) => {
-      utils.apiKeys.list.invalidate();
-      setNewRawToken(data.rawToken);
-      setNewKeyLabel('');
-    }
-  });
-
-  const revokeMutation = trpc.apiKeys.revoke.useMutation({
-    onSuccess: () => utils.apiKeys.list.invalidate(),
-  });
-
-  const handleCopy = (text: string, id: string) => {
-    // navigator.clipboard requires a secure context (HTTPS or localhost)
-    // — over plain HTTP on a real host (this deployment's common case),
-    // it's simply undefined in most browsers, so the call above threw
-    // synchronously with nothing catching it, silently doing nothing.
-    // document.execCommand('copy') has no such restriction, so it's the
-    // fallback here rather than the primary path failing invisibly.
-    const copyViaFallback = () => {
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.focus();
-      textarea.select();
-      try {
-        document.execCommand('copy');
-      } finally {
-        document.body.removeChild(textarea);
-      }
-    };
-
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(text).catch(copyViaFallback);
-    } else {
-      copyViaFallback();
-    }
-    setCopied(id);
-    setTimeout(() => setCopied(null), 2000);
-
-    // Deliberately does NOT dismiss the new-token banner. Copying is not
-    // proof the token was captured: clipboard writes fail silently in
-    // non-secure contexts (hence the execCommand fallback above), and the
-    // paste can still land somewhere the operator loses. Since the token
-    // is unrecoverable once dismissed, clearing it stays an explicit act
-    // — the Done button — rather than a side effect of clicking copy.
-  };
-
-  const handleGenerateKey = () => {
-    createMutation.mutate({ label: newKeyLabel.trim() || 'Sync Key' });
-  };
 
   // Groups are free-form tags on each vessel's own profile (architecture
   // 12.4), not a first-class entity — there's no dedicated groups list
@@ -104,11 +38,9 @@ export default function SettingsPage() {
 
   return (
     // Fixed to the viewport with the panel scrolling internally, matching
-    // Vessels/Reports/Users. Without it the API Keys tab grew the whole
-    // page — the tab rail scrolled away with the content, so on a
-    // deployment with a real number of keys you lost the navigation and
-    // the "Generate New Key" control the moment you scrolled down to
-    // read the list.
+    // Vessels/Reports/Users. Without it a long tab grew the whole page and
+    // the tab rail scrolled away with the content, so you lost the
+    // navigation the moment you scrolled down to read a list.
     <div className="h-[calc(100dvh-96px)] lg:h-[calc(100dvh-112px)] flex flex-col space-y-6 overflow-hidden max-w-6xl">
       <div className="border-b border-border pb-6 shrink-0">
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">Global Settings</h1>
@@ -137,15 +69,6 @@ export default function SettingsPage() {
                 viewer only produces an empty list and a button that
                 403s. Matches the original, which hides Administration
                 from non-admins outright. */}
-            {isAdmin ? (
-              <TabsTrigger
-                value="apikeys"
-                className="w-full justify-start px-4 py-2.5 text-sm font-medium data-[state=active]:bg-muted data-[state=active]:text-foreground text-muted-foreground hover:bg-card transition-all rounded-md"
-              >
-                <Key className="w-4 h-4 mr-3" />
-                API Keys
-              </TabsTrigger>
-            ) : null}
             <TabsTrigger
               value="notifications"
               className="w-full justify-start px-4 py-2.5 text-sm font-medium data-[state=active]:bg-muted data-[state=active]:text-foreground text-muted-foreground hover:bg-card transition-all rounded-md"
@@ -170,8 +93,8 @@ export default function SettingsPage() {
           </TabsList>
 
           {/* min-h-0 is load-bearing: without it this flex child adopts
-              its content's height instead of the row's, so the API Keys
-              card grew past the viewport and its own overflow-y-auto had
+              its content's height instead of the row's, so a long card
+              grows past the viewport and its own overflow-y-auto has
               nothing left to scroll. */}
           <div className="flex-1 min-h-0 flex flex-col space-y-6">
             <TabsContent value="general" className="mt-0 space-y-6">
@@ -220,127 +143,6 @@ export default function SettingsPage() {
               </Card>
             </TabsContent>
 
-            <TabsContent value="apikeys" className="mt-0 min-h-0 flex-1 flex flex-col">
-              <Card className="bg-card border-border shadow-sm overflow-hidden rounded-md flex flex-col min-h-0 flex-1">
-                <CardHeader className="border-b border-border pb-4 bg-card flex flex-row items-center justify-between shrink-0">
-                  <div>
-                    <CardTitle className="text-sm font-semibold tracking-tight text-foreground">API Credentials</CardTitle>
-                    <CardDescription className="text-xs text-muted-foreground mt-1">Manage keys for edge-node synchronization.</CardDescription>
-                  </div>
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="Key label (e.g. Production Sync Key)"
-                      value={newKeyLabel}
-                      onChange={(e) => setNewKeyLabel(e.target.value)}
-                      className="bg-card border-border text-foreground text-xs h-8 w-56"
-                    />
-                    <Button onClick={handleGenerateKey} disabled={createMutation.isPending} className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-md h-8 text-xs font-semibold shadow-sm transition-all px-3 shrink-0">
-                      {createMutation.isPending ? 'Generating...' : 'Generate New Key'}
-                    </Button>
-                  </div>
-                </CardHeader>
-
-                {/* Pinned outside the scroll container, not inside it: the
-                    token is shown exactly once and cannot be recovered, so
-                    it must not be able to scroll out of view while the
-                    operator is reading it across to a vessel. */}
-                {newRawToken && (
-                  <div className="shrink-0 border-b border-border px-(--card-spacing) pt-4 pb-4">
-                    <div className="bg-status-ok/10 border border-status-ok/25 p-4 rounded-md space-y-2">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm text-status-ok font-medium">New API Key Generated</p>
-                          <p className="text-xs text-status-ok/80">Please copy this token now. You won&apos;t be able to see it again.</p>
-                        </div>
-                        {/* An explicit dismiss, because copying isn't the only
-                            way someone takes the token down — selecting the
-                            text by hand or reading it across to another
-                            machine leaves the banner with no way to clear it. */}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setNewRawToken(null)}
-                          className="h-7 px-2 -mt-1 -mr-1 text-status-ok/70 hover:text-status-ok hover:bg-status-ok/10 shrink-0"
-                        >
-                          Done
-                        </Button>
-                      </div>
-                      <div className="flex gap-2 mt-2">
-                        <Input readOnly value={newRawToken} className="bg-card border-status-ok/30 text-status-ok font-mono tracking-widest text-sm" />
-                        <Button variant="outline" onClick={() => handleCopy(newRawToken, 'new')} className="border-status-ok/30 bg-status-ok/10 hover:bg-status-ok/20 text-status-ok h-10 w-10 p-0 shrink-0">
-                          {copied === 'new' ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <CardContent className="pt-6 space-y-6 flex-1 min-h-0 overflow-y-auto">
-                  {/* One compact row per key. The previous layout gave each
-                      key a full-width masked password field, which was
-                      pure decoration — the token is unrecoverable by
-                      design, so the dots represented nothing and implied a
-                      reveal that cannot exist. What an operator actually
-                      needs here is to tell keys apart and revoke the right
-                      one, so the row carries the label, a stable
-                      fingerprint, and its dates instead. */}
-                  {isLoading ? (
-                    <div className="text-center text-muted-foreground py-4 text-sm">Loading API keys...</div>
-                  ) : apiKeys.length > 0 ? (
-                    <div className="divide-y divide-border rounded-md border border-border">
-                      {apiKeys.map((key) => (
-                        <div
-                          key={key.id}
-                          className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-muted/40"
-                        >
-                          <KeyRound className="size-4 shrink-0 text-muted-foreground" />
-
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-baseline gap-2">
-                              <span className="truncate text-sm font-medium text-foreground">
-                                {key.label || 'API Key'}
-                              </span>
-                              <code className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[0.65rem] text-muted-foreground">
-                                {key.fingerprint}
-                              </code>
-                            </div>
-                            <div className="mt-0.5 text-xs text-muted-foreground">
-                              Created {new Date(key.createdAt).toLocaleDateString()}
-                              {key.lastUsedAt ? (
-                                <> · last used {new Date(key.lastUsedAt).toLocaleDateString()}</>
-                              ) : (
-                                <> · never used</>
-                              )}
-                            </div>
-                          </div>
-
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={revokeMutation.isPending}
-                            onClick={() => revokeMutation.mutate({ id: key.id })}
-                            className="h-7 shrink-0 px-2 text-muted-foreground hover:bg-status-critical/10 hover:text-status-critical"
-                          >
-                            <Trash2 className="mr-1 w-3.5 h-3.5" />
-                            Revoke
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : !isAdmin ? (
-                    // Distinct from "there are none": saying "no active
-                    // API keys" to someone who simply cannot see them
-                    // states something false.
-                    <div className="py-6 text-center text-sm text-muted-foreground">
-                      Only an Admin can view or manage API credentials.
-                    </div>
-                  ) : (
-                    <div className="text-center text-muted-foreground py-4 text-sm">No active API keys.</div>
-                  )}
-                </CardContent>
-              </Card>
-            </TabsContent>
-            
             <TabsContent value="notifications" className="mt-0">
               <Card className="bg-card border-border shadow-sm overflow-hidden rounded-md">
                 <CardHeader className="border-b border-border pb-4 bg-card">
