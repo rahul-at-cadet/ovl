@@ -494,3 +494,50 @@ CREATE INDEX IF NOT EXISTS "ix_schema_versions_schema_name" ON "schema_versions"
 CREATE INDEX IF NOT EXISTS "idx_user_commands_vessel_seq" ON "user_commands" USING btree ("vessel_id","seq");--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "ux_vessel_credentials_lookup_hash" ON "vessel_credentials" USING btree ("token_lookup_hash");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "idx_vessels_groups" ON "vessels" USING gin ("groups");
+--
+-- ============================================================
+-- Schema added after this file was first generated (2026-08-23)
+-- ============================================================
+--
+-- This file creates an office database from nothing; the drizzle
+-- migrations under ../drizzle can only patch a database that already
+-- matches their starting shape, so they never run against a fresh one.
+-- That means anything added by a migration has to be repeated here, and
+-- three had drifted: a fresh deployment produced a database api-office
+-- could not run against, failing on every vessel check-in.
+--
+-- Everything below is written idempotently so this file stays safe to
+-- re-run against a database that already has some of it.
+--
+-- Verified by building a database from this file alone and driving a
+-- real check-in against it — the check that would have caught the drift.
+
+-- 0002_add_vessel_reported_identity: what the ship calls itself, as
+-- distinct from the shore-authored name. sync.pullConfig writes these on
+-- every check-in.
+ALTER TABLE "vessel_sync_status" ADD COLUMN IF NOT EXISTS "reported_name" text;--> statement-breakpoint
+ALTER TABLE "vessel_sync_status" ADD COLUMN IF NOT EXISTS "reported_imo" text;--> statement-breakpoint
+
+-- 0004_add_applied_schemas: the schema versions the vessel reports
+-- holding. Also written on every check-in.
+ALTER TABLE "vessel_sync_status" ADD COLUMN IF NOT EXISTS "applied_schemas" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
+
+-- 0003_add_sync_runs: the shore-side check-in log. recordSyncRun inserts
+-- one row per cycle, so its absence broke sync outright rather than
+-- merely hiding a screen.
+CREATE TABLE IF NOT EXISTS "sync_runs" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"tenant_id" text DEFAULT 'default' NOT NULL,
+	"run_id" text,
+	"vessel_id" uuid NOT NULL,
+	"received_at" timestamp with time zone NOT NULL,
+	"outcome" text NOT NULL,
+	"resolved_bundle_id" text,
+	"resolved_bundle_version" bigint,
+	"reported_name" text,
+	"reported_imo" text,
+	"note" text
+);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "ix_sync_runs_vessel_received" ON "sync_runs" USING btree ("vessel_id","received_at" DESC NULLS FIRST);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "ix_sync_runs_tenant_received" ON "sync_runs" USING btree ("tenant_id","received_at" DESC NULLS FIRST);
