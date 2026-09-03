@@ -1,12 +1,14 @@
 'use client';
 
+import Link from 'next/link';
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Tooltip, Popup, useMap } from 'react-leaflet';
 import { divIcon, type Map as LeafletMap } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Input } from '@ovl/ui/components/input';
 import { Button } from '@ovl/ui/components/button';
-import { Search, Crosshair, ChevronLeft, X } from 'lucide-react';
+import { Search, Crosshair, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 
 // Ports ovl/web/office/src/screens/vessels/VesselMapView.tsx +
@@ -343,6 +345,18 @@ export function FleetMapView() {
                   <div className="border-t border-border px-3 py-1.5 text-[0.65rem] text-muted-foreground">
                     As of {new Date(p.asOf).toLocaleString()}
                   </div>
+
+                  {/* The way into the detail screen from map view. The
+                      side-panel rows deliberately focus the marker rather
+                      than navigating — that is what a map list is for —
+                      which left the map with no drill-in at all. */}
+                  <Link
+                    href={`/vessels/${p.id}`}
+                    className="flex items-center justify-between gap-2 border-t border-border px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-muted"
+                  >
+                    Open vessel
+                    <ChevronRight className="size-3.5" />
+                  </Link>
                 </div>
               </Popup>
             </Marker>

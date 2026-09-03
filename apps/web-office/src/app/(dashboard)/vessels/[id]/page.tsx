@@ -144,7 +144,13 @@ export default function VesselDetailPage() {
     );
   }
 
-  const { vessel, sync, enrollment, credential, bundle, appliedBundle, schemas, users, userCommands } = data;
+  const { vessel, sync, enrollment, credential, bundle, users, userCommands } = data;
+  // Both of these are newer additions to vessels.get. An office API that
+  // predates them — entirely ordinary mid-deploy — would otherwise take
+  // the whole detail screen down over one optional panel, which is a far
+  // worse failure than the panel simply not being there.
+  const appliedBundle = data.appliedBundle ?? null;
+  const schemas = data.schemas ?? [];
   const online = sync.edgeStatus === 'Online';
 
   // Shore is authoritative on identity, but what the node reports about
@@ -392,7 +398,11 @@ export default function VesselDetailPage() {
                         refused aboard and would otherwise be invisible
                         here. */}
                     <div className="mt-6 border-t border-border pt-4">
-                      {!appliedBundle.reported ? (
+                      {!appliedBundle ? (
+                        <p className="text-xs text-muted-foreground">
+                          This office build cannot yet report what the vessel holds.
+                        </p>
+                      ) : !appliedBundle.reported ? (
                         <p className="text-xs text-muted-foreground">
                           This vessel has not checked in yet, so there is nothing to compare against.
                         </p>

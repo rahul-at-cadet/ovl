@@ -2,11 +2,12 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@ovl/ui/components/card';
 import { Button } from '@ovl/ui/components/button';
 import { Input } from '@ovl/ui/components/input';
-import { Ship, Search, Plus, Activity, Wifi, WifiOff, Edit, Trash2, Users, List, Map as MapIcon, KeyRound, Ticket, Copy, CheckCircle2 } from 'lucide-react';
+import { Ship, Search, Plus, Activity, Wifi, WifiOff, Edit, Trash2, Users, List, Map as MapIcon, KeyRound, Ticket, Copy, CheckCircle2, ChevronRight } from 'lucide-react';
 import { Badge } from '@ovl/ui/components/badge';
 import { VesselUsersDialog } from './VesselUsersDialog';
 
@@ -38,6 +39,7 @@ import { useCurrentUser } from '@/lib/useCurrentUser';
 import { useToastManager } from '@ovl/ui/components/toast';
 
 export default function VesselsPage() {
+  const router = useRouter();
   const [view, setView] = useState<'list' | 'map'>('list');
   const [searchQuery, setSearchQuery] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -307,9 +309,17 @@ export default function VesselsPage() {
                                 own action menu. */}
                             <Link
                               href={`/vessels/${vessel.id}`}
-                              className="block truncate font-semibold text-foreground transition-colors hover:text-primary hover:underline"
+                              className="group/name flex items-center gap-1 truncate font-semibold text-foreground transition-colors hover:text-primary hover:underline"
                             >
-                              {vessel.name}
+                              <span className="truncate">{vessel.name}</span>
+                              {/* The name was already a link, but styled
+                                  exactly like plain text — nothing said the
+                                  detail screen existed until you happened to
+                                  hover the right words. A persistent chevron
+                                  is the affordance; it darkens on hover
+                                  rather than appearing from nothing, so the
+                                  row does not shift. */}
+                              <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/60 transition-colors group-hover/name:text-primary" />
                             </Link>
                             <div className="text-xs text-muted-foreground">{vessel.status}</div>
                           </div>
@@ -354,6 +364,19 @@ export default function VesselsPage() {
                             <Edit className="w-4 h-4" />
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-48 bg-background border-border">
+                            {/* First, and not admin-gated: the detail
+                                screen is read-mostly and its one
+                                privileged tab gates itself. This is where
+                                people look for per-vessel actions, and
+                                without it the whole screen was reachable
+                                only by guessing the name was a link. */}
+                            <DropdownMenuItem
+                              onClick={() => router.push(`/vessels/${vessel.id}`)}
+                              className="hover:bg-muted cursor-pointer text-foreground focus:bg-muted focus:text-foreground"
+                            >
+                              <Ship className="mr-2 h-4 w-4" />
+                              <span>Open Vessel</span>
+                            </DropdownMenuItem>
                             {/* Edit and Manage Users are admin-gated server-side
                                 (vessels.update, vessels.users.*) just like the
                                 actions below, so a viewer would only reach a
