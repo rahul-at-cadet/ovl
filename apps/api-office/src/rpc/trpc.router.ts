@@ -30,6 +30,7 @@ import { UsersService } from '../users/users.service';
 import { UserRole } from '../users/dto/create-user.dto';
 import Session from 'supertokens-node/recipe/session';
 import { TRPCError } from '@trpc/server';
+import { httpExceptionMapper } from './http-error.middleware';
 
 /**
  * The check-in log's wire input. Deliberately flat rather than nesting a
@@ -84,10 +85,19 @@ function parseSyncHistoryInput(val: unknown): SyncHistoryInput {
     limit: typeof v.limit === 'number' ? v.limit : 50,
     sort: v.sort === 'oldest' ? 'oldest' : 'newest',
   };
-  if (typeof v.vesselId === 'string' && v.vesselId) parsed.vesselId = v.vesselId;
-  if (typeof v.bundleId === 'string' && v.bundleId) parsed.bundleId = v.bundleId;
-  if (typeof v.from === 'string' && v.from) parsed.from = v.from;
-  if (typeof v.to === 'string' && v.to) parsed.to = v.to;
+  // Validated here rather than left to Postgres. These land in uuid and
+  // timestamptz columns, and a malformed one used to come back as a 500
+  // quoting the database's own error.
+  if (typeof v.vesselId === 'string' && v.vesselId) {
+    if (!UUID_RE.test(v.vesselId)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'vesselId must be a uuid.' });
+    parsed.vesselId = v.vesselId;
+  }
+  if (typeof v.bundleId === 'string' && v.bundleId) {
+    if (!UUID_RE.test(v.bundleId)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'bundleId must be a uuid.' });
+    parsed.bundleId = v.bundleId;
+  }
+  if (typeof v.from === 'string' && v.from) parsed.from = parseTimestampFilter(v.from, 'from');
+  if (typeof v.to === 'string' && v.to) parsed.to = parseTimestampFilter(v.to, 'to');
   // Trimmed, and dropped when empty: a search box the user has cleared
   // must not narrow to rows containing the empty string.
   const search = typeof v.search === 'string' ? v.search.trim() : '';
@@ -105,6 +115,13 @@ function parseSyncHistoryInput(val: unknown): SyncHistoryInput {
     typeof v.cursor.receivedAt === 'string' &&
     typeof v.cursor.id === 'string'
   ) {
+    // A cursor comes back from the client, so a stale bookmark or an
+    // edited query string reaches this unaltered — and both halves land
+    // in typed columns.
+    parseTimestampFilter(v.cursor.receivedAt, 'cursor.receivedAt');
+    if (!UUID_RE.test(v.cursor.id)) {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'cursor.id must be a uuid.' });
+    }
     parsed.cursor = { receivedAt: v.cursor.receivedAt, id: v.cursor.id };
   }
   return parsed;
@@ -142,6 +159,61 @@ const API_KEY_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
  */
 const BULK_REVIEW_LIMIT = 500;
 
+/**
+ * A uuid, and a timestamp, as the wire is allowed to carry them.
+ *
+ * Both exist because a bare Type.String() reaches Postgres unchecked,
+ * and Postgres answers a malformed one by throwing. That surfaced as a
+ * 500 carrying the database's own message — "invalid input syntax for
+ * type uuid" — across nine procedures: a stale bookmark or a hand-edited
+ * query string was enough to trigger it, and the reply told the caller
+ * about the column type. Validated here, the same input is a 400 that
+ * says which field is wrong and nothing about the schema behind it.
+ *
+ * The timestamp pattern is deliberately stricter than Postgres's parser.
+ * Postgres accepts a great deal as a date literal — "yesterday" among
+ * them — so an unvalidated filter silently applied a range the caller
+ * never asked for and reported success. Requiring ISO-8601 makes a
+ * nonsense filter an error rather than a surprise.
+ */
+const UuidString = () =>
+  Type.String({ pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' });
+
+/** Shared by the hand-written parsers, which cannot use a TypeBox schema. */
+const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/**
+ * A timestamp filter the caller actually meant.
+ *
+ * Two checks, because either alone is insufficient. The shape test keeps
+ * out values Postgres would happily reinterpret — it accepts a great deal
+ * as a date literal, "yesterday" among them, so an unvalidated filter
+ * silently applied a range nobody asked for and reported success. The
+ * parse test keeps out values that look right and are not: no pattern
+ * can tell that month 13 or day 45 is impossible, and those reached
+ * Postgres and threw.
+ *
+ * The offset is allowed at two or four digits so a value in Postgres's
+ * own rendering ("+00") is accepted alongside ISO's ("+00:00").
+ */
+const TIMESTAMP_SHAPE = /^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?([Zz]|[+-]\d{2}(:?\d{2})?)?$/;
+
+function parseTimestampFilter(value: string, field: string): string {
+  const bad = () => new TRPCError({ code: 'BAD_REQUEST', message: `${field} must be an ISO-8601 timestamp.` });
+  if (!TIMESTAMP_SHAPE.test(value) || Number.isNaN(new Date(value).getTime())) throw bad();
+
+  // The calendar date is checked on its own components rather than by
+  // comparing the parsed result back to the input. JavaScript rolls an
+  // impossible date forward — 2026-02-30 becomes March 2 — and Postgres
+  // rejects it outright, so a value that parses here would still throw
+  // there. Comparing the UTC date instead would misfire on a legitimate
+  // offset, where the instant genuinely falls on the previous day.
+  const [y, m, d] = value.slice(0, 10).split('-').map(Number);
+  const probe = new Date(Date.UTC(y, m - 1, d));
+  if (probe.getUTCFullYear() !== y || probe.getUTCMonth() !== m - 1 || probe.getUTCDate() !== d) throw bad();
+  return value;
+}
+
 export const createContext = ({
   req,
   res,
@@ -160,7 +232,7 @@ const PingSchema = Type.Object({ vesselId: Type.String() });
 const PingCompiler = TypeCompiler.Compile(PingSchema);
 
 const PushEventsSchema = Type.Object({
-  vesselId: Type.String(),
+  vesselId: UuidString(),
   events: Type.Array(
     Type.Object({
       id: Type.String(),
@@ -174,7 +246,7 @@ const PushEventsSchema = Type.Object({
 const PushEventsCompiler = TypeCompiler.Compile(PushEventsSchema);
 
 const PullConfigInputSchema = Type.Object({
-  vesselId: Type.String(),
+  vesselId: UuidString(),
   lastSyncAt: Type.Optional(Type.String()),
   // What the vessel calls itself. Optional so a vessel on an older build
   // still checks in normally; office simply has nothing to compare against.
@@ -329,7 +401,7 @@ const UpdateVesselSchema = Type.Object({
 const UpdateVesselCompiler = TypeCompiler.Compile(UpdateVesselSchema);
 
 const GetVesselSchema = Type.Object({
-  id: Type.String(),
+  id: UuidString(),
 });
 const GetVesselCompiler = TypeCompiler.Compile(GetVesselSchema);
 
@@ -339,17 +411,17 @@ const DeleteVesselSchema = Type.Object({
 const DeleteVesselCompiler = TypeCompiler.Compile(DeleteVesselSchema);
 
 const ResetVesselCredentialsSchema = Type.Object({
-  id: Type.String(),
+  id: UuidString(),
 });
 const ResetVesselCredentialsCompiler = TypeCompiler.Compile(ResetVesselCredentialsSchema);
 
 const IssueEnrollmentSchema = Type.Object({
-  vesselId: Type.String(),
+  vesselId: UuidString(),
 });
 const IssueEnrollmentCompiler = TypeCompiler.Compile(IssueEnrollmentSchema);
 
 const RevokeEnrollmentSchema = Type.Object({
-  vesselId: Type.String(),
+  vesselId: UuidString(),
 });
 const RevokeEnrollmentCompiler = TypeCompiler.Compile(RevokeEnrollmentSchema);
 
@@ -374,7 +446,7 @@ const SchemaVersionSchema = Type.Object({ schemaName: Type.String(), version: Ty
 const SchemaVersionCompiler = TypeCompiler.Compile(SchemaVersionSchema);
 
 const QueryMissingChunksSchema = Type.Object({
-  vesselId: Type.String(),
+  vesselId: UuidString(),
   attachment: Type.Object({
     reportId: Type.String(),
     versionNo: Type.Number(),
@@ -389,7 +461,7 @@ const QueryMissingChunksSchema = Type.Object({
 const QueryMissingChunksCompiler = TypeCompiler.Compile(QueryMissingChunksSchema);
 
 const UploadChunkSchema = Type.Object({
-  vesselId: Type.String(),
+  vesselId: UuidString(),
   contentHash: Type.String(),
   chunkIndex: Type.Number(),
   // base64 — the transport is JSON, so bytes cannot travel raw.
@@ -398,28 +470,28 @@ const UploadChunkSchema = Type.Object({
 const UploadChunkCompiler = TypeCompiler.Compile(UploadChunkSchema);
 
 const ListReportAttachmentsSchema = Type.Object({
-  vesselId: Type.String(),
+  vesselId: UuidString(),
   reportId: Type.String(),
 });
 const ListReportAttachmentsCompiler = TypeCompiler.Compile(ListReportAttachmentsSchema);
 
-const VesselIdSchema = Type.Object({ vesselId: Type.String() });
+const VesselIdSchema = Type.Object({ vesselId: UuidString() });
 const VesselIdCompiler = TypeCompiler.Compile(VesselIdSchema);
 
 const PushRestoreBundleSchema = Type.Object({
-  vesselId: Type.String(),
+  vesselId: UuidString(),
   reason: Type.Optional(Type.String()),
 });
 const PushRestoreBundleCompiler = TypeCompiler.Compile(PushRestoreBundleSchema);
 
 const FetchRestoreBundleSchema = Type.Object({
-  vesselId: Type.String(),
+  vesselId: UuidString(),
   commandId: Type.String(),
 });
 const FetchRestoreBundleCompiler = TypeCompiler.Compile(FetchRestoreBundleSchema);
 
 const AckRestoreBundleSchema = Type.Object({
-  vesselId: Type.String(),
+  vesselId: UuidString(),
   commandId: Type.String(),
 });
 const AckRestoreBundleCompiler = TypeCompiler.Compile(AckRestoreBundleSchema);
@@ -469,7 +541,7 @@ const GetReportCompiler = TypeCompiler.Compile(GetReportSchema);
 // lets the caller be precise where it can be.
 const ReportHistorySchema = Type.Object({
   reportId: Type.String(),
-  vesselId: Type.Optional(Type.String()),
+  vesselId: Type.Optional(UuidString()),
 });
 const ReportHistoryCompiler = TypeCompiler.Compile(ReportHistorySchema);
 
@@ -517,7 +589,7 @@ const CreateApiKeySchema = Type.Object({
 const CreateApiKeyCompiler = TypeCompiler.Compile(CreateApiKeySchema);
 
 const RevokeApiKeySchema = Type.Object({
-  id: Type.String(),
+  id: UuidString(),
 });
 const RevokeApiKeyCompiler = TypeCompiler.Compile(RevokeApiKeySchema);
 
@@ -603,7 +675,13 @@ const MarkNotificationsReadSchema = Type.Object({
 });
 const MarkNotificationsReadCompiler = TypeCompiler.Compile(MarkNotificationsReadSchema);
 
-export const publicProcedure = t.procedure;
+/**
+ * Applied to every procedure: the services throw Nest exceptions and
+ * tRPC would otherwise report all of them as 500s. See
+ * rpc/http-error.middleware.ts.
+ */
+const mapHttpExceptions = httpExceptionMapper(t);
+export const publicProcedure = t.procedure.use(mapHttpExceptions);
 export const router = t.router;
 
 const isEdgeAuthed = t.middleware(async ({ ctx, next }) => {
@@ -627,7 +705,7 @@ const isEdgeAuthed = t.middleware(async ({ ctx, next }) => {
   });
 });
 
-export const edgeProcedure = t.procedure.use(isEdgeAuthed);
+export const edgeProcedure = t.procedure.use(mapHttpExceptions).use(isEdgeAuthed);
 
 /**
  * Verifies the SuperTokens session on the underlying Express req/res
@@ -655,7 +733,7 @@ const isAuthed = t.middleware(async ({ ctx, next }) => {
   }
 });
 
-export const protectedProcedure = t.procedure.use(isAuthed);
+export const protectedProcedure = t.procedure.use(mapHttpExceptions).use(isAuthed);
 
 @Injectable()
 export class TrpcRouter {

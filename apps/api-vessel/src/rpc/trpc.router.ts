@@ -16,6 +16,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { eq } from 'drizzle-orm';
 import * as schema from '@ovl/vessel-database';
 import { TRPCError } from '@trpc/server';
+import { httpExceptionMapper } from './http-error.middleware';
 import * as jwt from 'jsonwebtoken';
 import * as crypto from 'crypto';
 
@@ -25,7 +26,14 @@ export interface Context {
 }
 
 const t = initTRPC.context<Context>().create();
-export const publicProcedure = t.procedure;
+
+/**
+ * Applied to every procedure, public and protected alike: the services
+ * throw Nest exceptions and tRPC would otherwise report all of them as
+ * 500s. See rpc/http-error.middleware.ts.
+ */
+const mapHttpExceptions = httpExceptionMapper(t);
+export const publicProcedure = t.procedure.use(mapHttpExceptions);
 export const router = t.router;
 
 /**
@@ -309,7 +317,7 @@ export class TrpcRouter {
       },
     });
   });
-  private readonly protectedProcedure = t.procedure.use(this.isAuthed);
+  private readonly protectedProcedure = t.procedure.use(mapHttpExceptions).use(this.isAuthed);
 
   appRouter = router({
     ping: publicProcedure.query(() => {
@@ -363,17 +371,15 @@ export class TrpcRouter {
           return val as Static<typeof GetReportSchema>;
         })
         .query(async ({ input }) => {
+          // getReport raises NotFoundException for an unknown id, which now
+          // reaches the client as a 404 rather than a 500 (see
+          // rpc/http-error.middleware.ts). There used to be a branch here
+          // returning a null-filled version of the success shape "so the
+          // client sees one type" — unreachable, because getReport throws
+          // rather than returning null, so the promise it documented was
+          // never kept. The consumer reads the query's error, which is the
+          // path that actually runs.
           const report = await this.reportsService.getReport(input.id);
-          if (!report) {
-            // Same shape as the success path so the client sees one type.
-            return {
-              report: null,
-              schema: null,
-              fieldPolicy: null,
-              enums: {} as Record<string, string[]>,
-            };
-          }
-
           const formSchema = this.schemaRegistryService.getSchema(report.schemaName);
 
           // Same lookup reports.getFieldPolicy performs — kept in step with
