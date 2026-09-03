@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@ovl/ui/components/badge";
 import { Lock } from "lucide-react";
 import { ScopeSelector } from "./ScopeSelector";
+import { CONFIG_ROLE_HINT, useCanAuthorConfig } from "@/lib/usePermissions";
 import {
   ALL_PROFILES,
   PROFILE_LABELS,
@@ -56,6 +57,7 @@ export function ComplianceTab() {
 }
 
 function RegulatoryProfilesPanel() {
+  const readOnly = useCanAuthorConfig() === false;
   const { data: vessels = [] } = trpc.vessels.list.useQuery();
   const { data: assignments = [], refetch } = trpc.compliance.listProfiles.useQuery();
   const [scope, setScope] = useState<Scope>({ type: "fleet" });
@@ -103,7 +105,8 @@ function RegulatoryProfilesPanel() {
             ))}
           </div>
           <Button
-            disabled={scope.type !== "fleet" && !scope.key}
+            disabled={readOnly || (scope.type !== "fleet" && !scope.key)}
+            title={readOnly ? CONFIG_ROLE_HINT : undefined}
             onClick={() => save.mutate({ scope, profiles: [...selected] })}
           >
             {save.isPending ? "Saving..." : current ? "Update" : "Save"}
@@ -136,6 +139,7 @@ function RegulatoryProfilesPanel() {
 }
 
 function CadenceRulesPanel() {
+  const readOnly = useCanAuthorConfig() === false;
   const { data: vessels = [] } = trpc.vessels.list.useQuery();
   const { data: rules = [], refetch } = trpc.compliance.listCadenceRules.useQuery();
   const [scope, setScope] = useState<Scope>({ type: "fleet" });
@@ -189,7 +193,8 @@ function CadenceRulesPanel() {
           )}
           {!valid && <p className="text-sm text-status-warn">Both values must be positive numbers.</p>}
           <Button
-            disabled={!valid || (scope.type !== "fleet" && !scope.key)}
+            disabled={readOnly || !valid || (scope.type !== "fleet" && !scope.key)}
+            title={readOnly ? CONFIG_ROLE_HINT : undefined}
             onClick={() => save.mutate({ scope, minReportIntervalHours: minNum, maxGapHours: maxNum })}
           >
             {save.isPending ? "Saving..." : current ? "Update" : "Save"}
@@ -220,6 +225,7 @@ function CadenceRulesPanel() {
 const SEVERITY_OPTIONS = ["default", "error", "warning", "info"] as const;
 
 function RuleSeveritiesPanel() {
+  const readOnly = useCanAuthorConfig() === false;
   const { data: vessels = [] } = trpc.vessels.list.useQuery();
   const { data: catalog } = trpc.compliance.ruleCatalog.useQuery();
   const { data: assignments = [], refetch } = trpc.compliance.listRuleSeverities.useQuery();
@@ -284,7 +290,8 @@ function RuleSeveritiesPanel() {
             ))}
           </div>
           <Button
-            disabled={scope.type !== "fleet" && !scope.key}
+            disabled={readOnly || (scope.type !== "fleet" && !scope.key)}
+            title={readOnly ? CONFIG_ROLE_HINT : undefined}
             onClick={() => save.mutate({ scope, severities })}
           >
             {save.isPending ? "Saving..." : current ? "Update" : "Save"}

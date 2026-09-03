@@ -17,6 +17,7 @@ import {
 } from "@ovl/ui/components/dialog";
 import { Upload, Plus, FileJson, Layers, Link as LinkIcon, ShieldAlert, ScrollText, Ship } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { CONFIG_ROLE_HINT, useCanAuthorConfig } from "@/lib/usePermissions";
 import { FieldPolicyTab } from "./FieldPolicyTab";
 import { ComplianceTab } from "./ComplianceTab";
 import { VesselConfigsTab } from "./VesselConfigsTab";
@@ -25,6 +26,7 @@ import { scopeLabel, type Scope } from "@/lib/config/complianceLogic";
 
 export default function ConfigurationPage() {
   const [activeTab, setActiveTab] = useState("schemas");
+  const canAuthor = useCanAuthorConfig();
 
   return (
     <div className="p-8">
@@ -34,6 +36,21 @@ export default function ConfigurationPage() {
           <p className="text-muted-foreground mt-2">Manage dynamic schemas and push config bundles to edge nodes.</p>
         </div>
       </div>
+
+      {/* Said once, at the top, rather than repeated on every disabled
+          control: the whole page is one permission, and the person needs to
+          know before they start editing — not after Save refuses them. */}
+      {canAuthor === false && (
+        <div className="mb-6 flex items-start gap-2.5 rounded-md border border-status-warn/30 bg-status-warn/10 px-4 py-3 text-sm text-status-warn">
+          <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0" />
+          <div>
+            <span className="font-medium">Read-only.</span> Publishing schemas, saving field policies and
+            provisioning config bundles all require the <span className="font-medium">Config Manager</span> role,
+            which this account does not have. You can review everything here; ask an administrator to grant the
+            role on Users &amp; Roles if you need to make changes.
+          </div>
+        </div>
+      )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab} orientation="horizontal" className="w-full">
         <TabsList className="mb-6">
@@ -92,6 +109,7 @@ export default function ConfigurationPage() {
 }
 
 function SchemasTab() {
+  const canAuthor = useCanAuthorConfig();
   const { data: schemas, isLoading, refetch } = trpc.schemas.list.useQuery();
   const publishSchema = trpc.schemas.publish.useMutation({
     onSuccess: () => refetch(),
@@ -350,9 +368,13 @@ function SchemasTab() {
             )}
 
             <div className="flex gap-2">
+              {/* schemas.preview is itself behind assertConfigManager, so
+                  even Validate is unavailable without the role — better to
+                  say so than to let it 403 on click. */}
               <Button
                 onClick={handleValidate}
-                disabled={previewSchema.isPending || !schemaName || !content}
+                disabled={previewSchema.isPending || !schemaName || !content || canAuthor === false}
+                title={canAuthor === false ? CONFIG_ROLE_HINT : undefined}
                 variant="outline"
                 className="flex-1 border-border"
               >
@@ -360,7 +382,8 @@ function SchemasTab() {
               </Button>
               <Button
                 onClick={handleUpload}
-                disabled={publishSchema.isPending || !previewIsCurrent || !preview?.valid}
+                disabled={publishSchema.isPending || !previewIsCurrent || !preview?.valid || canAuthor === false}
+                title={canAuthor === false ? CONFIG_ROLE_HINT : undefined}
                 className="flex-1"
               >
                 <Upload className="w-4 h-4 mr-2" />
@@ -375,6 +398,7 @@ function SchemasTab() {
 }
 
 function BundlesTab() {
+  const canAuthor = useCanAuthorConfig();
   /**
    * Publish history, paged. The table previously rendered every bundle
    * ever published in one unbounded, unscrolled list, so the card grew
@@ -486,7 +510,11 @@ function BundlesTab() {
               onChange={(e) => setLabel(e.target.value)}
               className="w-64 bg-background border-border text-foreground"
             />
-            <Button onClick={() => setConfirmOpen(true)}>
+            <Button
+              onClick={() => setConfirmOpen(true)}
+              disabled={canAuthor === false}
+              title={canAuthor === false ? CONFIG_ROLE_HINT : undefined}
+            >
               <Plus className="w-4 h-4 mr-2" />
               Publish Bundle
             </Button>
@@ -608,6 +636,7 @@ function BundlesTab() {
 }
 
 function AssignmentsTab() {
+  const canAuthor = useCanAuthorConfig();
   const { data: assignments, isLoading, refetch } = trpc.configBundles.listAssignments.useQuery();
   const { data: bundles = [] } = trpc.configBundles.list.useQuery();
   const { data: vessels = [] } = trpc.vessels.list.useQuery();
@@ -630,7 +659,11 @@ function AssignmentsTab() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-heading font-medium text-foreground">Bundle Assignments</h2>
-        <Button onClick={() => setDialogOpen(true)}>
+        <Button
+          onClick={() => setDialogOpen(true)}
+          disabled={canAuthor === false}
+          title={canAuthor === false ? CONFIG_ROLE_HINT : undefined}
+        >
           <LinkIcon className="w-4 h-4 mr-2" />
           Assign Bundle
         </Button>

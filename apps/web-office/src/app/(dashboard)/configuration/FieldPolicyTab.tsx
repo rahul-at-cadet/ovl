@@ -26,6 +26,7 @@ import {
   SchemaField,
 } from "@/lib/config/fieldPolicyLogic";
 import { scopesEqual, scopeLabel, type Scope } from "@/lib/config/complianceLogic";
+import { CONFIG_ROLE_HINT, useCanAuthorConfig } from "@/lib/usePermissions";
 import { ScopeSelector } from "./ScopeSelector";
 import { SectionRail } from "./SectionRail";
 import { BulkActionsToolbar } from "./BulkActionsToolbar";
@@ -69,12 +70,14 @@ function EventsCell({
   field,
   selectedEvents,
   eventTypes,
+  readOnly,
   onToggleAll,
   onToggleEvent,
 }: {
   field: SchemaField;
   selectedEvents: string[];
   eventTypes: string[];
+  readOnly?: boolean;
   onToggleAll: () => void;
   onToggleEvent: (ev: string) => void;
 }) {
@@ -90,7 +93,7 @@ function EventsCell({
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  const disabled = field.schemaMandatory;
+  const disabled = field.schemaMandatory || !!readOnly;
   const label = selectedEvents.length === 0 ? "All events" : `${selectedEvents.length} event${selectedEvents.length === 1 ? "" : "s"}`;
 
   return (
@@ -148,6 +151,11 @@ type VirtualRowEntry =
   | { kind: "field"; key: string; row: Row<SchemaField> };
 
 export function FieldPolicyTab() {
+  // fieldPolicies.save asserts configManager server-side. Leaving 400+ rows
+  // editable for an account that cannot save them means the refusal lands
+  // after the work is done and is then unrecoverable — the overrides live
+  // in component state, so the toast is also where they get thrown away.
+  const readOnly = useCanAuthorConfig() === false;
   const { data: schemas, isLoading: schemasLoading } = trpc.schemas.list.useQuery();
   const { data: vessels = EMPTY_VESSELS } = trpc.vessels.list.useQuery();
   const [selectedSchema, setSelectedSchema] = useState<string>("");
@@ -365,6 +373,7 @@ export function FieldPolicyTab() {
           type="checkbox"
           checked={allVisibleSelected}
           onChange={toggleSelectAllVisible}
+          disabled={readOnly}
           aria-label="Select all visible fields"
         />
       ),
@@ -376,6 +385,7 @@ export function FieldPolicyTab() {
             type="checkbox"
             checked={selected.has(field.name)}
             onChange={() => toggleFieldSelected(field.name)}
+            disabled={readOnly}
             aria-label={`Select ${field.label || field.name}`}
           />
         );
@@ -437,7 +447,7 @@ export function FieldPolicyTab() {
         return (
           <select
             value={explicit || "inherit"}
-            disabled={field.schemaMandatory}
+            disabled={field.schemaMandatory || readOnly}
             onChange={e => {
               const val = e.target.value;
               const newOverrides = { ...policyOverrides };
@@ -476,6 +486,7 @@ export function FieldPolicyTab() {
                   field={field}
                   selectedEvents={selectedEvents}
                   eventTypes={eventTypes}
+                  readOnly={readOnly}
                   onToggleAll={() => {
                     const next = { ...eventsOverrides };
                     delete next[field.name];
@@ -507,6 +518,7 @@ export function FieldPolicyTab() {
         return (
           <select
             value={explicit || "inherit"}
+            disabled={readOnly}
             onChange={e => {
               const val = e.target.value;
               const newOverrides = { ...prefillOverrides };
@@ -517,7 +529,7 @@ export function FieldPolicyTab() {
               }
               setPrefillOverrides(newOverrides);
             }}
-            className={`w-36 h-8 rounded-md border bg-background text-xs px-2 ${explicit ? 'border-status-info/25 bg-status-info/10 text-status-info' : 'border-border text-foreground'}`}
+            className={`w-36 h-8 rounded-md border bg-background text-xs px-2 disabled:opacity-50 disabled:cursor-not-allowed ${explicit ? 'border-status-info/25 bg-status-info/10 text-status-info' : 'border-border text-foreground'}`}
           >
             <option value="inherit">Inherit (none)</option>
             {PREFILL_CLASSES.map(s => (
@@ -527,7 +539,7 @@ export function FieldPolicyTab() {
         )
       }
     })
-  ], [columnHelper, policyOverrides, prefillOverrides, eventsOverrides, eventTypes, eventful, migration, reviewed, selected, allVisibleSelected, toggleSelectAllVisible, toggleFieldSelected]);
+  ], [columnHelper, policyOverrides, prefillOverrides, eventsOverrides, eventTypes, eventful, migration, reviewed, selected, allVisibleSelected, toggleSelectAllVisible, toggleFieldSelected, readOnly]);
 
   const table = useReactTable({
     data: visibleFields,
@@ -617,11 +629,12 @@ export function FieldPolicyTab() {
 
             <Button
               onClick={handleSave}
-              disabled={!isDirty || savePolicy.isPending}
-              className={isDirty ? undefined : "bg-muted text-muted-foreground"}
+              disabled={!isDirty || savePolicy.isPending || readOnly}
+              title={readOnly ? CONFIG_ROLE_HINT : undefined}
+              className={isDirty && !readOnly ? undefined : "bg-muted text-muted-foreground"}
             >
               {savePolicy.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
-              {isDirty ? "Save Changes" : "Up to Date"}
+              {readOnly ? "Read-only" : isDirty ? "Save Changes" : "Up to Date"}
             </Button>
           </div>
         </CardContent>
