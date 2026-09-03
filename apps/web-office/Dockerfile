@@ -1,3 +1,6 @@
+# syntax=docker/dockerfile:1
+# Declared so the RUN --mount=type=cache steps below are always
+# understood, including by the legacy builder path.
 # Optimized production image for web-office (Next.js standalone output).
 # Build from the monorepo root: docker build -f apps/web-office/Dockerfile -t ovl-web-office .
 
@@ -14,14 +17,38 @@ COPY packages/database/package.json packages/database/package.json
 # @ovl/ui is a workspace in package-lock.json, so npm ci needs its manifest
 # present or the install fails before any source is copied.
 COPY packages/ui/package.json packages/ui/package.json
-RUN npm ci
-COPY . .
+RUN --mount=type=cache,target=/root/.npm --mount=type=cache,target=/root/.cache/node-gyp npm ci
+# Scoped rather than `COPY . .`.
+#
+# The whole tree in one layer meant any change anywhere invalidated it,
+# so editing a stylesheet in web-office rebuilt api-vessel's entire
+# TypeScript chain — measured, not assumed. Every image recompiled on
+# every change to any of them.
+#
+# These are the workspaces this image actually compiles, plus the ones
+# reached by the type-only cross-imports the comments above describe.
+# Adding a workspace this image depends on means adding it here.
+COPY turbo.json ./
+COPY packages/database packages/database
+COPY packages/ui packages/ui
+COPY apps/api-office apps/api-office
+COPY apps/web-office apps/web-office
 ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_WEBSITE_DOMAIN
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_WEBSITE_DOMAIN=$NEXT_PUBLIC_WEBSITE_DOMAIN
 RUN npm run build --workspace=@ovl/database
-RUN npm run build --workspace=web-office
+# Next.js keeps its compiler cache under .next/cache, and a container
+# build starts without it every time — which is why this step took over
+# seven minutes on the server while the compile itself reported 5.7min.
+# Mounting it as a build cache lets a rebuild reuse the previous
+# compilation instead of starting from nothing. Next documents this as
+# the supported way to cache in Docker.
+#
+# NEXT_TELEMETRY_DISABLED also removes a network call from the build,
+# which matters more on a VM with a slow uplink than on a laptop.
+RUN --mount=type=cache,target=/app/apps/web-office/.next/cache \
+    NEXT_TELEMETRY_DISABLED=1 npm run build --workspace=web-office
 
 # Standalone output already contains a minimal, traced node_modules, and
 # both native deps it pulls in (sharp for image optimization, argon2
