@@ -10,6 +10,7 @@ import { VmsService } from '../sensors/vms.service';
 import { VoyageService } from '../sensors/voyage.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { RestoreBundleService } from '../system/restore-bundle.service';
+import { BackupService } from '../system/backup.service';
 import { DATABASE_CONNECTION } from '../database/database.module';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { eq } from 'drizzle-orm';
@@ -40,6 +41,15 @@ function requireMaster(ctx: { user: { role: string } }): void {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the Master account may manage disaster recovery.' });
   }
 }
+
+const RestoreBackupSchema = Type.Object({
+  id: Type.String(),
+  confirm: Type.Boolean(),
+});
+const RestoreBackupCompiler = TypeCompiler.Compile(RestoreBackupSchema);
+
+const DeleteBackupSchema = Type.Object({ id: Type.String() });
+const DeleteBackupCompiler = TypeCompiler.Compile(DeleteBackupSchema);
 
 const ImportRestoreBundleSchema = Type.Object({
   // base64 of the age file office produced. It arrives as text because
@@ -239,6 +249,7 @@ export class TrpcRouter {
     private readonly authService: AuthService,
     private readonly notificationsService: NotificationsService,
     private readonly restoreBundleService: RestoreBundleService,
+    private readonly backupService: BackupService,
     // Verification goes through the same JwtService that signs, so both
     // sides use this vessel's own secret (see auth/jwt-secret.ts). They
     // used to read process.env.JWT_SECRET independently and fall back to
@@ -1006,6 +1017,66 @@ export class TrpcRouter {
       getActiveVoyage: publicProcedure.query(async () => {
         return this.voyageService.getActiveVoyage();
       }),
+
+      /**
+       * Local snapshots — the on-ship half of disaster recovery. The
+       * office restore bundle only carries what shore holds, so drafts,
+       * local attachments and anything not yet synced survive nowhere
+       * else.
+       */
+      listBackups: this.protectedProcedure.query(({ ctx }) => {
+        requireMaster(ctx);
+        return this.backupService.list();
+      }),
+
+      snapshotNow: this.protectedProcedure.mutation(({ ctx }) => {
+        requireMaster(ctx);
+        try {
+          return this.backupService.snapshotNow();
+        } catch (err: any) {
+          throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: `Snapshot failed: ${err.message}` });
+        }
+      }),
+
+      /**
+       * Rolls the whole node back to a snapshot. Confirm-gated as well as
+       * Master-gated: this replaces every report, draft and attachment on
+       * the vessel with the state at that moment.
+       */
+      restoreBackup: this.protectedProcedure
+        .input((val: unknown) => {
+          if (!RestoreBackupCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof RestoreBackupSchema>;
+        })
+        .mutation(({ input, ctx }) => {
+          requireMaster(ctx);
+          if (!input.confirm) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: 'Restoring a snapshot replaces all local data — confirm to continue.',
+            });
+          }
+          try {
+            return this.backupService.restore(input.id);
+          } catch (err: any) {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: err.message });
+          }
+        }),
+
+      deleteBackup: this.protectedProcedure
+        .input((val: unknown) => {
+          if (!DeleteBackupCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof DeleteBackupSchema>;
+        })
+        .mutation(({ input, ctx }) => {
+          requireMaster(ctx);
+          try {
+            this.backupService.remove(input.id);
+            return { success: true };
+          } catch (err: any) {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: err.message });
+          }
+        }),
 
       /**
        * Whether this node holds a restore key, and when it was last

@@ -14,6 +14,7 @@ import { Switch } from '@ovl/ui/components/switch';
 import { useScrollActiveTabIntoView } from '@/components/ScrollableTabs';
 import { StatusBadge } from '@ovl/ui/components/status-badge';
 import { RecoveryTab } from './RecoveryTab';
+import { SnapshotsCard } from './SnapshotsCard';
 
 export default function SettingsPage() {
   const toastManager = useToastManager();
@@ -244,11 +245,11 @@ export default function SettingsPage() {
                   <CardTitle className="text-sm font-semibold tracking-tight text-foreground">Data Retention</CardTitle>
                   <CardDescription className="text-xs text-muted-foreground">Manage local SQLite database pruning.</CardDescription>
                 </CardHeader>
-                <CardContent className="pt-12 pb-12 flex flex-col items-center justify-center text-center space-y-4">
-                  <Database className="w-8 h-8 text-muted-foreground mb-2" />
-                  <p className="text-sm font-medium text-muted-foreground">Database using 14.2 MB of space.</p>
-                  
-                  <div className="flex flex-wrap gap-3 mt-6">
+                <CardContent className="pt-6 pb-6 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-sm text-muted-foreground">
+                      Take a copy of this node&apos;s database and attachments, or download one to keep ashore.
+                    </p>
                     <Button variant="outline" className="border-border bg-background hover:bg-card text-foreground" onClick={() => window.open(`${API_ORIGIN}/system/backup/download`)}>
                       <Save className="w-4 h-4 mr-2" />
                       Download Full Backup
@@ -460,6 +461,7 @@ export default function SettingsPage() {
 
             {isMaster ? (
               <TabsContent value="recovery" className="mt-0 space-y-6">
+                <SnapshotsCard />
                 <RecoveryTab />
               </TabsContent>
             ) : null}
