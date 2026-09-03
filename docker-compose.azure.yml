@@ -9,16 +9,48 @@ name: ovl-node-azure
 # Builds the optimized, size-reduced production Dockerfiles under
 # apps/*/Dockerfile (multi-stage, dependency-scoped, Alpine where the
 # native modules involved allow it — see each Dockerfile's own
-# comments), pointed at the VM's own native Postgres
-# (ovl/deploy/office/docker-compose.yml's same ovl_office database, per
-# ovl/deploy/azure/office.service's DSN) instead of a container.
-# Credentials come from .env.azure (gitignored — never commit real
+# comments), against this stack's own containerized Postgres — the same
+# service, project name and volume as docker-compose.azure.images.yml, so
+# the two files are interchangeable views of one deployment rather than
+# two stacks fighting over one database.
+#
+# This previously pointed at host.docker.internal:5432, the VM's native
+# Postgres from the Go deployment. That stopped being true when the Node
+# stack moved to its own container, and it does not resolve on Linux
+# without an explicit host-gateway mapping in any case — so building from
+# this file produced an api-office that could not reach a database.
+#
+# Credentials come from the env file (gitignored — never commit real
 # secrets); see .env.azure.example for the shape.
 #
 # Usage on the VM:
 #   docker compose -f docker-compose.azure.yml --env-file .env.azure up -d --build
 
 services:
+  # The same service, image and volume as docker-compose.azure.images.yml.
+  # Identical on purpose: both files declare `name: ovl-node-azure`, so they
+  # address one project and one `node-postgres-data` volume. Whichever file
+  # you bring the stack up with, it is the same database.
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      # 5433, not 5432 — the Go binary's native Postgres already owns 5432
+      # on this host.
+      - "5433:5432"
+    volumes:
+      - node-postgres-data:/var/lib/postgresql/data
+      - ./deploy/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   supertokens:
     image: registry.supertokens.io/supertokens/supertokens-postgresql:latest
     restart: unless-stopped
@@ -26,13 +58,16 @@ services:
       - "3567:3567"
 
     environment:
-      POSTGRESQL_CONNECTION_URI: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@host.docker.internal:5432/${POSTGRES_DB}?sslmode=disable"
+      POSTGRESQL_CONNECTION_URI: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
     healthcheck:
       test: >
         bash -c 'exec 3<>/dev/tcp/127.0.0.1/3567 && echo -e "GET /hello HTTP/1.1\r\nhost: 127.0.0.1:3567\r\nConnection: close\r\n\r\n" >&3 && cat <&3 | grep "Hello"'
       interval: 10s
       timeout: 5s
       retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   api-office:
     image: api-office-void:latest
@@ -45,7 +80,7 @@ services:
       - "3001:3001"
 
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@host.docker.internal:5432/${POSTGRES_DB}?sslmode=disable
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
       - SUPERTOKENS_CONNECTION_URI=http://supertokens:3567
       - PORT=3001
     depends_on:
@@ -132,3 +167,4 @@ services:
 
 volumes:
   vessel-db-data:
+  node-postgres-data:
