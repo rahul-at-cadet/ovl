@@ -7,7 +7,25 @@ import * as schema from '@ovl/vessel-database';
 import { AuthService } from '../auth/auth.service';
 import { RestoreBundleService } from '../system/restore-bundle.service';
 import { SchemaRegistryService } from '../reports/schema-registry.service';
+import { AttachmentStore } from '../reports/attachment-store';
+import { attachmentsDir } from '../system/paths';
+import { VesselDatabase } from '../database/database.module';
 import { randomUUID } from 'crypto';
+
+/**
+ * Attachment chunk size. Well under office's 1 MiB ceiling, and small
+ * enough that a satellite link dropping mid-request loses one chunk
+ * rather than a whole photo — the point of chunking at all.
+ */
+const ATTACHMENT_CHUNK_BYTES = 256 * 1024;
+
+/**
+ * How many attachments one cycle will attempt. Bounded so a backlog of
+ * evidence photos cannot monopolise the link and starve the reports
+ * themselves, which are what shore is actually waiting for. The rest go
+ * on the next cycle, thirty seconds later.
+ */
+const ATTACHMENTS_PER_CYCLE = 3;
 
 /** One recorded sync cycle, as stored in the vessel's `sync_runs` table. */
 export interface SyncRunRecord {
@@ -50,6 +68,7 @@ export class SyncService {
     private readonly authService: AuthService,
     private readonly restoreBundleService: RestoreBundleService,
     private readonly schemaRegistryService: SchemaRegistryService,
+    private readonly vesselDatabase: VesselDatabase,
     @Inject(DATABASE_CONNECTION)
     private readonly db: any, // type as NodePgDatabase/BetterSQLite3Database if configured
   ) {}
@@ -86,6 +105,16 @@ export class SyncService {
 
       // 2. Downstream Sync (Shore -> Ship)
       await this.pullConfiguration();
+
+      // 3. Attachments (Ship -> Shore). Last on purpose: reports and
+      // config are what shore is waiting on, and a backlog of evidence
+      // photos must not delay them. Its own failures are logged per
+      // attachment rather than failing the cycle — an unreadable file is
+      // not a reason to report the sync as broken.
+      const attachmentVesselId = (
+        await this.db.select().from(schema.configStore).where(eq(schema.configStore.key, 'vessel_id'))
+      )[0]?.value;
+      if (attachmentVesselId) await this.pushAttachments(attachmentVesselId);
 
       const failures = [this.lastPushError, this.lastConfigError].filter(Boolean);
       if (failures.length > 0) {
@@ -239,6 +268,91 @@ export class SyncService {
   async syncNow() {
     await this.handleCron('manual');
     return this.getStatus();
+  }
+
+  /**
+   * Carries locally captured attachments to shore — ports the vessel half
+   * of ovl's attachment sync.
+   *
+   * attachments.synced_at was permanently null in this port because
+   * nothing ever pushed: a Bunker or EDN report's supporting evidence
+   * stayed on the ship for good. Chunked because the link is satellite —
+   * an interrupted 8 MB photo has to resume rather than restart — and
+   * office is asked which chunks it still needs before anything is sent,
+   * so a retry never re-uploads what already landed.
+   */
+  private async pushAttachments(vesselId: string): Promise<void> {
+    let pending: any[];
+    try {
+      pending = await this.db
+        .select()
+        .from(schema.attachments)
+        .where(isNull(schema.attachments.syncedAt))
+        .limit(ATTACHMENTS_PER_CYCLE);
+    } catch (err: any) {
+      this.logger.error(`Could not read pending attachments: ${err.message}`);
+      return;
+    }
+    if (pending.length === 0) return;
+
+    const store = new AttachmentStore(attachmentsDir(this.vesselDatabase.dataDir));
+    this.logger.log(`Pushing ${pending.length} attachment(s) to shore.`);
+
+    for (const row of pending) {
+      try {
+        const bytes = store.get(row.contentHash);
+        if (!bytes) {
+          // The metadata row outlived its file. Nothing can be sent, and
+          // retrying every cycle forever would be noise — but the row is
+          // left unsynced deliberately, because silently marking it done
+          // would claim shore has evidence it does not.
+          this.logger.error(
+            `Attachment ${row.filename} (${row.contentHash.slice(0, 12)}…) is missing from the local store; skipping.`,
+          );
+          continue;
+        }
+
+        const query = await this.trpc.client.sync.queryMissingAttachmentChunks.mutate({
+          vesselId,
+          attachment: {
+            reportId: row.reportId,
+            versionNo: row.versionNo,
+            fieldName: row.fieldName,
+            filename: row.filename,
+            contentType: row.contentType,
+            contentHash: row.contentHash,
+            totalSize: bytes.length,
+            chunkSize: ATTACHMENT_CHUNK_BYTES,
+          },
+        });
+
+        if (!query.alreadyComplete) {
+          // Only the chunks office asked for. An identical file another
+          // vessel already sent transfers nothing at all.
+          for (const index of query.missingChunkIndices) {
+            const start = index * ATTACHMENT_CHUNK_BYTES;
+            const slice = bytes.subarray(start, Math.min(start + ATTACHMENT_CHUNK_BYTES, bytes.length));
+            await this.trpc.client.sync.uploadAttachmentChunk.mutate({
+              vesselId,
+              contentHash: row.contentHash,
+              chunkIndex: index,
+              data: slice.toString('base64'),
+            });
+          }
+        }
+
+        await this.db
+          .update(schema.attachments)
+          .set({ syncedAt: new Date().toISOString() })
+          .where(eq(schema.attachments.id, row.id));
+        this.logger.log(`Attachment ${row.filename} is now held ashore.`);
+      } catch (err: any) {
+        // Per attachment, so one unreadable file or one rejected transfer
+        // does not stop the rest. Left unsynced, so the next cycle
+        // resumes from whatever chunks office already has.
+        this.logger.error(`Could not push attachment ${row.filename}: ${err.message}`);
+      }
+    }
   }
 
   private async pushOutboxEvents() {

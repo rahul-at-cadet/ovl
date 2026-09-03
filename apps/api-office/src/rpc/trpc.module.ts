@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TrpcRouter } from './trpc.router';
+import { AttachmentsModule } from '../attachments/attachments.module';
 import { SchemaVersionsModule } from '../config/schema-versions/schema-versions.module';
 import { FieldPolicyModule } from '../config/field-policy/field-policy.module';
 import { ComplianceModule } from '../config/compliance/compliance.module';
@@ -9,7 +10,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { UsersModule } from '../users/users.module';
 
 @Module({
-  imports: [SchemaVersionsModule, FieldPolicyModule, ComplianceModule, ConfigBundleModule, VesselsModule, NotificationsModule, UsersModule],
+  imports: [SchemaVersionsModule, FieldPolicyModule, ComplianceModule, ConfigBundleModule, VesselsModule, NotificationsModule, UsersModule, AttachmentsModule],
   providers: [TrpcRouter],
   exports: [TrpcRouter],
 })

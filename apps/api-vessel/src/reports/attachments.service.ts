@@ -6,6 +6,8 @@ import * as schema from '@ovl/vessel-database';
 import { randomUUID } from 'crypto';
 import * as path from 'path';
 import { AttachmentStore } from './attachment-store';
+import { VesselDatabase } from '../database/database.module';
+import { attachmentsDir } from '../system/paths';
 import { ReportsService } from './reports.service';
 
 // Architecture 15's stated scope ("images... PDFs") and hard size cap —
@@ -56,13 +58,19 @@ function toView(a: typeof schema.attachments.$inferSelect): AttachmentView {
  */
 @Injectable()
 export class AttachmentsService {
-  private readonly store = new AttachmentStore(path.join(process.cwd(), 'attachments-store'));
+  private readonly store: AttachmentStore;
 
   constructor(
     @Inject(DATABASE_CONNECTION)
     private readonly db: BetterSQLite3Database<typeof schema>,
     private readonly reportsService: ReportsService,
-  ) {}
+    // Rooted on the database's directory, not process.cwd(): a snapshot
+    // copies the store alongside the database, and the two have to agree
+    // on where it is. See system/paths.ts.
+    private readonly database: VesselDatabase,
+  ) {
+    this.store = new AttachmentStore(attachmentsDir(this.database.dataDir));
+  }
 
   async upload(
     reportId: string,

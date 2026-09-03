@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm';
 import * as schema from '@ovl/vessel-database';
 import { VesselDatabase } from '../database/database.module';
 import { BackupService } from './backup.service';
+import { attachmentsDir } from './paths';
 
 jest.setTimeout(30_000);
 
@@ -123,7 +124,11 @@ describe('BackupService', () => {
   it('carries attachments into the snapshot and back out again', async () => {
     // Attachments are content-addressed files on disk, not rows, so a
     // database-only snapshot would restore reports whose files had gone.
-    const attachments = path.join(node.dir, 'attachments');
+    // Resolved through the same helper the service uses. These two were
+    // computed independently once and disagreed, so every snapshot
+    // captured an empty directory — asserting against the shared path is
+    // what stops that recurring.
+    const attachments = attachmentsDir(node.dir);
     fs.mkdirSync(path.join(attachments, 'ab'), { recursive: true });
     fs.writeFileSync(path.join(attachments, 'ab', 'abcdef'), 'original bytes');
 

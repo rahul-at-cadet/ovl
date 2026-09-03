@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import * as fs from 'fs';
 import * as path from 'path';
 import { VesselDatabase } from '../database/database.module';
+import { attachmentsDir } from './paths';
 
 /**
  * Local snapshots — ports ovl/vessel/httpapi/backup.go.
@@ -48,7 +49,7 @@ export class BackupService {
   }
 
   private get attachmentsDir(): string {
-    return path.join(this.database.dataDir, 'attachments');
+    return attachmentsDir(this.database.dataDir);
   }
 
   private dbPathIn(dir: string): string {

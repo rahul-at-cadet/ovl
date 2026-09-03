@@ -67,6 +67,10 @@ const restore = {
 // to exist so the sync cycle can call it when shore sends versions.
 const registry = { loadSyncedSchemas: async () => 0 } as any;
 
+// No test here seeds an attachment, so the phase finds nothing to push;
+// the holder only needs a dataDir for the store path it never reads.
+const vesselDatabase = { dataDir: '/tmp/ovl-sync-spec' } as any;
+
 describe('SyncService', () => {
   it('reports a cycle as successful and records the applied bundle', async () => {
     const db = makeDb();
@@ -77,6 +81,7 @@ describe('SyncService', () => {
       auth,
       restore,
       registry,
+      vesselDatabase,
       db,
     );
 
@@ -103,6 +108,7 @@ describe('SyncService', () => {
       auth,
       restore,
       registry,
+      vesselDatabase,
       db,
     );
 
@@ -127,6 +133,7 @@ describe('SyncService', () => {
       auth,
       restore,
       registry,
+      vesselDatabase,
       db,
     );
 
@@ -147,7 +154,7 @@ describe('SyncService', () => {
       syncedAt: new Date().toISOString(),
       vessel: { id: VESSEL_ID, name: 'Shore Name', imo: '1234567' },
     }));
-    const svc = new SyncService(trpc, auth, restore, registry, db);
+    const svc = new SyncService(trpc, auth, restore, registry, vesselDatabase, db);
 
     await svc.handleCron();
 
@@ -172,6 +179,7 @@ describe('SyncService', () => {
       auth,
       restore,
       registry,
+      vesselDatabase,
       db,
     );
 
@@ -194,6 +202,7 @@ describe('SyncService', () => {
       auth,
       restore,
       registry,
+      vesselDatabase,
       db,
     );
 
@@ -207,7 +216,7 @@ describe('SyncService', () => {
   it('skips the pull entirely when the vessel is not enrolled', async () => {
     const db = makeDb();
     const trpc = makeTrpc(() => ({ bundle: null, syncedAt: new Date().toISOString() }));
-    const svc = new SyncService(trpc, auth, restore, registry, db);
+    const svc = new SyncService(trpc, auth, restore, registry, vesselDatabase, db);
 
     await svc.handleCron();
 

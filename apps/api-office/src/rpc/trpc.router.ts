@@ -14,6 +14,7 @@ import { FieldPolicyService } from '../config/field-policy/field-policy.service'
 import { ComplianceService } from '../config/compliance/compliance.service';
 import { ConfigBundleService, type SyncHistoryFilters, type SyncHistorySort } from '../config/config-bundle/config-bundle.service';
 import { toIso, toIsoOrNull } from '../common/iso-time';
+import { AttachmentsService, type AttachmentMeta } from '../attachments/attachments.service';
 import { VesselUsersService } from '../vessels/vessel-users.service';
 import { VesselsService } from '../vessels/vessels.service';
 import { RestoreBundleService } from '../vessels/restore-bundle.service';
@@ -366,6 +367,36 @@ const RedeemEnrollmentSchema = Type.Object({
 });
 const RedeemEnrollmentCompiler = TypeCompiler.Compile(RedeemEnrollmentSchema);
 
+const QueryMissingChunksSchema = Type.Object({
+  vesselId: Type.String(),
+  attachment: Type.Object({
+    reportId: Type.String(),
+    versionNo: Type.Number(),
+    fieldName: Type.String(),
+    filename: Type.String(),
+    contentType: Type.String(),
+    contentHash: Type.String(),
+    totalSize: Type.Number(),
+    chunkSize: Type.Number(),
+  }),
+});
+const QueryMissingChunksCompiler = TypeCompiler.Compile(QueryMissingChunksSchema);
+
+const UploadChunkSchema = Type.Object({
+  vesselId: Type.String(),
+  contentHash: Type.String(),
+  chunkIndex: Type.Number(),
+  // base64 — the transport is JSON, so bytes cannot travel raw.
+  data: Type.String(),
+});
+const UploadChunkCompiler = TypeCompiler.Compile(UploadChunkSchema);
+
+const ListReportAttachmentsSchema = Type.Object({
+  vesselId: Type.String(),
+  reportId: Type.String(),
+});
+const ListReportAttachmentsCompiler = TypeCompiler.Compile(ListReportAttachmentsSchema);
+
 const VesselIdSchema = Type.Object({ vesselId: Type.String() });
 const VesselIdCompiler = TypeCompiler.Compile(VesselIdSchema);
 
@@ -632,6 +663,7 @@ export class TrpcRouter {
     private readonly vesselUsersService: VesselUsersService,
     private readonly vesselsService: VesselsService,
     private readonly restoreBundleService: RestoreBundleService,
+    private readonly attachmentsService: AttachmentsService,
     private readonly supertokensService: SupertokensService,
     private readonly notificationsService: NotificationsService,
     private readonly usersService: UsersService,
@@ -1496,6 +1528,60 @@ export class TrpcRouter {
             versionCount: built.versionCount,
             generatedAt: built.bundle.generatedAt,
           };
+        }),
+
+      /**
+       * Attachment ingest, first half — ports
+       * ovl/office/syncservice.QueryMissingAttachmentChunks.
+       *
+       * The vessel declares an attachment and office answers which chunks
+       * it still needs. Authenticated with the vessel's own credential,
+       * like every other sync call, so one ship cannot file attachments
+       * against another's reports.
+       */
+      queryMissingAttachmentChunks: edgeProcedure
+        .input((val: unknown) => {
+          if (!QueryMissingChunksCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof QueryMissingChunksSchema>;
+        })
+        .mutation(async ({ input, ctx }) => {
+          await this.verifyVesselCredential(input.vesselId, ctx);
+          try {
+            return await this.attachmentsService.queryMissingChunks(
+              input.vesselId,
+              input.attachment as AttachmentMeta,
+            );
+          } catch (err: any) {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: err.message });
+          }
+        }),
+
+      /**
+       * Attachment ingest, second half — ports UploadAttachmentChunk.
+       * Office assembles, verifies the declared sha256 and promotes the
+       * result once the last chunk lands.
+       */
+      uploadAttachmentChunk: edgeProcedure
+        .input((val: unknown) => {
+          if (!UploadChunkCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof UploadChunkSchema>;
+        })
+        .mutation(async ({ input, ctx }) => {
+          await this.verifyVesselCredential(input.vesselId, ctx);
+          try {
+            return await this.attachmentsService.uploadChunk(
+              input.contentHash,
+              input.chunkIndex,
+              Buffer.from(input.data, 'base64'),
+            );
+          } catch (err: any) {
+            // A hash mismatch is data loss, not a bad request: the
+            // vessel's chunks were accepted individually and only the
+            // assembled whole failed, so the distinction tells it to
+            // restart the transfer rather than fix its call.
+            const code = /hash mismatch/.test(err.message) ? 'INTERNAL_SERVER_ERROR' : 'BAD_REQUEST';
+            throw new TRPCError({ code, message: err.message });
+          }
         }),
 
       /**
@@ -2602,6 +2688,19 @@ export class TrpcRouter {
 
           return { reviewed: true, reviewedBy };
         }),
+      /**
+       * What shore holds for one report — ports
+       * handleListReportAttachments. Until attachments synced there was
+       * nothing to list; now a reviewer can see the evidence a report
+       * cites, and see honestly when it has not arrived yet.
+       */
+      listAttachments: protectedProcedure
+        .input((val: unknown) => {
+          if (!ListReportAttachmentsCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof ListReportAttachmentsSchema>;
+        })
+        .query(({ input }) => this.attachmentsService.listForReport(input.vesselId, input.reportId)),
+
       /**
        * Clears a whole selection at once — ports design handoff B3's bulk
        * "mark reviewed" (POST /api/reports/mark-reviewed).
