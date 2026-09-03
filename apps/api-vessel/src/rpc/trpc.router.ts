@@ -527,6 +527,33 @@ export class TrpcRouter {
         .mutation(async ({ input, ctx }) => {
           return this.reportsService.startCorrection(input.id, ctx.user.username);
         }),
+      /**
+       * Every version of one report, oldest first. Office has had this
+       * since the audit trail landed; the ship could only ever see the
+       * current state of a report its own crew had corrected.
+       */
+      listVersions: this.protectedProcedure
+        .input((val: unknown) => {
+          if (!ListEventsCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof ListEventsSchema>;
+        })
+        .query(({ input }) => this.reportsService.listVersions(input.reportId)),
+
+      /**
+       * Discards a first draft. Anything already submitted is part of the
+       * record shore holds and is corrected rather than deleted — the
+       * service enforces that, since it is a statement about what the
+       * record is rather than a permission check.
+       */
+      deleteReport: this.protectedProcedure
+        .input((val: unknown) => {
+          if (!ListEventsCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof ListEventsSchema>;
+        })
+        .mutation(({ input, ctx }) =>
+          this.reportsService.deleteReport(input.reportId, ctx.user.sub, ctx.user.username),
+        ),
+
       listEvents: publicProcedure
         .input((val: unknown) => {
           if (!ListEventsCompiler.Check(val)) throw new Error('Invalid input');

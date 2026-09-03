@@ -3,8 +3,7 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
-  BadRequestException,
-} from '@nestjs/common';
+  BadRequestException, Logger } from '@nestjs/common';
 import { DATABASE_CONNECTION } from '../database/database.module';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { eq, and } from 'drizzle-orm';
@@ -50,6 +49,8 @@ function recomputeEventTime(fields: Record<string, any>, fallback: string): stri
 
 @Injectable()
 export class ReportsService {
+  private readonly logger = new Logger(ReportsService.name);
+
   constructor(
     @Inject(DATABASE_CONNECTION)
     private readonly db: BetterSQLite3Database<typeof schema>,
@@ -557,6 +558,71 @@ export class ReportsService {
       where: eq(schema.invalidationNotices.reportId, reportId),
       orderBy: (n, { asc }) => [asc(n.computedAt)],
     });
+  }
+
+  /**
+   * Every version of one report, oldest first — ports
+   * ovl/vessel/httpapi.handleListReportVersions.
+   *
+   * Office grew this with the audit trail; the ship never had it, so the
+   * crew could see the current state of a report they had corrected but
+   * not what it said before. That is the half of the record the people
+   * who wrote it are most likely to be asked about.
+   */
+  async listVersions(reportId: string) {
+    const versions = await this.db.query.reports.findMany({
+      where: eq(schema.reports.reportId, reportId),
+      orderBy: (reports, { asc }) => [asc(reports.versionNo)],
+    });
+    if (versions.length === 0) throw new NotFoundException('Report not found');
+    return versions;
+  }
+
+  /**
+   * Discards a draft — ports ovl/vessel/httpapi.handleDeleteReport.
+   *
+   * Only ever a first draft. A report with a prior submitted version is
+   * part of the record shore already holds, so "delete" there would mean
+   * diverging from office rather than tidying up; correcting it is the
+   * supported path and the one that leaves a trail.
+   */
+  async deleteReport(reportId: string, userId: string, username: string) {
+    const report = await this.loadEditableReport(reportId);
+
+    if (report.versionNo !== 1) {
+      throw new ConflictException(
+        'This report has already been submitted once. Start a correction instead of deleting it.',
+      );
+    }
+
+    // Someone else holding a section is actively editing this report right
+    // now. Deleting it out from under them would be far more surprising
+    // than the conflict saveSection already refuses for a single field.
+    const heldByOthers = this.lockManager.snapshot(reportId).filter((l) => l.userId !== userId);
+    if (heldByOthers.length > 0) {
+      const lock = heldByOthers[0];
+      throw new ConflictException(`Section "${lock.section}" is being edited by ${lock.username}.`);
+    }
+
+    this.db.transaction((tx) => {
+      // Children first: report_events and chat_messages have no foreign
+      // key onto reports in this schema, so nothing would clean them up
+      // and the rows would linger against an id that no longer resolves.
+      tx.delete(schema.reportEvents).where(eq(schema.reportEvents.reportId, reportId)).run();
+      tx.delete(schema.chatMessages).where(eq(schema.chatMessages.reportId, reportId)).run();
+      tx.delete(schema.remarks).where(eq(schema.remarks.reportId, reportId)).run();
+      tx.delete(schema.invalidationNotices).where(eq(schema.invalidationNotices.reportId, reportId)).run();
+      tx.delete(schema.attachments).where(eq(schema.attachments.reportId, reportId)).run();
+      tx.delete(schema.reports).where(eq(schema.reports.reportId, reportId)).run();
+    });
+
+    // Nothing is queued to shore. An unsubmitted first draft was never
+    // pushed, so office has no record of it to withdraw — telling it
+    // about a report it has never seen would create the very row this is
+    // removing.
+    this.lockManager.releaseAll(reportId);
+    this.logger.log(`Report ${reportId} (draft) deleted by ${username}.`);
+    return { deleted: true };
   }
 
   async listEvents(reportId: string) {
