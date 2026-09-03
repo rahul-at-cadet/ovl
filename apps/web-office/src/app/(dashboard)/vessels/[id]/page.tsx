@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@ovl/
 import { Button } from '@ovl/ui/components/button';
 import { Badge } from '@ovl/ui/components/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@ovl/ui/components/tabs';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@ovl/ui/components/table';
 import {
   Dialog,
   DialogContent,
@@ -44,6 +45,18 @@ import { DisasterRecoveryTab } from './DisasterRecoveryTab';
  * showing a disabled tab to a viewer would only advertise an action they
  * cannot take.
  */
+
+/**
+ * Three states rather than two: a vessel that has never reported its
+ * schemas has not been shown to be out of date, and telling an operator
+ * it is behind would send them after the wrong thing entirely.
+ */
+const SCHEMA_STATE = {
+  current: { label: 'In force', className: 'border-status-ok/30 bg-status-ok/10 text-status-ok' },
+  behind: { label: 'Awaiting sync', className: 'border-status-warn/30 bg-status-warn/10 text-status-warn' },
+  missing: { label: 'Not on vessel', className: 'border-status-warn/30 bg-status-warn/10 text-status-warn' },
+  unknown: { label: 'Not reported yet', className: 'border-border bg-muted text-muted-foreground' },
+} as const;
 
 function relativeTime(iso: string | null | undefined): string {
   if (!iso) return 'Never';
@@ -131,7 +144,7 @@ export default function VesselDetailPage() {
     );
   }
 
-  const { vessel, sync, enrollment, credential, bundle, users, userCommands } = data;
+  const { vessel, sync, enrollment, credential, bundle, appliedBundle, schemas, users, userCommands } = data;
   const online = sync.edgeStatus === 'Online';
 
   // Shore is authoritative on identity, but what the node reports about
@@ -351,22 +364,58 @@ export default function VesselDetailPage() {
           <TabsContent value="config" className="mt-0">
             <Card className="bg-card border-border">
               <CardHeader className="border-b border-border pb-4">
-                <CardTitle className="text-sm font-semibold tracking-tight">Applied Configuration</CardTitle>
+                {/* Named for what it is. This is the bundle office
+                    resolves for the vessel by assignment scope — what it
+                    will be sent — not proof it is running aboard. The
+                    schema table below carries the on-vessel half. */}
+                <CardTitle className="text-sm font-semibold tracking-tight">Assigned Configuration</CardTitle>
                 <CardDescription className="text-xs">
                   The config bundle this vessel resolves to, by assignment scope.
                 </CardDescription>
               </CardHeader>
               <CardContent className="pt-6">
                 {bundle ? (
-                  <dl className="grid grid-cols-1 gap-6 sm:grid-cols-3">
-                    <Field label="Bundle">
-                      <span className="font-mono text-xs">{bundle.bundleId}</span>
-                    </Field>
-                    <Field label="Version">
-                      <span className="tabular-nums">{bundle.versionNo}</span>
-                    </Field>
-                    <Field label="Published">{new Date(bundle.publishedAt).toLocaleString()}</Field>
-                  </dl>
+                  <>
+                    <dl className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+                      <Field label="Bundle">
+                        <span className="font-mono text-xs">{bundle.bundleId}</span>
+                      </Field>
+                      <Field label="Version">
+                        <span className="tabular-nums">{bundle.versionNo}</span>
+                      </Field>
+                      <Field label="Published">{new Date(bundle.publishedAt).toLocaleString()}</Field>
+                    </dl>
+
+                    {/* The on-vessel half. Office assigns a bundle and
+                        serves it, but only the ship can say whether it
+                        actually took — a bundle it could not read is
+                        refused aboard and would otherwise be invisible
+                        here. */}
+                    <div className="mt-6 border-t border-border pt-4">
+                      {!appliedBundle.reported ? (
+                        <p className="text-xs text-muted-foreground">
+                          This vessel has not checked in yet, so there is nothing to compare against.
+                        </p>
+                      ) : appliedBundle.matchesAssigned ? (
+                        <p className="text-xs text-status-ok">
+                          Running aboard: version{' '}
+                          <span className="tabular-nums">{appliedBundle.versionNo}</span> of this bundle, as the
+                          vessel last reported it.
+                        </p>
+                      ) : !appliedBundle.bundleId ? (
+                        <p className="text-xs text-status-warn">
+                          The vessel reports holding no config bundle. It will collect this one on its next sync.
+                        </p>
+                      ) : (
+                        <p className="text-xs text-status-warn">
+                          The vessel reports holding a different bundle —{' '}
+                          <span className="font-mono">{appliedBundle.bundleId}</span> version{' '}
+                          <span className="tabular-nums">{appliedBundle.versionNo}</span>. It will pick this one up
+                          on its next sync; if it does not, the bundle may be unreadable by that node&apos;s build.
+                        </p>
+                      )}
+                    </div>
+                  </>
                 ) : (
                   <div className="py-6 text-center">
                     <p className="text-sm text-muted-foreground">No config bundle covers this vessel.</p>
@@ -378,6 +427,59 @@ export default function VesselDetailPage() {
                     </Link>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+
+            {/* Which report forms this ship is actually using. Office
+                publishes schema versions and streams them down, but
+                "published" and "in force on the ship" are different
+                facts, and only showing the first would read as the
+                second. */}
+            <Card className="mt-6 bg-card border-border">
+              <CardHeader className="border-b border-border pb-4">
+                <CardTitle className="text-sm font-semibold tracking-tight">Report Form Schemas</CardTitle>
+                <CardDescription className="text-xs">
+                  What this vessel reports it is validating against, next to the latest version published ashore.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="pt-6">
+                {schemas.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-muted-foreground">
+                    No schema versions have been published yet.
+                  </p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-border hover:bg-transparent">
+                        <TableHead>Form</TableHead>
+                        <TableHead>On vessel</TableHead>
+                        <TableHead>Published</TableHead>
+                        <TableHead>State</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {schemas.map((s) => (
+                        <TableRow key={s.schemaName} className="border-border">
+                          <TableCell className="text-foreground">{s.schemaName}</TableCell>
+                          <TableCell className="tabular-nums text-muted-foreground">
+                            {s.vesselVersion ?? '—'}
+                          </TableCell>
+                          <TableCell className="tabular-nums text-muted-foreground">
+                            {s.publishedVersion ?? '—'}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className={SCHEMA_STATE[s.status].className}>
+                              {SCHEMA_STATE[s.status].label}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Vessels collect newly published schemas on their next sync — there is nothing to push by hand.
+                </p>
               </CardContent>
             </Card>
           </TabsContent>

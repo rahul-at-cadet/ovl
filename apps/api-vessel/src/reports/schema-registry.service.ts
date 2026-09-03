@@ -3,7 +3,11 @@ import {
   OnModuleInit,
   Logger,
   BadRequestException,
+  Inject,
 } from '@nestjs/common';
+import { desc } from 'drizzle-orm';
+import * as vesselSchema from '@ovl/vessel-database';
+import { DATABASE_CONNECTION } from '../database/database.module';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Type, TSchema } from '@sinclair/typebox';
@@ -33,10 +37,82 @@ export class SchemaRegistryService implements OnModuleInit {
   private readonly compilers = new Map<string, TypeCheck<any>>();
   private readonly originalSchemas = new Map<string, OvdSchema>();
   private readonly enums = new Map<string, string[]>();
+  /** Which source each compiled schema came from, for the log line only. */
+  private readonly origin = new Map<string, string>();
 
-  onModuleInit() {
+  constructor(
+    @Inject(DATABASE_CONNECTION)
+    private readonly db: any,
+  ) {}
+
+  async onModuleInit() {
     this.loadSchemas();
     this.loadEnums();
+    await this.loadSyncedSchemas();
+  }
+
+  /**
+   * Re-reads the schemas the office has published to this vessel.
+   *
+   * Called at boot and again whenever a sync brings new versions down, so
+   * a published schema takes effect without restarting the node — the
+   * point of syncing them at all is that a ship at sea cannot be asked to
+   * reboot to pick up a new report form.
+   *
+   * Office-published schemas win over the copies baked into this build.
+   * The bundled files stay as the floor: a vessel that has never synced,
+   * or one whose office is unreachable on first boot, still has working
+   * report forms rather than none.
+   */
+  async loadSyncedSchemas(): Promise<number> {
+    let rows: { schemaName: string; version: string; content: string; publishedAt: string }[];
+    try {
+      rows = await this.db
+        .select()
+        .from(vesselSchema.schemaVersions)
+        .orderBy(desc(vesselSchema.schemaVersions.publishedAt));
+    } catch (err: any) {
+      // Never fatal. A vessel that cannot read this table still has its
+      // bundled schemas and can keep reporting.
+      this.logger.error(`Could not read synced schemas: ${err.message}`);
+      return 0;
+    }
+
+    // Newest published wins, and every older version is kept in the table
+    // so a report filed under one remains explainable.
+    const latest = new Map<string, (typeof rows)[number]>();
+    for (const row of rows) {
+      if (!latest.has(row.schemaName)) latest.set(row.schemaName, row);
+    }
+
+    let applied = 0;
+    for (const row of latest.values()) {
+      // Office names schemas bare ("bunker-report"); this registry keys on
+      // the vessel's own ".json" convention, the same normalisation the
+      // field-policy lookup already performs in the other direction.
+      const key = row.schemaName.endsWith('.json') ? row.schemaName : `${row.schemaName}.json`;
+      try {
+        const schemaDef: OvdSchema = JSON.parse(row.content);
+        if (!Array.isArray(schemaDef.fields) || schemaDef.fields.length === 0) {
+          throw new Error('schema declares no fields');
+        }
+        const compiler = TypeCompiler.Compile(this.buildTypeBoxSchema(schemaDef));
+        // Swapped in only once both the parse and the compile have
+        // succeeded, so a malformed document office published cannot
+        // leave this vessel with a schema it can no longer validate
+        // against — it keeps the previous one and says so.
+        this.compilers.set(key, compiler);
+        this.originalSchemas.set(key, schemaDef);
+        this.origin.set(key, `office@${row.version}`);
+        applied++;
+      } catch (err: any) {
+        this.logger.error(
+          `Office-published schema ${row.schemaName}@${row.version} is unusable (${err.message}); keeping ${this.origin.get(key) ?? 'the bundled copy'}.`,
+        );
+      }
+    }
+    if (applied > 0) this.logger.log(`Applied ${applied} office-published schema(s).`);
+    return applied;
   }
 
   private loadSchemas() {
@@ -62,6 +138,7 @@ export class SchemaRegistryService implements OnModuleInit {
         const compiler = TypeCompiler.Compile(typeboxSchema);
         this.compilers.set(schemaName, compiler);
         this.originalSchemas.set(schemaName, schemaDef);
+        this.origin.set(schemaName, 'bundled');
 
         this.logger.log(`Loaded and compiled schema: ${schemaName}`);
       } catch (err: any) {

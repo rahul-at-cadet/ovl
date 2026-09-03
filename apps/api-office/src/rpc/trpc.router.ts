@@ -113,6 +113,35 @@ const PullConfigInputSchema = Type.Object({
   // Invalidation notices' pull-down cursor, same shape — computed
   // office-side only (cascade revalidation), no upstream direction.
   lastInvalidationSeq: Type.Optional(Type.String()),
+  // Highest schema_versions.cursor this vessel already holds. Absent on a
+  // vessel that has never pulled one, which starts it from zero.
+  lastSchemaCursor: Type.Optional(Type.String()),
+  // What the vessel reports it is actually validating against. The cursor
+  // above says how far it has read; this says what it ended up with, which
+  // is not the same thing when a published document failed to compile
+  // aboard. Optional so an older build still checks in normally.
+  appliedSchemas: Type.Optional(
+    Type.Array(
+      Type.Object({
+        schemaName: Type.String(),
+        version: Type.String(),
+        publishedAt: Type.String(),
+      }),
+    ),
+  ),
+  // The config bundle the vessel actually holds, read back from its own
+  // store. Office used to record what it *served* under this name and
+  // then compare that against its own resolution, so the check could only
+  // ever agree with itself — a vessel that received a bundle and then
+  // refused it (an unreadable wire version, a failed write) still showed
+  // as Synced. Only the ship can answer this. Null once reported means
+  // "asked, and it has none", which is not the same as never having asked.
+  appliedBundle: Type.Optional(
+    Type.Union([
+      Type.Object({ bundleId: Type.String(), versionNo: Type.Number() }),
+      Type.Null(),
+    ]),
+  ),
 });
 const PullConfigInputCompiler = TypeCompiler.Compile(PullConfigInputSchema);
 
@@ -583,6 +612,65 @@ export class TrpcRouter {
    */
   private assertConfigManager(ctx: { session: { getUserId(): string } }): Promise<void> {
     return this.assertRole(ctx, 'configManager', 'Only a Config Manager may author configuration.');
+  }
+
+  /**
+   * Pairs each schema office has published with the version this vessel
+   * reports holding — design handoff B2's Config tab needs both halves to
+   * say anything useful, and "latest published" alone would silently read
+   * as "what the ship has".
+   *
+   * A vessel that has never checked in since this reporting existed sends
+   * nothing, which is reported as unknown rather than as out of date:
+   * those are different problems with different fixes.
+   */
+  private async vesselAppliedSchemas(applied: unknown) {
+    const reported = new Map<string, { version: string; publishedAt: string }>();
+    if (Array.isArray(applied)) {
+      for (const row of applied as { schemaName: string; version: string; publishedAt: string }[]) {
+        if (row?.schemaName) reported.set(row.schemaName, { version: row.version, publishedAt: row.publishedAt });
+      }
+    }
+
+    const publishedRows = await this.db
+      .select({
+        schemaName: schema.schemaVersions.schemaName,
+        version: schema.schemaVersions.version,
+        publishedAt: schema.schemaVersions.publishedAt,
+      })
+      .from(schema.schemaVersions)
+      .orderBy(desc(schema.schemaVersions.publishedAt));
+
+    const latestPublished = new Map<string, { version: string; publishedAt: string }>();
+    for (const row of publishedRows) {
+      if (!latestPublished.has(row.schemaName)) {
+        latestPublished.set(row.schemaName, { version: row.version, publishedAt: row.publishedAt });
+      }
+    }
+
+    const names = new Set([...latestPublished.keys(), ...reported.keys()]);
+    return Array.from(names)
+      .sort()
+      .map((schemaName) => {
+        const published = latestPublished.get(schemaName) ?? null;
+        const onVessel = reported.get(schemaName) ?? null;
+        return {
+          schemaName,
+          publishedVersion: published?.version ?? null,
+          publishedAt: published?.publishedAt ?? null,
+          vesselVersion: onVessel?.version ?? null,
+          // Three states, not two: never-reported is not the same as
+          // behind, and telling an operator a ship is out of date when it
+          // simply has not called in yet sends them after the wrong thing.
+          status: !reported.size
+            ? ('unknown' as const)
+            : !onVessel
+              ? ('missing' as const)
+              : published && onVessel.version === published.version
+                ? ('current' as const)
+                : ('behind' as const),
+        };
+      });
   }
 
   /**
@@ -1073,19 +1161,34 @@ export class TrpcRouter {
             .values({
               vesselId: input.vesselId,
               lastSeenAt: syncedAt,
-              appliedBundleId: bundle?.bundleId ?? '',
-              appliedBundleVersion: bundle?.versionNo ?? 0,
+              // What the vessel reports holding, not what office resolved
+              // for it. `undefined` is an older build that cannot answer,
+              // and is recorded as nothing rather than as agreement.
+              appliedBundleId: input.appliedBundle?.bundleId ?? '',
+              appliedBundleVersion: input.appliedBundle?.versionNo ?? 0,
               reportedName: input.vesselName ?? null,
               reportedImo: input.imoNumber ?? null,
+              appliedSchemas: input.appliedSchemas ?? [],
             })
             .onConflictDoUpdate({
               target: schema.vesselSyncStatus.vesselId,
               set: {
                 lastSeenAt: syncedAt,
-                appliedBundleId: bundle?.bundleId ?? '',
-                appliedBundleVersion: bundle?.versionNo ?? 0,
+                // Only overwritten by a vessel that actually reported, so
+                // an older build checking in cannot blank out what a newer
+                // one already told us.
+                ...(input.appliedBundle !== undefined
+                  ? {
+                      appliedBundleId: input.appliedBundle?.bundleId ?? '',
+                      appliedBundleVersion: input.appliedBundle?.versionNo ?? 0,
+                    }
+                  : {}),
                 reportedName: input.vesselName ?? null,
                 reportedImo: input.imoNumber ?? null,
+                // Left untouched by a vessel that does not report them, so
+                // an older build checking in cannot blank out what a newer
+                // one already told us.
+                ...(input.appliedSchemas ? { appliedSchemas: input.appliedSchemas } : {}),
               },
             });
 
@@ -1157,6 +1260,17 @@ export class TrpcRouter {
           // case, since restore commands are a rare recovery action.
           const restoreCommands = await this.restoreBundleService.pendingCommands(input.vesselId);
 
+          // The schema documents themselves, not just the field policies
+          // the config bundle already carries. Without this the vessel can
+          // only ever validate against the OVD schemas baked into its own
+          // build, so publishing a new version ashore reached no ship —
+          // the office's whole schema-publishing feature had no effect on
+          // the fleet. Cursor-based, so a vessel already up to date
+          // transfers nothing.
+          const schemaVersions = await this.schemaVersionsService.listSince(
+            input.lastSchemaCursor ? Number(input.lastSchemaCursor) : 0,
+          );
+
           return {
             bundle,
             syncedAt,
@@ -1174,6 +1288,7 @@ export class TrpcRouter {
             // bundle itself is far too large to attach to every poll, so
             // the vessel calls fetchRestoreBundle for the bytes.
             restoreCommands,
+            schemaVersions,
           };
         }),
 
@@ -1387,6 +1502,22 @@ export class TrpcRouter {
             bundle: bundle
               ? { bundleId: bundle.bundleId, versionNo: bundle.versionNo, publishedAt: bundle.publishedAt }
               : null,
+            // What the ship reports actually holding, as distinct from the
+            // assignment above. `reported: false` means it has never told
+            // us — which is not the same as holding nothing, and must not
+            // be rendered as though the two agree.
+            appliedBundle: {
+              reported: !!syncStatus,
+              bundleId: syncStatus?.appliedBundleId || null,
+              versionNo: syncStatus?.appliedBundleVersion ?? null,
+              matchesAssigned: !!bundle && syncStatus?.appliedBundleId === bundle.bundleId,
+            },
+            // What the vessel says it is actually validating against,
+            // paired with what office has published, so the two can be
+            // compared rather than assumed equal. A ship that is behind —
+            // or stuck because a document would not compile aboard — is
+            // only visible by putting these side by side.
+            schemas: await this.vesselAppliedSchemas(syncStatus?.appliedSchemas),
             users: roster,
             userCommands: commands,
           };

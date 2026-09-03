@@ -6,6 +6,7 @@ import { isNull, eq, and, desc, sql } from 'drizzle-orm';
 import * as schema from '@ovl/vessel-database';
 import { AuthService } from '../auth/auth.service';
 import { RestoreBundleService } from '../system/restore-bundle.service';
+import { SchemaRegistryService } from '../reports/schema-registry.service';
 import { randomUUID } from 'crypto';
 
 /** One recorded sync cycle, as stored in the vessel's `sync_runs` table. */
@@ -48,6 +49,7 @@ export class SyncService {
     private readonly trpc: TrpcService,
     private readonly authService: AuthService,
     private readonly restoreBundleService: RestoreBundleService,
+    private readonly schemaRegistryService: SchemaRegistryService,
     @Inject(DATABASE_CONNECTION)
     private readonly db: any, // type as NodePgDatabase/BetterSQLite3Database if configured
   ) {}
@@ -482,6 +484,19 @@ export class SyncService {
       const lastRemarkSeq = remarkCursorRow?.value;
       const invalidationCursorRow = (await this.db.select().from(schema.configStore).where(eq(schema.configStore.key, 'invalidation_seq_cursor')))[0];
       const lastInvalidationSeq = invalidationCursorRow?.value;
+      const schemaCursorRow = (await this.db.select().from(schema.configStore).where(eq(schema.configStore.key, 'schema_cursor')))[0];
+      const lastSchemaCursor = schemaCursorRow?.value;
+      // What this node is actually validating against, reported alongside
+      // the cursor. The cursor says how far it has read; this says what it
+      // ended up using, and the two diverge when a published document
+      // failed to compile aboard. Office can only see that gap if the
+      // vessel says so.
+      const appliedSchemas = await this.reportAppliedSchemas();
+      // What this node actually holds, read back from its own store. Office
+      // cannot know it any other way: it previously recorded the bundle it
+      // resolved and compared that against itself, so a vessel that
+      // refused a bundle still read as up to date ashore.
+      const appliedBundle = await this.readStoredBundle();
 
       // The vessel's own name and IMO travel with every check-in so shore
       // can record what this vessel calls itself. enroll only ever matched
@@ -498,6 +513,11 @@ export class SyncService {
         lastChatSeq,
         lastRemarkSeq,
         lastInvalidationSeq,
+        lastSchemaCursor,
+        appliedSchemas,
+        appliedBundle: appliedBundle?.bundleId
+          ? { bundleId: appliedBundle.bundleId, versionNo: appliedBundle.versionNo ?? 0 }
+          : null,
         vesselName: identity['vessel_name'] || undefined,
         imoNumber: identity['imo_number'] || undefined,
         runId: this.currentRunId || undefined,
@@ -586,6 +606,20 @@ export class SyncService {
         }
       }
 
+      if (response.schemaVersions && response.schemaVersions.length > 0) {
+        this.logger.log(`Received ${response.schemaVersions.length} published schema version(s) from shore.`);
+        const newCursor = await this.applySchemaVersions(response.schemaVersions);
+        if (newCursor) {
+          await this.db
+            .insert(schema.configStore)
+            .values({ key: 'schema_cursor', value: newCursor, updatedAt: new Date().toISOString() })
+            .onConflictDoUpdate({
+              target: schema.configStore.key,
+              set: { value: newCursor, updatedAt: new Date().toISOString() },
+            });
+        }
+      }
+
       if (response.bundle) {
         // Skip if we've already applied this exact bundle version (avoids redundant local writes every 30s).
         const current = (await this.db.select().from(schema.configStore).where(eq(schema.configStore.key, 'config_bundle')))[0];
@@ -670,6 +704,91 @@ export class SyncService {
         // discover from a missing report weeks later.
         this.logger.error(`Restore bundle ${command.id} could not be applied: ${err.message}`);
       }
+    }
+  }
+
+  /**
+   * Stores schema documents the office has published and makes them live
+   * — ports the schema half of ovl/office/syncservice's PullInbox.
+   *
+   * Applied before the config bundle in the same cycle, because a
+   * bundle's field policies describe fields the schema defines; taking
+   * them in the other order would briefly leave a policy pointing at
+   * fields this node does not yet know about.
+   *
+   * The cursor only advances over rows actually written, so a document
+   * that fails to store is offered again next cycle rather than being
+   * skipped for good.
+   */
+  private async applySchemaVersions(
+    versions: { schemaName: string; version: string; source: string; content: string; publishedAt: string; cursor: string }[],
+  ): Promise<string | null> {
+    const receivedAt = new Date().toISOString();
+    let maxCursor: bigint | null = null;
+    let stored = 0;
+
+    for (const v of versions) {
+      try {
+        await this.db
+          .insert(schema.schemaVersions)
+          .values({
+            schemaName: v.schemaName,
+            version: v.version,
+            source: v.source,
+            content: v.content,
+            publishedAt: v.publishedAt,
+            receivedAt,
+          })
+          // Republishing the same name and version is office correcting a
+          // document in place, so the newer content wins rather than the
+          // insert being dropped.
+          .onConflictDoUpdate({
+            target: [schema.schemaVersions.schemaName, schema.schemaVersions.version],
+            set: { content: v.content, source: v.source, publishedAt: v.publishedAt, receivedAt },
+          });
+        stored++;
+        const c = BigInt(v.cursor);
+        if (maxCursor === null || c > maxCursor) maxCursor = c;
+      } catch (err: any) {
+        this.logger.error(`Could not store schema ${v.schemaName}@${v.version}: ${err.message}`);
+      }
+    }
+
+    if (stored > 0) {
+      // Recompiled immediately so a new report form is usable this cycle
+      // rather than after the next restart.
+      await this.schemaRegistryService.loadSyncedSchemas();
+    }
+    return maxCursor === null ? null : maxCursor.toString();
+  }
+
+  /**
+   * The newest version of each schema this node holds, for the check-in.
+   *
+   * Read back from the store rather than from the registry's in-memory
+   * map so it reflects what was actually persisted — a document that was
+   * received but rejected at compile time must not be reported as
+   * applied, or office would see a ship as current when it is not.
+   */
+  private async reportAppliedSchemas(): Promise<{ schemaName: string; version: string; publishedAt: string }[]> {
+    try {
+      const rows = await this.db
+        .select()
+        .from(schema.schemaVersions)
+        .orderBy(desc(schema.schemaVersions.publishedAt));
+      const latest = new Map<string, { schemaName: string; version: string; publishedAt: string }>();
+      for (const r of rows) {
+        if (!latest.has(r.schemaName)) {
+          latest.set(r.schemaName, { schemaName: r.schemaName, version: r.version, publishedAt: r.publishedAt });
+        }
+      }
+      return Array.from(latest.values());
+    } catch (err: any) {
+      // Never worth failing a check-in over: the rest of the cycle —
+      // pushing reports, pulling config — matters far more than this
+      // report of what the node holds.
+      this.logger.warn(`Could not read applied schemas for the check-in: ${err.message}`);
+      return [];
     }
   }
 }

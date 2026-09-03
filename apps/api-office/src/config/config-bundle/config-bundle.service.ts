@@ -260,6 +260,13 @@ export class ConfigBundleService {
       const bundle = winner ? bundlesById.get(winner.bundleId) : undefined;
       const sync = syncByVessel.get(v.id);
 
+      // appliedBundleId is now what the *vessel* reports holding, not what
+      // office resolved for it. Office used to write its own resolution
+      // here and then compare it against itself, so this could only ever
+      // say "synced" whenever the assignment had not changed since the
+      // last check-in — including for a vessel that received the bundle
+      // and refused it (an unreadable wire version, a failed write), which
+      // is precisely the case an operator needs to see.
       let status: VesselConfigStatus = 'unassigned';
       if (winner && bundle) {
         if (!sync || !sync.appliedBundleId) status = 'pendingSync';

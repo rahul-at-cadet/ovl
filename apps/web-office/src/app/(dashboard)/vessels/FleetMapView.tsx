@@ -240,7 +240,15 @@ export function FleetMapView() {
   }, [filtered]);
 
   return (
-    <div className="relative flex-1 min-h-0 rounded-lg overflow-hidden border border-border shadow-sm">
+    /* `isolate` is load-bearing, not decoration. Leaflet stacks its own
+       panes up to z-index 700 and its controls at 1000, and this wrapper
+       was `relative` with no z-index — so it created no stacking context
+       and all of that competed directly with the rest of the app. A modal
+       dialog sits at z-50, which meant the map painted straight over it:
+       clicking Provision Node in map view opened a dialog nobody could
+       see. Isolating the map keeps its internal layering intact while
+       containing it, so anything portalled to the body wins as it should. */
+    <div className="relative isolate flex-1 min-h-0 rounded-lg overflow-hidden border border-border shadow-sm">
       <MapContainer
         center={center}
         zoom={positions.length > 0 ? 4 : 2}

@@ -239,6 +239,14 @@ export const vesselSyncStatus = pgTable("vessel_sync_status", {
 	// silent. Nullable because a vessel running an older build never sends it.
 	reportedName: text("reported_name"),
 	reportedImo: text("reported_imo"),
+	// The schema documents this vessel actually holds, as it reports them
+	// on check-in: [{schemaName, version, publishedAt}]. Office publishes
+	// schemas and streams them down by cursor, but until this existed it
+	// had no way to see what any given ship had actually applied — the
+	// same blind spot appliedBundleId closes for config bundles. A vessel
+	// that is behind, or stuck on an older version because a document
+	// failed to compile aboard, is only visible here.
+	appliedSchemas: jsonb("applied_schemas").default([]).notNull(),
 },
 (table) => {
 	return {

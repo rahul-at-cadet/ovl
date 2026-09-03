@@ -139,3 +139,29 @@ export const syncRuns = sqliteTable('sync_runs', {
   bundleIdAfter: text('bundle_id_after'),
   bundleVersionAfter: integer('bundle_version_after'),
 });
+
+// Schema documents pulled down from the office (architecture: the office
+// is the authority on what a report looks like). Before this table the
+// vessel could only read the OVD schemas baked into its own build, so
+// publishing a new version ashore had no effect on any ship — the whole
+// office-side schema-publishing feature was inert.
+//
+// Every published version is kept rather than only the newest, mirroring
+// office's own schema_versions: a report submitted last month was
+// validated against the schema in force then, and throwing the old
+// document away would make that history unexplainable. The registry picks
+// the latest by published_at.
+//
+// `content` is the OVD schema document verbatim, exactly as office stores
+// it — the same shape the bundled files under src/schemas use, so the two
+// sources are interchangeable to the registry.
+export const schemaVersions = sqliteTable('schema_versions', {
+  schemaName: text('schema_name').notNull(),
+  version: text('version').notNull(),
+  source: text('source').notNull().default(''),
+  content: text('content').notNull(),
+  publishedAt: text('published_at').notNull(), // RFC3339, UTC
+  receivedAt: text('received_at').notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.schemaName, table.version] }),
+}));

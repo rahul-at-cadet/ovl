@@ -63,6 +63,10 @@ const restore = {
   },
 } as any;
 
+// Recompiling schemas is exercised by its own tests; here it only needs
+// to exist so the sync cycle can call it when shore sends versions.
+const registry = { loadSyncedSchemas: async () => 0 } as any;
+
 describe('SyncService', () => {
   it('reports a cycle as successful and records the applied bundle', async () => {
     const db = makeDb();
@@ -72,6 +76,7 @@ describe('SyncService', () => {
       makeTrpc(() => ({ bundle, syncedAt: new Date().toISOString(), vessel: { id: VESSEL_ID, name: 'MV Test', imo: '1234567' } })),
       auth,
       restore,
+      registry,
       db,
     );
 
@@ -97,6 +102,7 @@ describe('SyncService', () => {
       makeTrpc(() => { throw new Error('Vessel is not registered with this office.'); }),
       auth,
       restore,
+      registry,
       db,
     );
 
@@ -120,6 +126,7 @@ describe('SyncService', () => {
       makeTrpc(() => ({ bundle: null, syncedAt: new Date().toISOString() })),
       auth,
       restore,
+      registry,
       db,
     );
 
@@ -140,7 +147,7 @@ describe('SyncService', () => {
       syncedAt: new Date().toISOString(),
       vessel: { id: VESSEL_ID, name: 'Shore Name', imo: '1234567' },
     }));
-    const svc = new SyncService(trpc, auth, restore, db);
+    const svc = new SyncService(trpc, auth, restore, registry, db);
 
     await svc.handleCron();
 
@@ -164,6 +171,7 @@ describe('SyncService', () => {
       makeTrpc(() => ({ bundle, syncedAt: new Date().toISOString() })),
       auth,
       restore,
+      registry,
       db,
     );
 
@@ -185,6 +193,7 @@ describe('SyncService', () => {
       makeTrpc(() => ({ bundle: null, syncedAt: new Date().toISOString() })),
       auth,
       restore,
+      registry,
       db,
     );
 
@@ -198,7 +207,7 @@ describe('SyncService', () => {
   it('skips the pull entirely when the vessel is not enrolled', async () => {
     const db = makeDb();
     const trpc = makeTrpc(() => ({ bundle: null, syncedAt: new Date().toISOString() }));
-    const svc = new SyncService(trpc, auth, restore, db);
+    const svc = new SyncService(trpc, auth, restore, registry, db);
 
     await svc.handleCron();
 

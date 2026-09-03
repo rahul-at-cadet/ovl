@@ -1,6 +1,6 @@
 import { Injectable, Inject, BadRequestException, Logger, OnModuleInit } from '@nestjs/common';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, asc, gt } from 'drizzle-orm';
 import * as schema from '@ovl/database';
 import Ajv from 'ajv';
 import * as fs from 'fs';
@@ -84,6 +84,47 @@ export class SchemaVersionsService implements OnModuleInit {
       publishedAt: r.publishedAt,
       publishedBy: r.publishedBy,
       content: r.content.toString('utf-8'),
+    }));
+  }
+
+  /**
+   * Every version published after `sinceCursor`, oldest first, for the
+   * vessel sync stream — ports ovl/office/store.ListSchemaVersionsSince,
+   * which office/syncservice.pullSchemaVersions feeds into PullInbox.
+   *
+   * Cursor-based rather than "send the current set every time": these
+   * documents are tens of kilobytes each and a vessel checks in every
+   * thirty seconds over a satellite link, so a ship that is already
+   * up to date must transfer nothing at all.
+   *
+   * `cursor` is a bigint identity column and arrives as a JS number here;
+   * it crosses the wire as a string, the same way the chat and remark
+   * cursors already do, so no precision is lost at the boundary.
+   */
+  async listSince(sinceCursor: number, limit = 25) {
+    const rows = await this.db
+      .select()
+      .from(schema.schemaVersions)
+      .where(gt(schema.schemaVersions.cursor, sinceCursor))
+      .orderBy(asc(schema.schemaVersions.cursor))
+      // Bounded so a vessel meeting an office with a long publishing
+      // history catches up over several cycles instead of trying to pull
+      // the whole archive down one satellite pass.
+      .limit(limit);
+    return rows.map((r) => ({
+      schemaName: r.schemaName,
+      version: r.version,
+      source: r.source,
+      content: r.content.toString('utf-8'),
+      // Normalised, not passed through. Drizzle's string mode hands back
+      // Postgres's own rendering ("2026-09-03 05:49:46.971+00"), and the
+      // vessel stores this in a column its schema documents as RFC3339
+      // and then picks the newest version by ordering on it as a string.
+      // A store holding both forms would sort them against each other
+      // rather than chronologically — 'T' sorts after a space — so a
+      // vessel could quietly settle on the wrong "latest" schema.
+      publishedAt: new Date(r.publishedAt).toISOString(),
+      cursor: String(r.cursor ?? 0),
     }));
   }
 
