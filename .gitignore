@@ -9,3 +9,17 @@ apps/api-vessel/attachments-store
 apps/api-vessel/uploads
 apps/api-vessel/backups
 
+
+# The vessel's local SQLite database. Tracked until now, which shipped a
+# live ovl_prod_ API key and a master account in the repository — it is a
+# per-node runtime store, not source. The app creates it and runs its
+# migrations on first boot, so a fresh clone needs nothing here.
+apps/api-vessel/vessel.sqlite
+apps/api-vessel/vessel.sqlite-wal
+apps/api-vessel/vessel.sqlite-shm
+apps/api-vessel/backups/
+apps/api-vessel/attachments-store/
+# drizzle-kit's default sqlite target. A leftover of running `push`
+# without DATABASE_URL set — migrations live in drizzle/, so nothing
+# reads this.
+packages/vessel-database/local.db
