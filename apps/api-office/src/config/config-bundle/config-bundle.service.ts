@@ -1,8 +1,31 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { eq, and, or, lt, desc } from 'drizzle-orm';
+import { eq, and, or, lt, gt, gte, lte, asc, desc, inArray, ilike, sql, type SQL } from 'drizzle-orm';
 import * as schema from '@ovl/database';
 import { DATABASE_CONNECTION } from '../../database/database.module';
+import { toIso, toIsoOrNull } from '../../common/iso-time';
+
+/**
+ * How many vessels the per-vessel breakdown returns. Bounded because a
+ * large fleet would otherwise turn a summary into a second, unpaginated
+ * list; the ordering puts the ships that are actually failing first, so
+ * the cut falls on the ones nobody needs to see.
+ */
+const SYNC_METRICS_VESSEL_LIMIT = 20;
+
+export type SyncHistorySort = 'newest' | 'oldest';
+
+export interface SyncHistoryFilters {
+  vesselId?: string;
+  /** Empty or absent means every outcome, not none. */
+  outcomes?: string[];
+  /** Inclusive ISO bounds on received_at. */
+  from?: string;
+  to?: string;
+  /** Matches vessel name or IMO, shore-authored or as the ship reported it. */
+  search?: string;
+  bundleId?: string;
+}
 import { Scope, ScopeType, validateScope } from '../logic/scope';
 import { FieldPolicyAssignment } from '../logic/fieldPolicy';
 import { ProfileAssignment, CadenceRule, RuleSeverityAssignment } from '../logic/compliance';
@@ -322,11 +345,69 @@ export class ConfigBundleService {
    * than the page: callers raised `limit` to read further and silently
    * saw nothing past row 200 of several thousand.
    */
+  /**
+   * Shared WHERE for the check-in log and its metrics, so the numbers
+   * always describe exactly the rows the list is showing. Computing them
+   * from two different filter expressions is how a summary starts
+   * disagreeing with the table under it.
+   */
+  private syncHistoryConditions(filters: SyncHistoryFilters) {
+    const conditions: (SQL | undefined)[] = [
+      filters.vesselId ? eq(schema.syncRuns.vesselId, filters.vesselId) : undefined,
+      filters.outcomes?.length ? inArray(schema.syncRuns.outcome, filters.outcomes) : undefined,
+      filters.from ? gte(schema.syncRuns.receivedAt, filters.from) : undefined,
+      filters.to ? lte(schema.syncRuns.receivedAt, filters.to) : undefined,
+      filters.bundleId ? eq(schema.syncRuns.resolvedBundleId, filters.bundleId) : undefined,
+    ];
+
+    if (filters.search) {
+      // Matched against the ship's own reported identity as well as the
+      // shore-authored name: a vessel office cannot resolve has no
+      // knownVesselName at all, and those are the rows most worth finding.
+      const term = `%${filters.search.replace(/[%_]/g, (c) => `\\${c}`)}%`;
+      conditions.push(
+        or(
+          ilike(schema.vessels.name, term),
+          ilike(schema.syncRuns.reportedName, term),
+          ilike(schema.syncRuns.reportedImo, term),
+          ilike(schema.vessels.imo, term),
+        ),
+      );
+    }
+    return conditions.filter((c): c is SQL => c !== undefined);
+  }
+
+  /**
+   * The check-in log — ports ovl/office's sync history view, extended
+   * with the filters and ordering the screen needs to be usable on a
+   * fleet rather than a demo.
+   *
+   * Keyset paginated on (receivedAt, id), not OFFSET: check-ins arrive
+   * continuously, so an offset page silently repeats or skips rows as
+   * new ones land above it.
+   */
   async syncHistory(
-    vesselId?: string,
+    filters: SyncHistoryFilters = {},
     limit = 50,
     cursor?: { receivedAt: string; id: string },
+    sort: SyncHistorySort = 'newest',
   ) {
+    const oldestFirst = sort === 'oldest';
+    // The cursor comparison has to follow the sort, not the other way
+    // round. Paging an ascending list with a descending comparison walks
+    // backwards off the first page and returns nothing.
+    const seek = cursor
+      ? oldestFirst
+        ? or(
+            gt(schema.syncRuns.receivedAt, cursor.receivedAt),
+            and(eq(schema.syncRuns.receivedAt, cursor.receivedAt), gt(schema.syncRuns.id, cursor.id)),
+          )
+        : or(
+            lt(schema.syncRuns.receivedAt, cursor.receivedAt),
+            and(eq(schema.syncRuns.receivedAt, cursor.receivedAt), lt(schema.syncRuns.id, cursor.id)),
+          )
+      : undefined;
+
     const rows = await this.db
       .select({
         id: schema.syncRuns.id,
@@ -340,32 +421,125 @@ export class ConfigBundleService {
         reportedImo: schema.syncRuns.reportedImo,
         note: schema.syncRuns.note,
         knownVesselName: schema.vessels.name,
+        knownVesselImo: schema.vessels.imo,
       })
       .from(schema.syncRuns)
       .leftJoin(schema.vessels, eq(schema.syncRuns.vesselId, schema.vessels.id))
-      .where(
-        and(
-          vesselId ? eq(schema.syncRuns.vesselId, vesselId) : undefined,
-          // Strictly after the last row read, in the same (receivedAt, id)
-          // descending order the query sorts by.
-          cursor
-            ? or(
-                lt(schema.syncRuns.receivedAt, cursor.receivedAt),
-                and(eq(schema.syncRuns.receivedAt, cursor.receivedAt), lt(schema.syncRuns.id, cursor.id)),
-              )
-            : undefined,
-        ),
+      .where(and(...this.syncHistoryConditions(filters), seek))
+      .orderBy(
+        oldestFirst ? asc(schema.syncRuns.receivedAt) : desc(schema.syncRuns.receivedAt),
+        oldestFirst ? asc(schema.syncRuns.id) : desc(schema.syncRuns.id),
       )
-      .orderBy(desc(schema.syncRuns.receivedAt), desc(schema.syncRuns.id))
       .limit(Math.min(Math.max(1, limit), 200));
 
     return rows.map((r) => ({
       ...r,
+      // Normalised at the boundary, not passed through: the screen calls
+      // new Date() on this, and Postgres's own rendering is not ISO-8601
+      // — Safari rejects it and every row reads "Invalid Date".
+      receivedAt: toIso(r.receivedAt),
       // The ship's own name is the only label available for a vessel office
       // cannot resolve, which is exactly when a label matters most.
       displayName: r.knownVesselName ?? r.reportedName ?? 'Unknown vessel',
       nameMismatch: !!r.knownVesselName && !!r.reportedName && r.knownVesselName !== r.reportedName,
+      imoMismatch: !!r.knownVesselImo && !!r.reportedImo && r.knownVesselImo !== r.reportedImo,
+      // Whether this check-in did what it was supposed to. 'served' is the
+      // only wholly good outcome; the screen colours and filters on this
+      // rather than re-deriving the rule per call site.
+      healthy: r.outcome === 'served',
     }));
+  }
+
+  /**
+   * Aggregates over the *same* filtered set the log is showing, computed
+   * in SQL rather than by counting a page in Node — the page is at most
+   * 200 rows and the answer has to describe every match, not the slice
+   * currently on screen.
+   */
+  async syncMetrics(filters: SyncHistoryFilters = {}) {
+    const conditions = this.syncHistoryConditions(filters);
+
+    const [totals] = await this.db
+      .select({
+        total: sql<number>`count(*)::int`,
+        vessels: sql<number>`count(distinct ${schema.syncRuns.vesselId})::int`,
+        firstAt: sql<string | null>`min(${schema.syncRuns.receivedAt})`,
+        lastAt: sql<string | null>`max(${schema.syncRuns.receivedAt})`,
+        served: sql<number>`count(*) filter (where ${schema.syncRuns.outcome} = 'served')::int`,
+      })
+      .from(schema.syncRuns)
+      .leftJoin(schema.vessels, eq(schema.syncRuns.vesselId, schema.vessels.id))
+      .where(and(...conditions));
+
+    // One grouped query rather than a count per outcome: the set of
+    // outcomes is open (a new one can be recorded without this code
+    // changing), so asking the data what exists beats hardcoding a list.
+    //
+    // Deliberately ignores the outcome filter while honouring every other
+    // one. This breakdown drives the filter controls themselves, and the
+    // only useful question there is "how many rows would each outcome
+    // give me" — counting within the current selection makes every
+    // unselected outcome read as zero the moment one is picked, so the
+    // controls claim there is nothing to switch to.
+    const { outcomes: _ignored, ...withoutOutcome } = filters;
+    const byOutcomeRows = await this.db
+      .select({ outcome: schema.syncRuns.outcome, count: sql<number>`count(*)::int` })
+      .from(schema.syncRuns)
+      .leftJoin(schema.vessels, eq(schema.syncRuns.vesselId, schema.vessels.id))
+      .where(and(...this.syncHistoryConditions(withoutOutcome)))
+      .groupBy(schema.syncRuns.outcome)
+      .orderBy(desc(sql`count(*)`));
+
+    // Per-vessel breakdown, worst first: the fleet view's real question is
+    // "which ships are failing", and sorting by failure count answers it
+    // directly instead of making someone scan a log for patterns.
+    const perVessel = await this.db
+      .select({
+        vesselId: schema.syncRuns.vesselId,
+        knownVesselName: schema.vessels.name,
+        reportedName: sql<string | null>`max(${schema.syncRuns.reportedName})`,
+        total: sql<number>`count(*)::int`,
+        failed: sql<number>`count(*) filter (where ${schema.syncRuns.outcome} <> 'served')::int`,
+        lastAt: sql<string>`max(${schema.syncRuns.receivedAt})`,
+      })
+      .from(schema.syncRuns)
+      .leftJoin(schema.vessels, eq(schema.syncRuns.vesselId, schema.vessels.id))
+      .where(and(...conditions))
+      .groupBy(schema.syncRuns.vesselId, schema.vessels.name)
+      .orderBy(desc(sql`count(*) filter (where ${schema.syncRuns.outcome} <> 'served')`), desc(sql`max(${schema.syncRuns.receivedAt})`))
+      .limit(SYNC_METRICS_VESSEL_LIMIT);
+
+    const total = totals?.total ?? 0;
+    return {
+      total,
+      vessels: totals?.vessels ?? 0,
+      firstAt: toIsoOrNull(totals?.firstAt),
+      lastAt: toIsoOrNull(totals?.lastAt),
+      served: totals?.served ?? 0,
+      failed: total - (totals?.served ?? 0),
+      // Rounded to a whole percent: this is a health indicator on a
+      // dashboard, not a statistic anyone reconciles to three decimals.
+      successRate: total === 0 ? null : Math.round(((totals?.served ?? 0) / total) * 100),
+      byOutcome: byOutcomeRows,
+      perVessel: perVessel.map((v) => ({
+        ...v,
+        lastAt: toIso(v.lastAt),
+        displayName: v.knownVesselName ?? v.reportedName ?? 'Unknown vessel',
+      })),
+    };
+  }
+
+  /**
+   * The outcomes actually present, so the screen can build its filter
+   * controls from the data instead of a hardcoded list that silently
+   * omits any outcome added later.
+   */
+  async syncOutcomes(): Promise<string[]> {
+    const rows = await this.db
+      .selectDistinct({ outcome: schema.syncRuns.outcome })
+      .from(schema.syncRuns)
+      .orderBy(asc(schema.syncRuns.outcome));
+    return rows.map((r) => r.outcome);
   }
 
   /** Real config resolution for one vessel — backs sync.pullConfig. */

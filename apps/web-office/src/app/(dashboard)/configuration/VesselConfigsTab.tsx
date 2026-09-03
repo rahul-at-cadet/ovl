@@ -3,8 +3,53 @@
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@ovl/ui/components/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@ovl/ui/components/table";
-import { Ship } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { Ship, Search, ArrowUpDown } from "lucide-react";
+import { Button } from "@ovl/ui/components/button";
+import { Input } from "@ovl/ui/components/input";
+import { useEffect, useRef, useState } from "react";
+
+/** One figure in the check-in summary strip. */
+function Metric({ label, value, tone }: { label: string; value: string; tone?: "ok" | "warn" }) {
+  return (
+    <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
+      <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div
+        className={`mt-0.5 text-lg font-semibold tabular-nums ${
+          tone === "ok" ? "text-status-ok" : tone === "warn" ? "text-status-warn" : "text-foreground"
+        }`}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+/** Toggle for one outcome. `aria-pressed` rather than a checkbox: these
+ *  read as a segmented control, and the count sits inside the label. */
+function FilterChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={`flex h-9 items-center rounded-md border px-2.5 text-xs font-medium transition-colors ${
+        active
+          ? "border-primary bg-primary text-primary-foreground"
+          : "border-border bg-background text-foreground hover:bg-muted"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
 
 const STATUS_LABEL: Record<string, string> = {
   unassigned: "Unassigned",
@@ -44,13 +89,40 @@ export function VesselConfigsTab() {
    * appending a page does not disturb what is already on screen.
    */
   const HISTORY_PAGE = 25;
+
+  // Filtering and ordering are server-side. This table grows by one row
+  // per vessel per cycle, so anything done in the browser would only ever
+  // filter or sort the pages that happen to be loaded — which looks like
+  // it works right up until the fleet is big enough to matter.
+  const [outcomeFilter, setOutcomeFilter] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState<'newest' | 'oldest'>('newest');
+
+  // Debounced so a filter change does not fire a request per keystroke;
+  // the value the queries actually key on is this one, not the input.
+  const [appliedSearch, setAppliedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setAppliedSearch(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const historyFilters = {
+    ...(outcomeFilter ? { outcomes: [outcomeFilter] } : {}),
+    ...(appliedSearch ? { search: appliedSearch } : {}),
+  };
+
+  const { data: outcomeOptions = [] } = trpc.configBundles.syncOutcomes.useQuery();
+  // Metrics describe the whole filtered set, not the loaded pages, so
+  // they are a separate call that only re-runs when the filters change.
+  const { data: metrics } = trpc.configBundles.syncMetrics.useQuery(historyFilters);
+
   const {
     data: historyPages,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
   } = trpc.configBundles.syncHistory.useInfiniteQuery(
-    { limit: HISTORY_PAGE },
+    { ...historyFilters, sort, limit: HISTORY_PAGE },
     { getNextPageParam: (last) => last.nextCursor ?? undefined },
   );
   const history = historyPages?.pages.flatMap((p) => p.items) ?? [];
@@ -156,15 +228,103 @@ export function VesselConfigsTab() {
           vessels office cannot identify, which previously left no trace at
           all and are the clearest signal that a ship needs re-enrolling. */}
       <Card className="bg-card border-border">
-        <CardHeader>
-          <CardTitle className="text-foreground text-base">Check-in History</CardTitle>
-          <CardDescription>Every sync attempt received, newest first.</CardDescription>
+        <CardHeader className="space-y-4">
+          <div>
+            <CardTitle className="text-foreground text-base">Check-in History</CardTitle>
+            <CardDescription>Every sync attempt received from the fleet.</CardDescription>
+          </div>
+
+          {/* Counted over everything matching the filters, not over the
+              rows loaded so far — a summary that described the current
+              page would change as you scrolled. */}
+          {metrics ? (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Metric label="Check-ins" value={metrics.total.toLocaleString()} />
+              <Metric label="Vessels" value={String(metrics.vessels)} />
+              <Metric
+                label="Succeeded"
+                value={metrics.successRate === null ? '—' : `${metrics.successRate}%`}
+                tone={metrics.successRate === null ? undefined : metrics.successRate >= 95 ? 'ok' : 'warn'}
+              />
+              <Metric
+                label="Failed"
+                value={metrics.failed.toLocaleString()}
+                tone={metrics.failed > 0 ? 'warn' : undefined}
+              />
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[12rem] flex-1">
+              <Search className="pointer-events-none absolute left-2.5 top-2.5 size-3.5 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search vessel or IMO…"
+                aria-label="Search check-ins by vessel or IMO"
+                className="h-9 pl-8"
+              />
+            </div>
+
+            {/* Built from the outcomes actually present rather than a
+                hardcoded list, so an outcome added server-side shows up
+                here without a UI change. */}
+            <div className="flex flex-wrap gap-1.5">
+              <FilterChip active={outcomeFilter === null} onClick={() => setOutcomeFilter(null)}>
+                All
+              </FilterChip>
+              {outcomeOptions.map((o) => (
+                <FilterChip
+                  key={o}
+                  active={outcomeFilter === o}
+                  onClick={() => setOutcomeFilter(outcomeFilter === o ? null : o)}
+                >
+                  {RUN_LABEL[o] ?? o}
+                  {metrics ? (
+                    <span className="ml-1.5 tabular-nums opacity-70">
+                      {metrics.byOutcome.find((b) => b.outcome === o)?.count ?? 0}
+                    </span>
+                  ) : null}
+                </FilterChip>
+              ))}
+            </div>
+
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 shrink-0"
+              onClick={() => setSort(sort === 'newest' ? 'oldest' : 'newest')}
+              aria-label={`Sort by time, currently ${sort === 'newest' ? 'newest' : 'oldest'} first`}
+            >
+              <ArrowUpDown className="mr-1.5 size-3.5" />
+              {sort === 'newest' ? 'Newest' : 'Oldest'}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           {history.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground border-dashed border-border rounded-md">
               <Ship className="w-8 h-8 mx-auto mb-3 opacity-50" />
-              <p>No check-ins recorded yet</p>
+              {/* Filtered to nothing is a different problem from having no
+                  data, and only one of them is fixed by clearing a filter. */}
+              {outcomeFilter || appliedSearch ? (
+                <>
+                  <p>No check-ins match these filters.</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-3"
+                    onClick={() => {
+                      setOutcomeFilter(null);
+                      setSearch('');
+                    }}
+                  >
+                    Clear filters
+                  </Button>
+                </>
+              ) : (
+                <p>No check-ins recorded yet</p>
+              )}
             </div>
           ) : (
             <div ref={scrollerRef} className="max-h-[26rem] overflow-y-auto">

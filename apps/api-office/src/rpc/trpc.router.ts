@@ -12,7 +12,7 @@ import * as trpcExpress from '@trpc/server/adapters/express';
 import { SchemaVersionsService } from '../config/schema-versions/schema-versions.service';
 import { FieldPolicyService } from '../config/field-policy/field-policy.service';
 import { ComplianceService } from '../config/compliance/compliance.service';
-import { ConfigBundleService } from '../config/config-bundle/config-bundle.service';
+import { ConfigBundleService, type SyncHistoryFilters, type SyncHistorySort } from '../config/config-bundle/config-bundle.service';
 import { VesselUsersService } from '../vessels/vessel-users.service';
 import { VesselsService } from '../vessels/vessels.service';
 import { RestoreBundleService } from '../vessels/restore-bundle.service';
@@ -28,6 +28,85 @@ import { UsersService } from '../users/users.service';
 import { UserRole } from '../users/dto/create-user.dto';
 import Session from 'supertokens-node/recipe/session';
 import { TRPCError } from '@trpc/server';
+
+/**
+ * The check-in log's wire input. Deliberately flat rather than nesting a
+ * `filters` object: tRPC infers the client-facing input from this
+ * validator's *return* type, so a nested shape here would force every
+ * caller to send `{ filters: { ... } }`.
+ *
+ * Every field is optional and must stay genuinely optional in the
+ * inferred type — spelling them as `x: v.x` infers `string | undefined`
+ * as a *required* property, which forces callers to pass every filter
+ * explicitly. That exact mistake broke the production type check once
+ * already, since `next dev` never type-checks and only `next build`
+ * catches it.
+ */
+interface SyncHistoryInput extends SyncHistoryFilters {
+  limit: number;
+  sort: SyncHistorySort;
+  cursor?: { receivedAt: string; id: string };
+}
+
+/** Narrows the wire input to just the filtering half. */
+function toSyncHistoryFilters(input: SyncHistoryInput): SyncHistoryFilters {
+  const { limit: _limit, sort: _sort, cursor: _cursor, ...filters } = input;
+  return filters;
+}
+
+/**
+ * Shared parser for the check-in log and its metrics, so a filter can
+ * never mean one thing to the list and another to the summary above it.
+ *
+ * Hand-written rather than TypeBox because the fields are all optional
+ * and must stay genuinely optional in the inferred type — spelling them
+ * as `x: v.x` infers `string | undefined` as a *required* property, which
+ * forces every caller to pass every filter explicitly. That exact
+ * mistake broke the production type check once already, since `next dev`
+ * never type-checks and only `next build` catches it.
+ */
+function parseSyncHistoryInput(val: unknown): SyncHistoryInput {
+  const v = (val ?? {}) as {
+    vesselId?: string;
+    outcomes?: unknown;
+    from?: string;
+    to?: string;
+    search?: string;
+    bundleId?: string;
+    sort?: string;
+    limit?: number;
+    cursor?: { receivedAt: string; id: string } | null;
+  };
+
+  const parsed: SyncHistoryInput = {
+    limit: typeof v.limit === 'number' ? v.limit : 50,
+    sort: v.sort === 'oldest' ? 'oldest' : 'newest',
+  };
+  if (typeof v.vesselId === 'string' && v.vesselId) parsed.vesselId = v.vesselId;
+  if (typeof v.bundleId === 'string' && v.bundleId) parsed.bundleId = v.bundleId;
+  if (typeof v.from === 'string' && v.from) parsed.from = v.from;
+  if (typeof v.to === 'string' && v.to) parsed.to = v.to;
+  // Trimmed, and dropped when empty: a search box the user has cleared
+  // must not narrow to rows containing the empty string.
+  const search = typeof v.search === 'string' ? v.search.trim() : '';
+  if (search) parsed.search = search;
+  if (Array.isArray(v.outcomes)) {
+    const outcomes = v.outcomes.filter((o): o is string => typeof o === 'string' && !!o);
+    // An empty array means "no filter", not "match nothing" — a chip
+    // group with everything deselected should show everything, which is
+    // what the user sees when they clear the filter.
+    if (outcomes.length > 0) parsed.outcomes = outcomes;
+  }
+  if (
+    v.cursor &&
+    typeof v.cursor === 'object' &&
+    typeof v.cursor.receivedAt === 'string' &&
+    typeof v.cursor.id === 'string'
+  ) {
+    parsed.cursor = { receivedAt: v.cursor.receivedAt, id: v.cursor.id };
+  }
+  return parsed;
+}
 
 function formatRelativeTime(thenMs: number): string {
   const diffSec = Math.max(0, Math.floor((Date.now() - thenMs) / 1000));
@@ -3033,42 +3112,21 @@ export class TrpcRouter {
       // Shore-side sync history. Optionally narrowed to one vessel; without a
       // filter it is the fleet's check-in log, which is where an unknown
       // vessel repeatedly failing to enrol becomes visible.
+      /**
+       * The check-in log. Filters, ordering and paging all live
+       * server-side: this table grows by one row per vessel per cycle, so
+       * a screen that filtered or sorted in the browser would be sorting
+       * whatever page it happened to have.
+       */
       syncHistory: protectedProcedure
-        .input((val: unknown) => {
-          const v = (val ?? {}) as {
-            vesselId?: string;
-            limit?: number;
-            // Keyset position: the (receivedAt, id) of the last row the
-            // caller already has, not a row offset.
-            cursor?: { receivedAt: string; id: string } | null;
-          };
-          // vesselId stays genuinely optional in the returned type. Spelling it
-          // as `vesselId: v.vesselId` would infer `string | undefined` as a
-          // *required* property, forcing every caller to pass it explicitly —
-          // which is what broke the production type check, since next dev
-          // never type-checks and only `next build` catches it.
-          // Named `cursor` for tRPC's useInfiniteQuery convention so the
-          // client can page without a bespoke hook.
-          const parsed: {
-            vesselId?: string;
-            limit: number;
-            cursor?: { receivedAt: string; id: string };
-          } = {
-            limit: typeof v.limit === 'number' ? v.limit : 50,
-          };
-          if (
-            v.cursor &&
-            typeof v.cursor === 'object' &&
-            typeof v.cursor.receivedAt === 'string' &&
-            typeof v.cursor.id === 'string'
-          ) {
-            parsed.cursor = { receivedAt: v.cursor.receivedAt, id: v.cursor.id };
-          }
-          if (typeof v.vesselId === 'string' && v.vesselId) parsed.vesselId = v.vesselId;
-          return parsed;
-        })
+        .input((val: unknown) => parseSyncHistoryInput(val))
         .query(async ({ input }) => {
-          const items = await this.configBundleService.syncHistory(input.vesselId, input.limit, input.cursor);
+          const items = await this.configBundleService.syncHistory(
+            toSyncHistoryFilters(input),
+            input.limit,
+            input.cursor,
+            input.sort,
+          );
           // A short page means there is nothing after it, so the client
           // never makes an extra request just to discover the end.
           const last = items[items.length - 1];
@@ -3076,6 +3134,19 @@ export class TrpcRouter {
             items.length < input.limit || !last ? null : { receivedAt: last.receivedAt, id: last.id };
           return { items, nextCursor };
         }),
+
+      /**
+       * Aggregates over the same filtered set syncHistory returns, as a
+       * separate call rather than riding on every page: the numbers
+       * describe the whole match and only change when the filters do, so
+       * recomputing them on each scroll would be wasted work.
+       */
+      syncMetrics: protectedProcedure
+        .input((val: unknown) => toSyncHistoryFilters(parseSyncHistoryInput(val)))
+        .query(({ input }) => this.configBundleService.syncMetrics(input)),
+
+      /** Outcomes actually present, for building the filter controls. */
+      syncOutcomes: protectedProcedure.query(() => this.configBundleService.syncOutcomes()),
     }),
     compliance: router({
       ruleCatalog: protectedProcedure.query(() => this.complianceService.ruleCatalog()),

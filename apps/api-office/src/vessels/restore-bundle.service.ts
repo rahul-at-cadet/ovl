@@ -5,6 +5,7 @@ import * as schema from '@ovl/database';
 import { DATABASE_CONNECTION } from '../database/database.module';
 import { ConfigBundleService } from '../config/config-bundle/config-bundle.service';
 import { encrypt } from './logic/backup-crypto';
+import { toIso, toIsoOrNull } from '../common/iso-time';
 import {
   RESTORE_BUNDLE_VERSION,
   type RestoreBundle,
@@ -13,33 +14,6 @@ import {
   type RestoreBundleReport,
   type RestoreBundleReportVersion,
 } from './logic/restore-bundle';
-
-/**
- * Renders a stored timestamp as RFC3339/ISO-8601.
- *
- * Postgres columns are read in drizzle's `mode: 'string'`, so they arrive
- * in Postgres's own rendering — "2026-08-20 16:00:00+00", with a space
- * separator and a two-digit offset. The vessel's schema documents these
- * columns as RFC3339 and everything it writes itself looks like
- * "2026-08-20T16:00:00.000Z", so passing the raw form through left
- * restored rows in a second, subtly different format. V8 happens to
- * parse it; Safari's Date does not, and the vessel UI is a browser app
- * that calls new Date() on exactly these values — so a restored vessel
- * would render "Invalid Date" for every report on some crew laptops.
- *
- * Unparseable input is passed through untouched rather than turned into
- * a fabricated date: a wrong timestamp that looks right is worse in an
- * audit trail than one that visibly is not a date.
- */
-function toIso(value: string): string {
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
-}
-
-/** Nullable columns (submittedAt) keep their null rather than becoming "Invalid Date". */
-function toIsoOrNull(value: string | null): string | null {
-  return value === null ? null : toIso(value);
-}
 
 /**
  * Builds and encrypts a vessel's disaster-recovery bundle — ports
