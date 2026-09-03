@@ -9,6 +9,7 @@ import { SensorsService } from '../sensors/sensors.service';
 import { VmsService } from '../sensors/vms.service';
 import { VoyageService } from '../sensors/voyage.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { RestoreBundleService } from '../system/restore-bundle.service';
 import { DATABASE_CONNECTION } from '../database/database.module';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { eq } from 'drizzle-orm';
@@ -25,6 +26,29 @@ export interface Context {
 const t = initTRPC.context<Context>().create();
 export const publicProcedure = t.procedure;
 export const router = t.router;
+
+/**
+ * Master is the vessel's only super-admin (architecture 9.3), and
+ * disaster recovery is the class of vessel-wide, hard-to-reverse action
+ * that permission is reserved for — the same gate
+ * ovl/vessel/httpapi.requireSuperAdmin applies to backup and restore.
+ * Deliberately stricter than the admin-or-master check the sensor
+ * settings use: those change a data source, this rewrites the reports.
+ */
+function requireMaster(ctx: { user: { role: string } }): void {
+  if (ctx.user.role.toLowerCase() !== 'master') {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the Master account may manage disaster recovery.' });
+  }
+}
+
+const ImportRestoreBundleSchema = Type.Object({
+  // base64 of the age file office produced. It arrives as text because
+  // this travels over the same JSON transport as every other procedure;
+  // the bytes are opaque either way.
+  ciphertextBase64: Type.String(),
+  confirm: Type.Boolean(),
+});
+const ImportRestoreBundleCompiler = TypeCompiler.Compile(ImportRestoreBundleSchema);
 
 const CreateReportSchema = Type.Object({
   schemaName: Type.String(),
@@ -214,6 +238,7 @@ export class TrpcRouter {
     private readonly syncService: SyncService,
     private readonly authService: AuthService,
     private readonly notificationsService: NotificationsService,
+    private readonly restoreBundleService: RestoreBundleService,
     // Verification goes through the same JwtService that signs, so both
     // sides use this vessel's own secret (see auth/jwt-secret.ts). They
     // used to read process.env.JWT_SECRET independently and fall back to
@@ -809,7 +834,17 @@ export class TrpcRouter {
             });
 
           try {
-            const response = await this.trpcService.client.edge.redeem.mutate({ code: input.code.trim() });
+            // Minted before the call, not after: office records the
+            // public half as part of redeeming, so if this node cannot
+            // produce a key the redemption should not appear to have
+            // succeeded with no restore path. Rotating here also means
+            // a re-enrolled node and shore are re-keyed by the one
+            // action, which is what keeps a future restore openable.
+            const drPublicKey = await this.restoreBundleService.rotateIdentity();
+            const response = await this.trpcService.client.edge.redeem.mutate({
+              code: input.code.trim(),
+              drPublicKey,
+            });
 
             const now = new Date().toISOString();
             const rows = [
@@ -971,6 +1006,50 @@ export class TrpcRouter {
       getActiveVoyage: publicProcedure.query(async () => {
         return this.voyageService.getActiveVoyage();
       }),
+
+      /**
+       * Whether this node holds a restore key, and when it was last
+       * rebuilt from a bundle — what the Master needs to know before
+       * asking shore for one.
+       */
+      restoreStatus: this.protectedProcedure.query(async ({ ctx }) => {
+        requireMaster(ctx);
+        const identity = await this.restoreBundleService.identity();
+        return {
+          hasRestoreKey: identity !== null,
+          publicKey: identity?.publicKey ?? null,
+        };
+      }),
+
+      /**
+       * Manual import — the Master uploads a bundle office generated and
+       * someone carried aboard, for a node too isolated to wait for a
+       * sync cycle. The same bytes the automatic path fetches.
+       *
+       * Master-only and confirm-gated, mirroring the original's
+       * requireSuperAdmin + Confirm pair: this writes directly into the
+       * report store and can overwrite a local draft sitting at the same
+       * version.
+       */
+      importRestoreBundle: this.protectedProcedure
+        .input((val: unknown) => {
+          if (!ImportRestoreBundleCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof ImportRestoreBundleSchema>;
+        })
+        .mutation(async ({ input, ctx }) => {
+          requireMaster(ctx);
+          if (!input.confirm) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: 'Importing a restore bundle overwrites local report data — confirm to continue.',
+            });
+          }
+          try {
+            return await this.restoreBundleService.importCiphertext(input.ciphertextBase64);
+          } catch (err: any) {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: err.message });
+          }
+        }),
     }),
     sensors: router({
       // Master/Admin-only, mirroring the original's requireSuperAdmin

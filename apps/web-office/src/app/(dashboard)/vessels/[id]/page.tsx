@@ -25,10 +25,12 @@ import {
   Copy,
   CheckCircle2,
   KeyRound,
+  LifeBuoy,
 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useCurrentUser } from '@/lib/useCurrentUser';
 import { VesselUsersDialog } from '../VesselUsersDialog';
+import { DisasterRecoveryTab } from './DisasterRecoveryTab';
 
 /**
  * Vessel detail — ports design handoff B2's vessel detail screen
@@ -37,9 +39,10 @@ import { VesselUsersDialog } from '../VesselUsersDialog';
  * to act on a vessel, and nothing anywhere showed enrollment state, the
  * resolved config bundle, or what a vessel actually reports about itself.
  *
- * The original's DR tab is deliberately absent rather than stubbed: the
- * restore-bundle chain has no implementation in this port, and an empty
- * tab reads as "no restores yet" instead of "not built".
+ * The DR tab is admin-only, unlike the rest of this screen: its
+ * procedures return and queue one vessel's entire reporting history, so
+ * showing a disabled tab to a viewer would only advertise an action they
+ * cannot take.
  */
 
 function relativeTime(iso: string | null | undefined): string {
@@ -188,6 +191,11 @@ export default function VesselDetailPage() {
               <span className="ml-1.5 tabular-nums text-muted-foreground">{users.length}</span>
             ) : null}
           </TabsTrigger>
+          {isAdmin ? (
+            <TabsTrigger value="recovery" className="data-[state=active]:bg-muted">
+              <LifeBuoy className="mr-2 size-4" /> Recovery
+            </TabsTrigger>
+          ) : null}
         </TabsList>
 
         <div className="mt-4 min-h-0 flex-1 overflow-y-auto">
@@ -418,6 +426,12 @@ export default function VesselDetailPage() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {isAdmin ? (
+            <TabsContent value="recovery" className="mt-0">
+              <DisasterRecoveryTab vesselId={vesselId} vesselName={vessel.name} />
+            </TabsContent>
+          ) : null}
         </div>
       </Tabs>
 

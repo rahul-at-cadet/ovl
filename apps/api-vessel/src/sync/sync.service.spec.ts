@@ -54,6 +54,15 @@ function makeTrpc(pullConfig: (input: any) => any) {
 
 const auth = { listRosterSummary: async () => [] } as any;
 
+// No test here queues a restore command, so the service only needs a
+// stand-in that would fail loudly if one ever reached it — restore
+// behaviour has its own tests rather than riding along in these.
+const restore = {
+  importCiphertext: async () => {
+    throw new Error('restore bundle import not expected in this test');
+  },
+} as any;
+
 describe('SyncService', () => {
   it('reports a cycle as successful and records the applied bundle', async () => {
     const db = makeDb();
@@ -62,6 +71,7 @@ describe('SyncService', () => {
     const svc = new SyncService(
       makeTrpc(() => ({ bundle, syncedAt: new Date().toISOString(), vessel: { id: VESSEL_ID, name: 'MV Test', imo: '1234567' } })),
       auth,
+      restore,
       db,
     );
 
@@ -86,6 +96,7 @@ describe('SyncService', () => {
     const svc = new SyncService(
       makeTrpc(() => { throw new Error('Vessel is not registered with this office.'); }),
       auth,
+      restore,
       db,
     );
 
@@ -108,6 +119,7 @@ describe('SyncService', () => {
     const svc = new SyncService(
       makeTrpc(() => ({ bundle: null, syncedAt: new Date().toISOString() })),
       auth,
+      restore,
       db,
     );
 
@@ -128,7 +140,7 @@ describe('SyncService', () => {
       syncedAt: new Date().toISOString(),
       vessel: { id: VESSEL_ID, name: 'Shore Name', imo: '1234567' },
     }));
-    const svc = new SyncService(trpc, auth, db);
+    const svc = new SyncService(trpc, auth, restore, db);
 
     await svc.handleCron();
 
@@ -151,6 +163,7 @@ describe('SyncService', () => {
     const svc = new SyncService(
       makeTrpc(() => ({ bundle, syncedAt: new Date().toISOString() })),
       auth,
+      restore,
       db,
     );
 
@@ -171,6 +184,7 @@ describe('SyncService', () => {
     const svc = new SyncService(
       makeTrpc(() => ({ bundle: null, syncedAt: new Date().toISOString() })),
       auth,
+      restore,
       db,
     );
 
@@ -184,7 +198,7 @@ describe('SyncService', () => {
   it('skips the pull entirely when the vessel is not enrolled', async () => {
     const db = makeDb();
     const trpc = makeTrpc(() => ({ bundle: null, syncedAt: new Date().toISOString() }));
-    const svc = new SyncService(trpc, auth, db);
+    const svc = new SyncService(trpc, auth, restore, db);
 
     await svc.handleCron();
 

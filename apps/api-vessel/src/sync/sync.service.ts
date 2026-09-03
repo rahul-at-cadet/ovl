@@ -5,6 +5,7 @@ import { DATABASE_CONNECTION } from '../database/database.module';
 import { isNull, eq, and, desc, sql } from 'drizzle-orm';
 import * as schema from '@ovl/vessel-database';
 import { AuthService } from '../auth/auth.service';
+import { RestoreBundleService } from '../system/restore-bundle.service';
 import { randomUUID } from 'crypto';
 
 /** One recorded sync cycle, as stored in the vessel's `sync_runs` table. */
@@ -46,6 +47,7 @@ export class SyncService {
   constructor(
     private readonly trpc: TrpcService,
     private readonly authService: AuthService,
+    private readonly restoreBundleService: RestoreBundleService,
     @Inject(DATABASE_CONNECTION)
     private readonly db: any, // type as NodePgDatabase/BetterSQLite3Database if configured
   ) {}
@@ -621,9 +623,53 @@ export class SyncService {
           'Shore has no config bundle assigned to this vessel. Assign one in Office → Configuration → Assignments.';
         this.logger.warn(this.lastConfigNotice);
       }
+
+      if (response.restoreCommands && response.restoreCommands.length > 0) {
+        await this.applyRestoreCommands(vesselId, response.restoreCommands);
+      }
     } catch (err: any) {
       this.lastConfigError = `Config pull failed: ${err.message}`;
       this.logger.error(`Failed to pull configuration: ${err.message}`);
+    }
+  }
+
+  /**
+   * Rebuilds this node from a bundle shore has queued for it
+   * (architecture 12.5's DR push path) — ports the auto-fetch half of
+   * ovl/vessel/httpapi's pullInboxBatch.
+   *
+   * Deliberately not part of the config-pull try block's own failure
+   * handling: a restore that fails must not mark the whole config pull
+   * as broken, because the rest of the cycle — user commands, chat,
+   * remarks, the config bundle itself — already landed. Each command is
+   * isolated for the same reason, so one bad bundle does not block the
+   * next.
+   *
+   * Nothing is acked until the apply actually succeeds, so a fetch that
+   * dies mid-write reappears on the next cycle and is retried; the apply
+   * is built to be safely re-runnable precisely so that retry is free.
+   */
+  private async applyRestoreCommands(
+    vesselId: string,
+    commands: { id: string; reason: string; issuedAt: string }[],
+  ): Promise<void> {
+    this.logger.warn(`Shore has queued ${commands.length} restore bundle(s) for this vessel.`);
+    for (const command of commands) {
+      try {
+        const fetched = await this.trpc.client.sync.fetchRestoreBundle.query({ vesselId, commandId: command.id });
+        const result = await this.restoreBundleService.importCiphertext(fetched.ciphertextBase64);
+        await this.trpc.client.sync.ackRestoreBundle.mutate({ vesselId, commandId: command.id });
+        this.logger.log(
+          `Restored from shore bundle ${command.id} ("${command.reason}"): ` +
+            `${result.reports} report(s), ${result.versions} version(s), ${result.events} new event(s).`,
+        );
+      } catch (err: any) {
+        // Left unacked on purpose — the next cycle tries again rather
+        // than the restore silently disappearing. Logged loudly because
+        // a vessel that keeps failing to restore is not something to
+        // discover from a missing report weeks later.
+        this.logger.error(`Restore bundle ${command.id} could not be applied: ${err.message}`);
+      }
     }
   }
 }

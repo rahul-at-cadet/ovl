@@ -30,6 +30,7 @@
     "@ovl/vessel-database": "*",
     "@trpc/client": "^11.18.0",
     "@trpc/server": "^11.18.0",
+    "age-encryption": "^0.3.1",
     "api-office": "*",
     "argon2": "^0.45.1",
     "better-sqlite3": "^13.0.3",
@@ -83,6 +84,9 @@
       "**/*.(t|j)s"
     ],
     "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "transformIgnorePatterns": [
+      "/node_modules/(?!(age-encryption|@noble|@scure)/)"
+    ]
   }
 }

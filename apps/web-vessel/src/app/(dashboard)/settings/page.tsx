@@ -6,19 +6,25 @@ import { Button } from '@ovl/ui/components/button';
 import { Input } from '@ovl/ui/components/input';
 import { Label } from '@ovl/ui/components/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@ovl/ui/components/tabs';
-import { Satellite, Database, Activity, RefreshCw, Save, Cpu, Loader2, Navigation } from 'lucide-react';
+import { Satellite, Database, Activity, RefreshCw, Save, Cpu, Loader2, Navigation, LifeBuoy } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { API_ORIGIN } from '@/lib/api-origin';
 import { useToastManager } from '@ovl/ui/components/toast';
 import { Switch } from '@ovl/ui/components/switch';
 import { useScrollActiveTabIntoView } from '@/components/ScrollableTabs';
 import { StatusBadge } from '@ovl/ui/components/status-badge';
+import { RecoveryTab } from './RecoveryTab';
 
 export default function SettingsPage() {
   const toastManager = useToastManager();
   const tabsRef = useScrollActiveTabIntoView<HTMLDivElement>();
   const utils = trpc.useUtils();
   const { data: settings, isLoading } = trpc.settings.get.useQuery();
+  // Disaster recovery is Master-only server-side (it rewrites the report
+  // store), so the tab is hidden rather than shown-and-refused — the same
+  // isMaster gate the user roster and AppShell already use.
+  const { data: me } = trpc.users.me.useQuery();
+  const isMaster = (me?.role ?? '').toLowerCase() === 'master';
   const updateSettingsMutation = trpc.settings.update.useMutation();
 
   const [syncInterval, setSyncInterval] = useState('15');
@@ -170,6 +176,15 @@ export default function SettingsPage() {
               <Activity className="w-4 h-4 mr-2 shrink-0" />
               Diagnostics
             </TabsTrigger>
+            {isMaster ? (
+              <TabsTrigger
+                value="recovery"
+                className="max-lg:!w-auto justify-start px-3 min-h-12 text-sm font-medium whitespace-nowrap shrink-0 rounded-sm text-muted-foreground hover:bg-surface-hover data-active:bg-surface-active data-active:text-foreground data-active:font-semibold data-active:shadow-none"
+              >
+                <LifeBuoy className="w-4 h-4 mr-2 shrink-0" />
+                Recovery
+              </TabsTrigger>
+            ) : null}
           </TabsList>
 
           <div className="flex-1 space-y-6">
@@ -442,6 +457,12 @@ export default function SettingsPage() {
                 </CardContent>
               </Card>
             </TabsContent>
+
+            {isMaster ? (
+              <TabsContent value="recovery" className="mt-0 space-y-6">
+                <RecoveryTab />
+              </TabsContent>
+            ) : null}
           </div>
         </div>
       </Tabs>

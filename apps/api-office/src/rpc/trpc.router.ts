@@ -15,6 +15,7 @@ import { ComplianceService } from '../config/compliance/compliance.service';
 import { ConfigBundleService } from '../config/config-bundle/config-bundle.service';
 import { VesselUsersService } from '../vessels/vessel-users.service';
 import { VesselsService } from '../vessels/vessels.service';
+import { RestoreBundleService } from '../vessels/restore-bundle.service';
 import { Scope } from '../config/logic/scope';
 import { effectiveSeverities } from '../config/logic/compliance';
 import { continuityConfigFor, revalidate, type ContinuityReport, type Severity } from '../config/logic/continuity';
@@ -232,8 +233,35 @@ const RevokeEnrollmentCompiler = TypeCompiler.Compile(RevokeEnrollmentSchema);
 // is precisely what removes IMO as an unauthenticated identity claim.
 const RedeemEnrollmentSchema = Type.Object({
   code: Type.String(),
+  // The vessel mints its own disaster-recovery keypair at redemption and
+  // sends only the public half. Office can then encrypt a restore bundle
+  // *to* that vessel while never being able to open one itself. Optional
+  // so a node built before this exchange existed can still enrol — it
+  // simply has no restore path until it re-redeems.
+  drPublicKey: Type.Optional(Type.String()),
 });
 const RedeemEnrollmentCompiler = TypeCompiler.Compile(RedeemEnrollmentSchema);
+
+const VesselIdSchema = Type.Object({ vesselId: Type.String() });
+const VesselIdCompiler = TypeCompiler.Compile(VesselIdSchema);
+
+const PushRestoreBundleSchema = Type.Object({
+  vesselId: Type.String(),
+  reason: Type.Optional(Type.String()),
+});
+const PushRestoreBundleCompiler = TypeCompiler.Compile(PushRestoreBundleSchema);
+
+const FetchRestoreBundleSchema = Type.Object({
+  vesselId: Type.String(),
+  commandId: Type.String(),
+});
+const FetchRestoreBundleCompiler = TypeCompiler.Compile(FetchRestoreBundleSchema);
+
+const AckRestoreBundleSchema = Type.Object({
+  vesselId: Type.String(),
+  commandId: Type.String(),
+});
+const AckRestoreBundleCompiler = TypeCompiler.Compile(AckRestoreBundleSchema);
 
 const RenameVesselGroupSchema = Type.Object({
   from: Type.String(),
@@ -474,6 +502,7 @@ export class TrpcRouter {
     private readonly configBundleService: ConfigBundleService,
     private readonly vesselUsersService: VesselUsersService,
     private readonly vesselsService: VesselsService,
+    private readonly restoreBundleService: RestoreBundleService,
     private readonly supertokensService: SupertokensService,
     private readonly notificationsService: NotificationsService,
     private readonly usersService: UsersService,
@@ -838,7 +867,17 @@ export class TrpcRouter {
           const now = new Date().toISOString();
           await this.db
             .update(schema.enrollments)
-            .set({ state: 'enrolled', codeHash: '', updatedAt: now })
+            .set({
+              state: 'enrolled',
+              codeHash: '',
+              updatedAt: now,
+              // Replaced on every redemption, never merged: a vessel that
+              // re-redeems has minted a fresh keypair and the old public
+              // key can no longer be opened by anyone. Keeping the
+              // previous one would leave office able to produce bundles
+              // the vessel has lost the private half of.
+              ...(input.drPublicKey ? { drPublicKey: input.drPublicKey } : { drPublicKey: null }),
+            })
             .where(eq(schema.enrollments.vesselId, matched.vesselId));
 
           const vesselSecret = await this.mintVesselCredential(vessel.id);
@@ -1112,6 +1151,12 @@ export class TrpcRouter {
             .orderBy(schema.invalidationNotices.seq);
           const invalidationNotices = newInvalidationRows.map((n) => ({ ...n, seq: n.seq.toString() }));
 
+          // Anything an admin has pushed that this vessel has not yet
+          // confirmed applying. Cheap enough to read every cycle — it is
+          // an indexed lookup returning nothing at all in the normal
+          // case, since restore commands are a rare recovery action.
+          const restoreCommands = await this.restoreBundleService.pendingCommands(input.vesselId);
+
           return {
             bundle,
             syncedAt,
@@ -1122,7 +1167,106 @@ export class TrpcRouter {
             chatMessages,
             remarks,
             invalidationNotices,
+            // Piggybacked on the same check-in as user commands, for the
+            // same reason: a vessel that has lost its data should not
+            // need a second round trip to discover shore is trying to
+            // rebuild it. Only the notification travels here — the
+            // bundle itself is far too large to attach to every poll, so
+            // the vessel calls fetchRestoreBundle for the bytes.
+            restoreCommands,
           };
+        }),
+
+      /**
+       * Hands the calling vessel its own encrypted restore bundle —
+       * ports ovl/office/syncservice.FetchRestoreBundle.
+       *
+       * Authenticated with the vessel's own sync credential, exactly
+       * like every other sync RPC: no auth carve-out is needed here, and
+       * verifyVesselCredential is what stops one vessel asking for
+       * another's history.
+       *
+       * Built and encrypted fresh on every call rather than cached when
+       * the command was queued — see RestoreBundleService's own note.
+       */
+      fetchRestoreBundle: edgeProcedure
+        .input((val: unknown) => {
+          if (!FetchRestoreBundleCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof FetchRestoreBundleSchema>;
+        })
+        .query(async ({ input, ctx }) => {
+          await this.verifyVesselCredential(input.vesselId, ctx);
+
+          const command = (
+            await this.db
+              .select()
+              .from(schema.restoreCommands)
+              .where(
+                and(
+                  eq(schema.restoreCommands.id, input.commandId),
+                  eq(schema.restoreCommands.vesselId, input.vesselId),
+                ),
+              )
+              .limit(1)
+          )[0];
+          if (!command) {
+            throw new TRPCError({ code: 'NOT_FOUND', message: 'No such restore command for this vessel.' });
+          }
+
+          let built: Awaited<ReturnType<RestoreBundleService['buildEncrypted']>>;
+          try {
+            built = await this.restoreBundleService.buildEncrypted(input.vesselId);
+          } catch (err: any) {
+            throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message });
+          }
+
+          // Fetched, not applied. Only the vessel knows whether the
+          // bundle actually landed, and it says so via ackRestoreBundle
+          // — so a fetch that decrypts or applies badly is retried on
+          // the next cycle instead of being marked done here.
+          await this.db
+            .update(schema.restoreCommands)
+            .set({ fetchedAt: new Date().toISOString() })
+            .where(eq(schema.restoreCommands.id, command.id));
+
+          return {
+            commandId: command.id,
+            reason: command.reason,
+            ciphertextBase64: built.ciphertextBase64,
+            reportCount: built.reportCount,
+            versionCount: built.versionCount,
+            generatedAt: built.bundle.generatedAt,
+          };
+        }),
+
+      /**
+       * The vessel's confirmation that a restore bundle was decrypted
+       * and applied. This is what closes a restore command out; until it
+       * arrives the command keeps reappearing in pullConfig, which is
+       * the behaviour a half-completed restore needs.
+       */
+      ackRestoreBundle: edgeProcedure
+        .input((val: unknown) => {
+          if (!AckRestoreBundleCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof AckRestoreBundleSchema>;
+        })
+        .mutation(async ({ input, ctx }) => {
+          await this.verifyVesselCredential(input.vesselId, ctx);
+          const now = new Date().toISOString();
+          const updated = await this.db
+            .update(schema.restoreCommands)
+            .set({ appliedAt: now })
+            .where(
+              and(
+                eq(schema.restoreCommands.id, input.commandId),
+                eq(schema.restoreCommands.vesselId, input.vesselId),
+              ),
+            )
+            .returning({ id: schema.restoreCommands.id });
+          if (updated.length === 0) {
+            throw new TRPCError({ code: 'NOT_FOUND', message: 'No such restore command for this vessel.' });
+          }
+          return { appliedAt: now };
         }),
     }),
     vessels: router({
@@ -1388,6 +1532,117 @@ export class TrpcRouter {
             });
 
           return { code, vesselName: vessel.name, imo: vessel.imo };
+        }),
+
+      /**
+       * Disaster recovery — ports ovl/office/httpapi's DR tab handlers.
+       *
+       * Two ways the same bundle reaches a vessel that has lost its data:
+       * generateRestoreBundle hands an admin the encrypted file to carry
+       * aboard by hand, and pushRestoreBundle queues a command the vessel
+       * collects itself on its next sync. Both produce identical bytes;
+       * which one to use is a question of whether the ship is reachable.
+       *
+       * Admin-gated, not merely authenticated: a restore bundle is one
+       * vessel's entire reporting history in a single file.
+       */
+      generateRestoreBundle: protectedProcedure
+        .input((val: unknown) => {
+          if (!VesselIdCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof VesselIdSchema>;
+        })
+        .mutation(async ({ input, ctx }) => {
+          await this.assertAdmin(ctx);
+          const vessel = (
+            await this.db.select().from(schema.vessels).where(eq(schema.vessels.id, input.vesselId)).limit(1)
+          )[0];
+          if (!vessel) throw new TRPCError({ code: 'NOT_FOUND', message: 'Vessel not found.' });
+
+          try {
+            const built = await this.restoreBundleService.buildEncrypted(input.vesselId);
+            return {
+              // Named after the IMO rather than the internal id so the
+              // file is identifiable to whoever carries it aboard.
+              filename: `${vessel.imo || vessel.id}-restore-bundle.age`,
+              ciphertextBase64: built.ciphertextBase64,
+              reportCount: built.reportCount,
+              versionCount: built.versionCount,
+              generatedAt: built.bundle.generatedAt,
+              configBundleIncluded: built.bundle.configBundle !== null,
+            };
+          } catch (err: any) {
+            // The only expected failure is a vessel with no DR key, and
+            // that is a precondition an operator can act on ("re-issue
+            // its enrollment code"), not a server fault.
+            throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message });
+          }
+        }),
+
+      /**
+       * Queues a restore for the vessel to collect on its next sync.
+       *
+       * The DR key is checked here, at push time, rather than only when
+       * the vessel calls in: an admin who pushes to a vessel that cannot
+       * receive should be told now, not have the command sit unfetched
+       * with no explanation.
+       */
+      pushRestoreBundle: protectedProcedure
+        .input((val: unknown) => {
+          if (!PushRestoreBundleCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof PushRestoreBundleSchema>;
+        })
+        .mutation(async ({ input, ctx }) => {
+          await this.assertAdmin(ctx);
+          const localUser = await this.supertokensService.getLocalUser(ctx.session.getUserId());
+          const actor = localUser?.username || 'unknown';
+          const vessel = (
+            await this.db.select().from(schema.vessels).where(eq(schema.vessels.id, input.vesselId)).limit(1)
+          )[0];
+          if (!vessel) throw new TRPCError({ code: 'NOT_FOUND', message: 'Vessel not found.' });
+
+          if (!(await this.restoreBundleService.drPublicKey(input.vesselId))) {
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message:
+                'This vessel has no restore key on file yet — issue it a new enrollment code and redeem it aboard before pushing a restore.',
+            });
+          }
+
+          const reason = (input.reason ?? '').trim() || 'Restore bundle pushed from office';
+          const now = new Date().toISOString();
+          const [row] = await this.db
+            .insert(schema.restoreCommands)
+            .values({
+              id: crypto.randomUUID(),
+              vesselId: input.vesselId,
+              reason,
+              issuedBy: actor,
+              issuedAt: now,
+            })
+            .returning({ id: schema.restoreCommands.id });
+
+          return { id: row.id, reason, issuedBy: actor, issuedAt: now };
+        }),
+
+      /**
+       * Every restore ever pushed to this vessel, with the fetched and
+       * applied timestamps that answer "has it landed" — the DR tab
+       * polls this rather than assuming a queued push succeeded.
+       */
+      restoreCommands: protectedProcedure
+        .input((val: unknown) => {
+          if (!VesselIdCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof VesselIdSchema>;
+        })
+        .query(async ({ input, ctx }) => {
+          await this.assertAdmin(ctx);
+          const commands = await this.restoreBundleService.listCommands(input.vesselId);
+          return {
+            commands,
+            // The DR tab needs this to explain *why* the actions are
+            // disabled, rather than just greying them out.
+            hasRestoreKey: (await this.restoreBundleService.drPublicKey(input.vesselId)) !== null,
+          };
         }),
 
       /**
