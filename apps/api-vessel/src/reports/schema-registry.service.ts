@@ -12,6 +12,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Type, TSchema } from '@sinclair/typebox';
 import { TypeCompiler, TypeCheck } from '@sinclair/typebox/compiler';
+import { InvalidInputError } from '../common/app-error';
 
 export type OvdField = {
   name: string;
@@ -265,7 +266,7 @@ export class SchemaRegistryService implements OnModuleInit {
     const originalSchema = this.originalSchemas.get(schemaName);
 
     if (!compiler || !originalSchema) {
-      throw new BadRequestException(`Unknown schema: ${schemaName}`);
+      throw new InvalidInputError(`Unknown schema: ${schemaName}`);
     }
 
     const isValid = compiler.Check(fields);
@@ -335,11 +336,11 @@ export class SchemaRegistryService implements OnModuleInit {
         }
       }
 
-      // Return array of legacy formatted errors
-      throw new BadRequestException({
-        message: 'Validation failed',
-        errors: legacyErrors,
-      });
+      // The field-level errors travel in `details`, which both transports
+      // preserve — the report form renders them against individual inputs,
+      // so collapsing them to the summary message would leave an officer
+      // with "Validation failed" and nothing to act on.
+      throw new InvalidInputError('Validation failed', { errors: legacyErrors });
     }
   }
 
@@ -354,7 +355,7 @@ export class SchemaRegistryService implements OnModuleInit {
     const schema = this.originalSchemas.get(key);
 
     if (!schema) {
-      throw new BadRequestException(`Schema not found: ${schemaName}`);
+      throw new InvalidInputError(`Schema not found: ${schemaName}`);
     }
 
     return schema;

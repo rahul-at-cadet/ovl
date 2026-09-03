@@ -9,6 +9,7 @@ import { AttachmentStore } from './attachment-store';
 import { VesselDatabase } from '../database/database.module';
 import { attachmentsDir } from '../system/paths';
 import { ReportsService } from './reports.service';
+import { ConflictError, InvalidInputError, NotFoundError } from '../common/app-error';
 
 // Architecture 15's stated scope ("images... PDFs") and hard size cap —
 // the server enforces this itself rather than trusting client-side
@@ -79,10 +80,10 @@ export class AttachmentsService {
     username: string,
   ): Promise<AttachmentView> {
     if (!isAllowedContentType(file.mimetype)) {
-      throw new BadRequestException('only images and PDFs are accepted');
+      throw new InvalidInputError('only images and PDFs are accepted');
     }
     if (file.size > MAX_ATTACHMENT_BYTES) {
-      throw new BadRequestException(`attachment exceeds the ${MAX_ATTACHMENT_BYTES} byte limit`);
+      throw new InvalidInputError(`attachment exceeds the ${MAX_ATTACHMENT_BYTES} byte limit`);
     }
 
     const report = await this.reportsService.loadEditableReport(reportId);
@@ -119,7 +120,7 @@ export class AttachmentsService {
     const rows = await this.db.query.attachments.findMany({ where: eq(schema.attachments.id, attachmentId) });
     const a = rows[0];
     if (!a || a.reportId !== reportId) {
-      throw new NotFoundException('attachment not found');
+      throw new NotFoundError('attachment not found');
     }
     return a;
   }
@@ -128,7 +129,7 @@ export class AttachmentsService {
     const a = await this.loadOwnedAttachment(reportId, attachmentId);
     const buffer = this.store.get(a.contentHash);
     if (!buffer) {
-      throw new NotFoundException('attachment content not found');
+      throw new NotFoundError('attachment content not found');
     }
     return { buffer, contentType: a.contentType, filename: a.filename };
   }
@@ -138,7 +139,7 @@ export class AttachmentsService {
     const report = await this.reportsService.loadEditableReport(reportId);
     const a = await this.loadOwnedAttachment(reportId, attachmentId);
     if (a.versionNo !== report.versionNo) {
-      throw new ConflictException('attachment does not belong to the current editable version');
+      throw new ConflictError('attachment does not belong to the current editable version');
     }
     await this.db.delete(schema.attachments).where(eq(schema.attachments.id, attachmentId));
     return { deleted: true };

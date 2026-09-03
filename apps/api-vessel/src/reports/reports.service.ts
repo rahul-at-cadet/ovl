@@ -15,6 +15,7 @@ import { parseEventTime } from '../validation/field-rules';
 import { hasErrors } from '../validation/types';
 import { SchemaRegistryService } from './schema-registry.service';
 import { LockManagerService, SectionLock } from './lock-manager.service';
+import { ConflictError, InvalidInputError, NotFoundError } from '../common/app-error';
 
 // Architecture 12.3: "text-only, size-capped" — enforced on every write
 // path on both sides (mirrors pkg/domain.MaxChatBodyBytes and the
@@ -138,7 +139,7 @@ export class ReportsService {
     });
 
     if (versions.length === 0) {
-      throw new NotFoundException('Report not found');
+      throw new NotFoundError('Report not found');
     }
 
     return versions[0];
@@ -153,7 +154,7 @@ export class ReportsService {
   async loadEditableReport(reportId: string) {
     const report = await this.getReport(reportId);
     if (report.state !== 'draft' && report.state !== 'ready') {
-      throw new ConflictException(`report is ${report.state} and locked; start a correction to edit it`);
+      throw new ConflictError(`report is ${report.state} and locked; start a correction to edit it`);
     }
     return report;
   }
@@ -187,11 +188,11 @@ export class ReportsService {
     const report = await this.loadEditableReport(reportId);
     const sch = this.schemaRegistry.getSchema(report.schemaName);
     if (!sch.fields.some((f) => f.section === section)) {
-      throw new BadRequestException(`section "${section}" is not part of schema "${report.schemaName}"`);
+      throw new InvalidInputError(`section "${section}" is not part of schema "${report.schemaName}"`);
     }
     const { lock, ok } = this.lockManager.acquire(reportId, section, userId, username, role);
     if (!ok) {
-      throw new ConflictException(`section "${section}" is locked by ${lock.username}`);
+      throw new ConflictError(`section "${section}" is locked by ${lock.username}`);
     }
     return lock;
   }
@@ -214,7 +215,7 @@ export class ReportsService {
 
     const conflict = this.findLockConflict(report.schemaName, reportId, dto.changes, userId);
     if (conflict) {
-      throw new ConflictException(`section "${conflict.section}" is locked by ${conflict.username}`);
+      throw new ConflictError(`section "${conflict.section}" is locked by ${conflict.username}`);
     }
 
     let currentFields: Record<string, any> = {};
@@ -288,7 +289,7 @@ export class ReportsService {
     const report = await this.getReport(reportId);
 
     if (report.state !== 'ready') {
-      throw new ConflictException(
+      throw new ConflictError(
         report.state === 'draft'
           ? 'report must pass Health Check before it can be submitted'
           : `report is already ${report.state}`,
@@ -522,7 +523,7 @@ export class ReportsService {
     username: string,
   ) {
     if (!dto.ruleId) {
-      throw new BadRequestException('ruleId is required');
+      throw new InvalidInputError('ruleId is required');
     }
     const report = await this.loadEditableReport(reportId);
     const now = new Date().toISOString();
@@ -574,7 +575,7 @@ export class ReportsService {
       where: eq(schema.reports.reportId, reportId),
       orderBy: (reports, { asc }) => [asc(reports.versionNo)],
     });
-    if (versions.length === 0) throw new NotFoundException('Report not found');
+    if (versions.length === 0) throw new NotFoundError('Report not found');
     return versions;
   }
 
@@ -590,7 +591,7 @@ export class ReportsService {
     const report = await this.loadEditableReport(reportId);
 
     if (report.versionNo !== 1) {
-      throw new ConflictException(
+      throw new ConflictError(
         'This report has already been submitted once. Start a correction instead of deleting it.',
       );
     }
@@ -601,7 +602,7 @@ export class ReportsService {
     const heldByOthers = this.lockManager.snapshot(reportId).filter((l) => l.userId !== userId);
     if (heldByOthers.length > 0) {
       const lock = heldByOthers[0];
-      throw new ConflictException(`Section "${lock.section}" is being edited by ${lock.username}.`);
+      throw new ConflictError(`Section "${lock.section}" is being edited by ${lock.username}.`);
     }
 
     this.db.transaction((tx) => {

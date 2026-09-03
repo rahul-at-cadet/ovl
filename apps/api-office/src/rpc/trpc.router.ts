@@ -30,7 +30,8 @@ import { UsersService } from '../users/users.service';
 import { UserRole } from '../users/dto/create-user.dto';
 import Session from 'supertokens-node/recipe/session';
 import { TRPCError } from '@trpc/server';
-import { httpExceptionMapper } from './http-error.middleware';
+import { domainErrorMapper } from './domain-error.middleware';
+import { isAppError } from '../common/app-error';
 
 /**
  * The check-in log's wire input. Deliberately flat rather than nesting a
@@ -226,7 +227,26 @@ export const createContext = ({
 
 export type Context = Awaited<ReturnType<typeof createContext>>;
 
-const t = initTRPC.context<Context>().create();
+const t = initTRPC.context<Context>().create({
+  /**
+   * Carries a domain error's `details` to the client.
+   *
+   * errorFormatter cannot change an error's code — that is fixed before
+   * it runs, which is why the mapping lives in a middleware — but it can
+   * shape the body, which is exactly what is needed here. The validation
+   * path attaches field-level errors, and over tRPC they used to be
+   * dropped outright: the old mapper read only the summary message, so a
+   * form had nothing to render against individual inputs even though the
+   * REST side received the full payload.
+   */
+  errorFormatter({ shape, error }) {
+    const cause = error.cause;
+    if (isAppError(cause) && cause.details !== undefined) {
+      return { ...shape, data: { ...shape.data, details: cause.details } };
+    }
+    return shape;
+  },
+});
 
 const PingSchema = Type.Object({ vesselId: Type.String() });
 const PingCompiler = TypeCompiler.Compile(PingSchema);
@@ -680,8 +700,8 @@ const MarkNotificationsReadCompiler = TypeCompiler.Compile(MarkNotificationsRead
  * tRPC would otherwise report all of them as 500s. See
  * rpc/http-error.middleware.ts.
  */
-const mapHttpExceptions = httpExceptionMapper(t);
-export const publicProcedure = t.procedure.use(mapHttpExceptions);
+const mapDomainErrors = domainErrorMapper(t);
+export const publicProcedure = t.procedure.use(mapDomainErrors);
 export const router = t.router;
 
 const isEdgeAuthed = t.middleware(async ({ ctx, next }) => {
@@ -705,7 +725,7 @@ const isEdgeAuthed = t.middleware(async ({ ctx, next }) => {
   });
 });
 
-export const edgeProcedure = t.procedure.use(mapHttpExceptions).use(isEdgeAuthed);
+export const edgeProcedure = t.procedure.use(mapDomainErrors).use(isEdgeAuthed);
 
 /**
  * Verifies the SuperTokens session on the underlying Express req/res
@@ -733,7 +753,7 @@ const isAuthed = t.middleware(async ({ ctx, next }) => {
   }
 });
 
-export const protectedProcedure = t.procedure.use(mapHttpExceptions).use(isAuthed);
+export const protectedProcedure = t.procedure.use(mapDomainErrors).use(isAuthed);
 
 @Injectable()
 export class TrpcRouter {

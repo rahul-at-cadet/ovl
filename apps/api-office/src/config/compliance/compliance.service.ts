@@ -11,6 +11,7 @@ import {
   DEFAULT_MIN_REPORT_INTERVAL_HOURS,
   DEFAULT_MAX_GAP_HOURS,
 } from '../logic/compliance';
+import { InvalidInputError } from '../../common/app-error';
 
 function scopeFromRow(row: { scopeType: string; vesselId: string | null; groupTag: string | null }): Scope {
   const type = row.scopeType as ScopeType;
@@ -44,7 +45,7 @@ export class ComplianceService {
   async saveProfile(scope: Scope, profiles: string[]) {
     validateScope(scope);
     const unknown = profiles.find((p) => !(ALL_PROFILES as readonly string[]).includes(p));
-    if (unknown) throw new BadRequestException(`unknown regulatory profile: ${unknown}`);
+    if (unknown) throw new InvalidInputError(`unknown regulatory profile: ${unknown}`);
     const deduped = [...new Set(profiles)];
 
     const conditions = this.scopeConditions(schema.regulatoryProfileAssignments, scope);
@@ -86,10 +87,10 @@ export class ComplianceService {
   async saveCadenceRule(scope: Scope, minReportIntervalHours: number, maxGapHours: number) {
     validateScope(scope);
     if (!(minReportIntervalHours > 0)) {
-      throw new BadRequestException('minReportIntervalHours must be > 0');
+      throw new InvalidInputError('minReportIntervalHours must be > 0');
     }
     if (!(maxGapHours > 0)) {
-      throw new BadRequestException('maxGapHours must be > 0');
+      throw new InvalidInputError('maxGapHours must be > 0');
     }
 
     const conditions = this.scopeConditions(schema.cadenceRules, scope);
@@ -139,13 +140,13 @@ export class ComplianceService {
     validateScope(scope);
     for (const [ruleId, severity] of Object.entries(severities)) {
       if ((HARD_RULE_IDS as readonly string[]).includes(ruleId)) {
-        throw new BadRequestException(`rule ${ruleId} has a hard, non-overridable severity`);
+        throw new InvalidInputError(`rule ${ruleId} has a hard, non-overridable severity`);
       }
       if (!(OVERRIDABLE_RULE_IDS as readonly string[]).includes(ruleId)) {
-        throw new BadRequestException(`unknown rule id: ${ruleId}`);
+        throw new InvalidInputError(`unknown rule id: ${ruleId}`);
       }
       if (!['error', 'warning', 'info'].includes(severity)) {
-        throw new BadRequestException(`unknown severity: ${severity}`);
+        throw new InvalidInputError(`unknown severity: ${severity}`);
       }
     }
 

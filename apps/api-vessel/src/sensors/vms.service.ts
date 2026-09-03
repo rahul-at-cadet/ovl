@@ -3,6 +3,7 @@ import { DATABASE_CONNECTION } from '../database/database.module';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { eq } from 'drizzle-orm';
 import * as schema from '@ovl/vessel-database';
+import { ConflictError, NotFoundError } from '../common/app-error';
 
 export interface VmsSourceView {
   baseUrl: string;
@@ -151,11 +152,11 @@ export class VmsService {
    */
   async fetchFieldsForReport(schemaName: string, eventTime: Date): Promise<Record<string, unknown>> {
     const fieldMap = vmsFieldMapFor(schemaName);
-    if (!fieldMap) throw new NotFoundException(`${schemaName} has no VMS field mapping`);
+    if (!fieldMap) throw new NotFoundError(`${schemaName} has no VMS field mapping`);
 
     const source = await this.readSource();
     if (!source || !source.enabled) {
-      throw new ConflictException('no VMS source is configured — set one up in Settings');
+      throw new ConflictError('no VMS source is configured — set one up in Settings');
     }
 
     let voyageData: Record<string, unknown>;

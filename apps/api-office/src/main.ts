@@ -4,6 +4,7 @@ import { SupertokensExceptionFilter } from './auth/auth.filter';
 import supertokens from 'supertokens-node';
 import * as trpcExpress from '@trpc/server/adapters/express';
 import { TrpcRouter } from './rpc/trpc.router';
+import { AppErrorFilter } from './common/app-error.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -26,7 +27,9 @@ async function bootstrap() {
     }),
   );
 
-  app.useGlobalFilters(new SupertokensExceptionFilter());
+  // Both filters, and the order matters: SuperTokens' own must keep
+  // handling its errors, and AppErrorFilter only claims @Catch(AppError).
+  app.useGlobalFilters(new SupertokensExceptionFilter(), new AppErrorFilter());
 
   await app.listen(process.env.PORT ?? 3000, '0.0.0.0');
 }

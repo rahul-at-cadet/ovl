@@ -10,6 +10,7 @@ import { DATABASE_CONNECTION } from '../database/database.module';
 import type { LocalUser } from '../auth/supertokens.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserRolesDto } from './dto/update-user.dto';
+import { ConflictError, InvalidInputError, NotFoundError } from '../common/app-error';
 
 export type SafeUser = Omit<LocalUser, 'passwordHash'>;
 
@@ -51,7 +52,7 @@ export class UsersService {
       .from(schema.users)
       .where(eq(schema.users.id, id))
       .limit(1);
-    if (!results[0]) throw new NotFoundException(`User ${id} not found`);
+    if (!results[0]) throw new NotFoundError(`User ${id} not found`);
     return toSafeUser(results[0]);
   }
 
@@ -83,7 +84,7 @@ export class UsersService {
       .where(eq(schema.users.username, dto.username))
       .limit(1);
     if (existing.length > 0) {
-      throw new ConflictException(`Username "${dto.username}" already exists`);
+      throw new ConflictError(`Username "${dto.username}" already exists`);
     }
 
     const temporaryPassword = randomPassword(12);
@@ -96,7 +97,7 @@ export class UsersService {
       // (we'd be resetting a real, unrelated login's password); the
       // admin needs to know this email is already a login, just not one
       // this app has a profile for.
-      throw new ConflictException(
+      throw new ConflictError(
         `An account already exists for "${dto.username}" but has no profile here — this can't be created as a new user.`,
       );
     }
@@ -127,7 +128,7 @@ export class UsersService {
       .set({ roles: dto.roles as unknown as string, updatedAt: new Date().toISOString() })
       .where(eq(schema.users.id, id))
       .returning();
-    if (!updated) throw new NotFoundException(`User ${id} not found`);
+    if (!updated) throw new NotFoundError(`User ${id} not found`);
     return toSafeUser(updated);
   }
 
@@ -138,7 +139,7 @@ export class UsersService {
       .set({ active: false, updatedAt: new Date().toISOString() })
       .where(eq(schema.users.id, id))
       .returning();
-    if (!updated) throw new NotFoundException(`User ${id} not found`);
+    if (!updated) throw new NotFoundError(`User ${id} not found`);
     return toSafeUser(updated);
   }
 
@@ -149,7 +150,7 @@ export class UsersService {
       .set({ active: true, updatedAt: new Date().toISOString() })
       .where(eq(schema.users.id, id))
       .returning();
-    if (!updated) throw new NotFoundException(`User ${id} not found`);
+    if (!updated) throw new NotFoundError(`User ${id} not found`);
     return toSafeUser(updated);
   }
 
@@ -166,18 +167,18 @@ export class UsersService {
     id: string,
   ): Promise<{ user: SafeUser; temporaryPassword: string }> {
     const existing = await this.db.select().from(schema.users).where(eq(schema.users.id, id)).limit(1);
-    if (!existing[0]) throw new NotFoundException(`User ${id} not found`);
+    if (!existing[0]) throw new NotFoundError(`User ${id} not found`);
 
     const stUsers = await supertokens.listUsersByAccountInfo('public', { email: existing[0].username });
     const recipeUserId = stUsers[0]?.loginMethods[0]?.recipeUserId;
     if (!recipeUserId) {
-      throw new NotFoundException(`No SuperTokens login found for "${existing[0].username}" — this user can't sign in and has no password to reset.`);
+      throw new NotFoundError(`No SuperTokens login found for "${existing[0].username}" — this user can't sign in and has no password to reset.`);
     }
 
     const temporaryPassword = randomPassword(12);
     const updateResult = await EmailPassword.updateEmailOrPassword({ recipeUserId, password: temporaryPassword });
     if (updateResult.status !== 'OK') {
-      throw new BadRequestException(`Failed to reset password: ${updateResult.status}`);
+      throw new InvalidInputError(`Failed to reset password: ${updateResult.status}`);
     }
 
     const passwordHash = await hashPassword(temporaryPassword);
@@ -210,17 +211,17 @@ export class UsersService {
       .where(eq(schema.users.id, userId))
       .limit(1);
     const user = results[0];
-    if (!user) throw new NotFoundException('User not found');
+    if (!user) throw new NotFoundError('User not found');
 
     const match = await verifyPassword(user.passwordHash, currentPassword);
-    if (!match) throw new BadRequestException('Current password is incorrect');
+    if (!match) throw new InvalidInputError('Current password is incorrect');
 
     // Both bounds, not just the floor: argon2's cost scales with input
     // length, so an unbounded field lets an authenticated caller make
     // the server do arbitrary work.
     const invalid = validatePassword(newPassword);
     if (invalid) {
-      throw new BadRequestException(invalid);
+      throw new InvalidInputError(invalid);
     }
 
     // Updating only this table's own shadow copy would leave the real
@@ -231,11 +232,11 @@ export class UsersService {
     const stUsers = await supertokens.listUsersByAccountInfo('public', { email: user.username });
     const recipeUserId = stUsers[0]?.loginMethods[0]?.recipeUserId;
     if (!recipeUserId) {
-      throw new NotFoundException(`No SuperTokens login found for "${user.username}" — this user can't sign in and has no password to change.`);
+      throw new NotFoundError(`No SuperTokens login found for "${user.username}" — this user can't sign in and has no password to change.`);
     }
     const updateResult = await EmailPassword.updateEmailOrPassword({ recipeUserId, password: newPassword });
     if (updateResult.status !== 'OK') {
-      throw new BadRequestException(`Failed to update password: ${updateResult.status}`);
+      throw new InvalidInputError(`Failed to update password: ${updateResult.status}`);
     }
 
     const newHash = await hashPassword(newPassword);

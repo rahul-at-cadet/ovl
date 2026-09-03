@@ -36,6 +36,7 @@ import {
   resolveBundleAssignment,
   resolveConfigForVessel,
 } from '../logic/bundle';
+import { NotFoundError } from '../../common/app-error';
 
 function scopeFromRow(row: { scopeType: string; vesselId: string | null; groupTag: string | null }): Scope {
   const type = row.scopeType as ScopeType;
@@ -209,7 +210,7 @@ export class ConfigBundleService {
       .from(schema.configBundles)
       .where(eq(schema.configBundles.id, bundleId))
       .limit(1);
-    if (bundleRows.length === 0) throw new NotFoundException('bundle not found');
+    if (bundleRows.length === 0) throw new NotFoundError('bundle not found');
 
     const conditions = this.scopeConditions(schema.bundleAssignments, scope);
     const existing = await this.db

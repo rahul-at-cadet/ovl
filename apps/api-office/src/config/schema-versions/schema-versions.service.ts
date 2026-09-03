@@ -8,6 +8,7 @@ import * as path from 'path';
 import { DATABASE_CONNECTION } from '../../database/database.module';
 import { toIso } from '../../common/iso-time';
 import { SchemaField, diffSchemaFields, SchemaDiff } from '../logic/fieldPolicy';
+import { InvalidInputError } from '../../common/app-error';
 
 const ajv = new Ajv();
 
@@ -347,11 +348,11 @@ export class SchemaVersionsService implements OnModuleInit {
     try {
       parsed = JSON.parse(input.content);
     } catch {
-      throw new BadRequestException('Invalid JSON format');
+      throw new InvalidInputError('Invalid JSON format');
     }
 
     if (!ajv.validateSchema(parsed)) {
-      throw new BadRequestException('Invalid JSON Schema according to meta-schema');
+      throw new InvalidInputError('Invalid JSON Schema according to meta-schema');
     }
 
     const newSchema = await this.db

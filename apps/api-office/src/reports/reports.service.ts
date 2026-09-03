@@ -3,6 +3,7 @@ import { DATABASE_CONNECTION } from '../database/database.module';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { eq, desc } from 'drizzle-orm';
 import * as schema from '@ovl/database';
+import { NotFoundError } from '../common/app-error';
 
 @Injectable()
 export class ReportsService {
@@ -27,7 +28,7 @@ export class ReportsService {
     });
     
     if (versions.length === 0) {
-      throw new NotFoundException('Report not found');
+      throw new NotFoundError('Report not found');
     }
     
     return versions[0];

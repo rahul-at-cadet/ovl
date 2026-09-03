@@ -14,6 +14,7 @@ import {
   filterSavePrefill,
   filterSaveEvents,
 } from '../logic/fieldPolicy';
+import { InvalidInputError, NotFoundError } from '../../common/app-error';
 
 export interface FieldPolicyView {
   schemaName: string;
@@ -60,7 +61,7 @@ export class FieldPolicyService {
       .where(eq(schema.schemaVersions.schemaName, schemaName))
       .orderBy(desc(schema.schemaVersions.publishedAt));
 
-    if (versions.length === 0) throw new NotFoundException('Schema not found');
+    if (versions.length === 0) throw new NotFoundError('Schema not found');
     const latest = versions[0];
     const { fields } = this.parseContent(latest.content);
     const eventTypes = hasEventConcept(fields) ? EVENT_TYPE_CODES : [];
@@ -144,7 +145,7 @@ export class FieldPolicyService {
       .where(eq(schema.schemaVersions.schemaName, schemaName))
       .orderBy(desc(schema.schemaVersions.publishedAt))
       .limit(1);
-    if (versions.length === 0) throw new NotFoundException('Schema not found');
+    if (versions.length === 0) throw new NotFoundError('Schema not found');
     const latest = versions[0];
     const { fields } = this.parseContent(latest.content);
 
@@ -154,7 +155,7 @@ export class FieldPolicyService {
     try {
       filteredEvents = filterSaveEvents(fields, events);
     } catch (e: any) {
-      throw new BadRequestException(e.message);
+      throw new InvalidInputError(e.message);
     }
 
     const conditions = [
