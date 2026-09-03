@@ -37,6 +37,15 @@ export class SchemaRegistryService implements OnModuleInit {
   private readonly compilers = new Map<string, TypeCheck<any>>();
   private readonly originalSchemas = new Map<string, OvdSchema>();
   private readonly enums = new Map<string, string[]>();
+  /**
+   * The same enums with their human-readable remarks kept.
+   *
+   * `enums` holds bare codes because that is all validation needs, which
+   * meant the remark in every curated enum file was read and thrown away
+   * — and the remark is the only thing that makes a code like
+   * "ArrivalSTS" mean something to an officer choosing from a list.
+   */
+  private readonly enumDetails = new Map<string, { code: string; remark?: string }[]>();
   /** Which source each compiled schema came from, for the log line only. */
   private readonly origin = new Map<string, string>();
 
@@ -170,11 +179,14 @@ export class SchemaRegistryService implements OnModuleInit {
         const content = fs.readFileSync(path.join(enumsDir, file), 'utf8');
         const doc: {
           enumName?: string;
-          values?: { code: string }[];
+          values?: { code: string; remark?: string }[];
           modes?: { highLevelMode?: string; reportingMode: string }[];
         } = JSON.parse(content);
         const name = doc.enumName || file.replace(/\.json$/, '');
-        const codes = doc.values?.map((v) => v.code) ?? doc.modes?.map((m) => m.reportingMode);
+        const detailed =
+          doc.values?.map((v) => ({ code: v.code, remark: v.remark })) ??
+          doc.modes?.map((m) => ({ code: m.reportingMode, remark: m.highLevelMode }));
+        const codes = detailed?.map((d) => d.code);
         if (!codes || codes.length === 0) {
           // Better a warning than a silent free-text fallback: an enum file
           // present but unreadable is a packaging mistake, not a design.
@@ -182,6 +194,7 @@ export class SchemaRegistryService implements OnModuleInit {
           continue;
         }
         this.enums.set(name, codes);
+        this.enumDetails.set(name, detailed!);
         this.logger.log(`Loaded enum: ${name} (${codes.length} codes)`);
       } catch (err: any) {
         this.logger.error(`Failed to load enum ${file}: ${err.message}`);
@@ -195,6 +208,14 @@ export class SchemaRegistryService implements OnModuleInit {
    */
   resolveEnum(enumRef: string): string[] | undefined {
     return this.enums.get(enumRef);
+  }
+
+  /**
+   * One enum's codes with their remarks — what a picker needs to show a
+   * label rather than a bare code.
+   */
+  resolveEnumDetailed(enumRef: string): { code: string; remark?: string }[] | undefined {
+    return this.enumDetails.get(enumRef);
   }
 
   private buildTypeBoxSchema(schemaDef: OvdSchema): TSchema {

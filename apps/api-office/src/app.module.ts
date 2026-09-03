@@ -8,10 +8,12 @@ import { UsersModule } from './users/users.module';
 import { TrpcModule } from './rpc/trpc.module';
 import { ReportsModule } from './reports/reports.module';
 import { AttachmentsModule } from './attachments/attachments.module';
+import { SchemaVersionsModule } from './config/schema-versions/schema-versions.module';
 
 @Module({
   imports: [
     AttachmentsModule,
+    SchemaVersionsModule,
     ConfigModule.forRoot({
       isGlobal: true,
       // Load root .env first, then app-level .env — root always wins

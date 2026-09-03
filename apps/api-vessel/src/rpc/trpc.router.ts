@@ -608,6 +608,29 @@ export class TrpcRouter {
       // valid codes. Returns an empty array for an enumRef with no
       // generic resolver — the form falls back to unrestricted text
       // entry for those, matching the original's behavior.
+      /**
+       * The full OVD event-type catalogue — ports
+       * ovl/vessel/httpapi.handleListEventTypes.
+       *
+       * Distinct from listEventSuggestions, which proposes what is likely
+       * next given the voyage state. This is the whole vocabulary, for an
+       * officer recording something the suggestions did not anticipate —
+       * without it the only complete list was the schema file on disk.
+       */
+      listEventTypes: this.protectedProcedure.query(() => {
+        const types = this.schemaRegistryService.resolveEnumDetailed('event-types');
+        if (!types) {
+          // The enum ships with the build, so its absence is a packaging
+          // fault rather than an empty vocabulary — saying so beats
+          // handing back [] and letting a picker look merely empty.
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'The event-types vocabulary is missing from this build.',
+          });
+        }
+        return types;
+      }),
+
       getEnum: publicProcedure
         .input((val: unknown) => {
           if (!GetEnumCompiler.Check(val)) throw new Error('Invalid input');

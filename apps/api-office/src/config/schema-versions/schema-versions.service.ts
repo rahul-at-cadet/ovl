@@ -1,11 +1,12 @@
 import { Injectable, Inject, BadRequestException, Logger, OnModuleInit } from '@nestjs/common';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { eq, desc, asc, gt } from 'drizzle-orm';
+import { eq, and, desc, asc, gt } from 'drizzle-orm';
 import * as schema from '@ovl/database';
 import Ajv from 'ajv';
 import * as fs from 'fs';
 import * as path from 'path';
 import { DATABASE_CONNECTION } from '../../database/database.module';
+import { toIso } from '../../common/iso-time';
 import { SchemaField, diffSchemaFields, SchemaDiff } from '../logic/fieldPolicy';
 
 const ajv = new Ajv();
@@ -126,6 +127,91 @@ export class SchemaVersionsService implements OnModuleInit {
       publishedAt: new Date(r.publishedAt).toISOString(),
       cursor: String(r.cursor ?? 0),
     }));
+  }
+
+  /**
+   * One schema name's full version history, newest first — ports
+   * store.ListSchemaVersionsForName behind
+   * handleListSchemaVersionHistory.
+   *
+   * `list()` only ever surfaced the newest of each name, so the
+   * Schemas screen showed what is current with no way to see what
+   * preceded it. A published version is immutable and reports were
+   * validated against whichever was in force at the time, so the
+   * history is the only thing that explains an older report.
+   */
+  async history(schemaName: string) {
+    const rows = await this.db
+      .select({
+        id: schema.schemaVersions.id,
+        schemaName: schema.schemaVersions.schemaName,
+        version: schema.schemaVersions.version,
+        source: schema.schemaVersions.source,
+        publishedAt: schema.schemaVersions.publishedAt,
+        publishedBy: schema.schemaVersions.publishedBy,
+        content: schema.schemaVersions.content,
+      })
+      .from(schema.schemaVersions)
+      .where(eq(schema.schemaVersions.schemaName, schemaName))
+      .orderBy(desc(schema.schemaVersions.publishedAt));
+
+    return rows.map((r) => {
+      const parsed = this.parseContent(r.content);
+      return {
+        id: r.id,
+        schemaName: r.schemaName,
+        version: r.version,
+        source: r.source,
+        publishedAt: toIso(r.publishedAt),
+        publishedBy: r.publishedBy,
+        // A count rather than the whole document: the history is a list
+        // to scan, and shipping five 200 KB schemas to render it would
+        // be most of a megabyte for one screen.
+        fieldCount: parsed.fields?.length ?? 0,
+        sizeBytes: r.content.length,
+      };
+    });
+  }
+
+  /**
+   * One specific published version, parsed — the diff view's other half.
+   * Returns null rather than throwing so the caller can distinguish a
+   * missing version from a failure.
+   */
+  async getVersion(schemaName: string, version: string) {
+    const [row] = await this.db
+      .select()
+      .from(schema.schemaVersions)
+      .where(and(eq(schema.schemaVersions.schemaName, schemaName), eq(schema.schemaVersions.version, version)))
+      .limit(1);
+    if (!row) return null;
+    const parsed = this.parseContent(row.content);
+    return {
+      schemaName: row.schemaName,
+      version: row.version,
+      source: row.source,
+      publishedAt: toIso(row.publishedAt),
+      publishedBy: row.publishedBy,
+      fields: parsed.fields ?? [],
+      eventTypes: parsed.eventTypes ?? [],
+      content: row.content.toString('utf-8'),
+    };
+  }
+
+  /**
+   * The exact bytes that were uploaded, for the download route — ports
+   * handleDownloadSchemaVersion. Verbatim rather than re-serialised:
+   * a published version is immutable, and re-encoding it would hand back
+   * a document that differs from the one whose hash and formatting an
+   * operator may be comparing against.
+   */
+  async getVersionBytes(schemaName: string, version: string): Promise<Buffer | null> {
+    const [row] = await this.db
+      .select({ content: schema.schemaVersions.content })
+      .from(schema.schemaVersions)
+      .where(and(eq(schema.schemaVersions.schemaName, schemaName), eq(schema.schemaVersions.version, version)))
+      .limit(1);
+    return row ? row.content : null;
   }
 
   async getLatest(schemaName: string) {

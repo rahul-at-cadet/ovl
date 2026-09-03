@@ -367,6 +367,12 @@ const RedeemEnrollmentSchema = Type.Object({
 });
 const RedeemEnrollmentCompiler = TypeCompiler.Compile(RedeemEnrollmentSchema);
 
+const SchemaHistorySchema = Type.Object({ schemaName: Type.String() });
+const SchemaHistoryCompiler = TypeCompiler.Compile(SchemaHistorySchema);
+
+const SchemaVersionSchema = Type.Object({ schemaName: Type.String(), version: Type.String() });
+const SchemaVersionCompiler = TypeCompiler.Compile(SchemaVersionSchema);
+
 const QueryMissingChunksSchema = Type.Object({
   vesselId: Type.String(),
   attachment: Type.Object({
@@ -3171,6 +3177,30 @@ export class TrpcRouter {
        * instead of a free-text box the operator has to already know the
        * answers for.
        */
+      /**
+       * One schema's full version history. `list` only ever returns the
+       * newest of each name, so nothing showed what a report filed last
+       * month was actually validated against.
+       */
+      history: protectedProcedure
+        .input((val: unknown) => {
+          if (!SchemaHistoryCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof SchemaHistorySchema>;
+        })
+        .query(({ input }) => this.schemaVersionsService.history(input.schemaName)),
+
+      /** One published version, parsed — the other half of a diff view. */
+      getVersion: protectedProcedure
+        .input((val: unknown) => {
+          if (!SchemaVersionCompiler.Check(val)) throw new Error('Invalid input');
+          return val as Static<typeof SchemaVersionSchema>;
+        })
+        .query(async ({ input }) => {
+          const version = await this.schemaVersionsService.getVersion(input.schemaName, input.version);
+          if (!version) throw new TRPCError({ code: 'NOT_FOUND', message: 'No such schema version.' });
+          return version;
+        }),
+
       getEnum: protectedProcedure
         .input((val: unknown) => {
           if (!GetEnumCompiler.Check(val)) throw new Error('Invalid input');
