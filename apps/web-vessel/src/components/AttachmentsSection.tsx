@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Paperclip, UploadCloud, File, X, Loader2, Download } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@ovl/ui/components/card';
 import { Button } from '@ovl/ui/components/button';
-import { API_ORIGIN as API_BASE } from '@/lib/api-origin';
+import { API_BASE } from '@/lib/api-origin';
 
 interface Attachment {
   id: string;

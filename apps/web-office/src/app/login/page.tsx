@@ -10,7 +10,7 @@ import { Label } from '@ovl/ui/components/label';
 import { Button } from '@ovl/ui/components/button';
 import { SparksLogo } from '@/components/layout/SparksLogo';
 import { trpc } from '@/lib/trpc';
-import { API_ORIGIN } from '@/lib/api-origin';
+import { API_BASE } from '@/lib/api-origin';
 
 export default function OfficeLoginPage() {
   const router = useRouter();
@@ -54,7 +54,7 @@ export default function OfficeLoginPage() {
         // signIn() only confirms the SuperTokens session; whether this is
         // a temp password needing a forced change lives in this app's own
         // profile table, so that requires a separate authenticated call.
-        const meRes = await fetch(`${API_ORIGIN}/users/me`);
+        const meRes = await fetch(`${API_BASE}/users/me`);
         const me = meRes.ok ? await meRes.json() : null;
         if (me?.mustChangePassword) {
           setMustChangePassword(true);
@@ -86,7 +86,7 @@ export default function OfficeLoginPage() {
 
     setIsLoading(true);
     try {
-      const res = await fetch(`${API_ORIGIN}/users/me/password`, {
+      const res = await fetch(`${API_BASE}/users/me/password`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ currentPassword: password, newPassword }),

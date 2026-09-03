@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { API_ORIGIN } from '@/lib/api-origin';
+import { API_BASE } from '@/lib/api-origin';
 
 export interface CurrentUser {
   id: string;
@@ -17,7 +17,7 @@ export function useCurrentUser() {
   return useQuery<CurrentUser>({
     queryKey: ['currentUser'],
     queryFn: async () => {
-      const res = await fetch(`${API_ORIGIN}/users/me`);
+      const res = await fetch(`${API_BASE}/users/me`);
       if (!res.ok) throw new Error('Failed to load current user');
       return res.json();
     },

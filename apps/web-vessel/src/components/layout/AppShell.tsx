@@ -10,7 +10,7 @@ import { ThemeToggle } from '@ovl/ui/components/theme-toggle';
 import { SparksLogo, SparksMark } from '@/components/layout/SparksLogo';
 import { trpc } from '@/lib/trpc';
 import { ChangePasswordDialog } from '@/components/ChangePasswordDialog';
-import { API_ORIGIN } from '@/lib/api-origin';
+import { API_BASE } from '@/lib/api-origin';
 
 interface AppShellProps {
   children: ReactNode;
@@ -57,7 +57,7 @@ export function AppShell({ children }: AppShellProps) {
     setIsLoggingOut(true);
     
     try {
-      await fetch(`${API_ORIGIN}/auth/logout`, {
+      await fetch(`${API_BASE}/auth/logout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

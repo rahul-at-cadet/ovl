@@ -31,7 +31,17 @@ import { SchemaVersionsModule } from './config/schema-versions/schema-versions.m
         appName: 'Sparks',
         apiDomain: process.env.API_DOMAIN || 'http://localhost:3001',
         websiteDomain: process.env.WEBSITE_DOMAIN || 'http://localhost:3000',
-        apiBasePath: '/auth',
+        // Under the global /api prefix, same as every controller.
+        //
+        // Not cosmetic: setGlobalPrefix('api') also narrows the Nest
+        // middleware this recipe is mounted through (AuthModule applies it
+        // with forRoutes('*'), which the prefix rewrites to /api/*), so
+        // with apiBasePath left at '/auth' the middleware never ran for
+        // /auth/* and did not recognise /api/auth/* either — every auth
+        // route 404'd. Must stay identical to the frontend SDK's
+        // apiBasePath in web-office/src/components/providers/
+        // supertokens-provider.tsx.
+        apiBasePath: '/api/auth',
         websiteBasePath: '/login',
       },
     }),

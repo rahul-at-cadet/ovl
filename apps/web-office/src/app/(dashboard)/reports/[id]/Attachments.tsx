@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@ovl/
 import { Badge } from '@ovl/ui/components/badge';
 import { Paperclip, Download, Clock, FileImage, FileText } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
-import { API_ORIGIN } from '@/lib/api-origin';
+import { API_BASE } from '@/lib/api-origin';
 
 /**
  * Evidence a report cites, as held ashore — ports design handoff B4's
@@ -67,7 +67,7 @@ export function Attachments({ reportId, vesselId }: { reportId: string; vesselId
                        the browser saves it without the whole attachment
                        passing through JavaScript. */
                     <a
-                      href={`${API_ORIGIN}/attachments/${vesselId}/${reportId}/${a.id}`}
+                      href={`${API_BASE}/attachments/${vesselId}/${reportId}/${a.id}`}
                       className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
                     >
                       <Download className="size-3.5" />

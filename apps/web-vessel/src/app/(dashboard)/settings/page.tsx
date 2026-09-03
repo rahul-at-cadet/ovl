@@ -8,7 +8,7 @@ import { Label } from '@ovl/ui/components/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@ovl/ui/components/tabs';
 import { Satellite, Database, Activity, RefreshCw, Save, Cpu, Loader2, Navigation, LifeBuoy } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
-import { API_ORIGIN } from '@/lib/api-origin';
+import { API_BASE } from '@/lib/api-origin';
 import { useToastManager } from '@ovl/ui/components/toast';
 import { Switch } from '@ovl/ui/components/switch';
 import { useScrollActiveTabIntoView } from '@/components/ScrollableTabs';
@@ -250,7 +250,7 @@ export default function SettingsPage() {
                     <p className="text-sm text-muted-foreground">
                       Take a copy of this node&apos;s database and attachments, or download one to keep ashore.
                     </p>
-                    <Button variant="outline" className="border-border bg-background hover:bg-card text-foreground" onClick={() => window.open(`${API_ORIGIN}/system/backup/download`)}>
+                    <Button variant="outline" className="border-border bg-background hover:bg-card text-foreground" onClick={() => window.open(`${API_BASE}/system/backup/download`)}>
                       <Save className="w-4 h-4 mr-2" />
                       Download Full Backup
                     </Button>

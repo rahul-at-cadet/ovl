@@ -115,6 +115,32 @@ services:
     ports:
       - "3002:3002"
 
+  # Single public entry point. Both web apps and both APIs sit behind this
+  # on one origin each, so the browser makes same-origin requests and the
+  # routing rules live in deploy/nginx/nginx.conf — in this repo, versioned
+  # with the code that depends on them.
+  #
+  # This replaces an nginx installed by hand on the VM, whose config named
+  # API endpoints one at a time and so silently stopped routing new ones
+  # (a PATCH to /users/me/password reached the Next.js 404 page instead of
+  # the API). Stop that host nginx before bringing this up, or it will hold
+  # port 8081:  sudo systemctl disable --now nginx
+  #
+  #   office: http://<host>:8081     vessel: http://<host>:8082
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+      - "8082:8082"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api-office
+      - api-vessel
+      - web-office
+      - web-vessel
+
 volumes:
   vessel-db-data:
   node-postgres-data:

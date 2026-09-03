@@ -79,8 +79,14 @@ services:
       context: .
       dockerfile: apps/web-office/Dockerfile
       args:
-        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:3001}
-        - NEXT_PUBLIC_WEBSITE_DOMAIN=${NEXT_PUBLIC_WEBSITE_DOMAIN:-http://localhost:3000}
+        # Empty by default, and that is the correct default: these are
+        # baked into the client bundle at build time, so an absolute
+        # http://localhost:3001 sends every remote visitor's own browser
+        # looking at their own machine. Empty means relative URLs, which
+        # is what the nginx single-origin routing above expects. Only set
+        # these when the API really is on a different public origin.
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-}
+        - NEXT_PUBLIC_WEBSITE_DOMAIN=${NEXT_PUBLIC_WEBSITE_DOMAIN:-}
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -92,11 +98,37 @@ services:
       context: .
       dockerfile: apps/web-vessel/Dockerfile
       args:
-        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_VESSEL_API_URL:-http://localhost:3003}
-        - NEXT_PUBLIC_WEBSITE_DOMAIN=${NEXT_PUBLIC_VESSEL_WEBSITE_DOMAIN:-http://localhost:3002}
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_VESSEL_API_URL:-}
+        - NEXT_PUBLIC_WEBSITE_DOMAIN=${NEXT_PUBLIC_VESSEL_WEBSITE_DOMAIN:-}
     restart: unless-stopped
     ports:
       - "3002:3002"
+
+  # Single public entry point. Both web apps and both APIs sit behind this
+  # on one origin each, so the browser makes same-origin requests and the
+  # routing rules live in deploy/nginx/nginx.conf — in this repo, versioned
+  # with the code that depends on them.
+  #
+  # This replaces an nginx installed by hand on the VM, whose config named
+  # API endpoints one at a time and so silently stopped routing new ones
+  # (a PATCH to /users/me/password reached the Next.js 404 page instead of
+  # the API). Stop that host nginx before bringing this up, or it will hold
+  # port 8081:  sudo systemctl disable --now nginx
+  #
+  #   office: http://<host>:8081     vessel: http://<host>:8082
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+      - "8082:8082"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api-office
+      - api-vessel
+      - web-office
+      - web-vessel
 
 volumes:
   vessel-db-data:

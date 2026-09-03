@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@ovl/
 import { Input } from '@ovl/ui/components/input';
 import { Label } from '@ovl/ui/components/label';
 import { Button } from '@ovl/ui/components/button';
-import { API_ORIGIN } from '@/lib/api-origin';
+import { API_BASE } from '@/lib/api-origin';
 import { trpc } from '@/lib/trpc';
 import { SparksLogo } from '@/components/layout/SparksLogo';
 
@@ -31,7 +31,7 @@ export default function LoginPage() {
     setError('');
     
     try {
-      const res = await fetch(`${API_ORIGIN}/auth/login`, {
+      const res = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

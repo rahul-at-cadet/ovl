@@ -18,7 +18,9 @@ if (typeof window !== 'undefined') {
       appName: 'Sparks',
       apiDomain: isProd ? origin : 'http://localhost:3001',
       websiteDomain: isProd ? origin : 'http://localhost:3000',
-      apiBasePath: '/auth',
+      // Must match api-office's own apiBasePath (app.module.ts), which
+      // sits under the global /api prefix along with every controller.
+      apiBasePath: '/api/auth',
       websiteBasePath: '/login',
     },
     recipeList: [EmailPassword.init(), Session.init()],
