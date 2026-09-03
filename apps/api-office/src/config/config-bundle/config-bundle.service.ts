@@ -467,6 +467,13 @@ export class ConfigBundleService {
         firstAt: sql<string | null>`min(${schema.syncRuns.receivedAt})`,
         lastAt: sql<string | null>`max(${schema.syncRuns.receivedAt})`,
         served: sql<number>`count(*) filter (where ${schema.syncRuns.outcome} = 'served')::int`,
+        // Counted apart from failures on purpose. 'noBundle' means office
+        // answered perfectly and no assignment covers the vessel — a
+        // configuration gap someone fixes in Fleet Configuration, not a
+        // fault. Folding it into a single "failed" number told an operator
+        // the fleet was broken on a fresh install where nothing had been
+        // assigned yet: 170 check-ins, 0% success, every one of them fine.
+        unconfigured: sql<number>`count(*) filter (where ${schema.syncRuns.outcome} = 'noBundle')::int`,
       })
       .from(schema.syncRuns)
       .leftJoin(schema.vessels, eq(schema.syncRuns.vesselId, schema.vessels.id))
@@ -500,7 +507,7 @@ export class ConfigBundleService {
         knownVesselName: schema.vessels.name,
         reportedName: sql<string | null>`max(${schema.syncRuns.reportedName})`,
         total: sql<number>`count(*)::int`,
-        failed: sql<number>`count(*) filter (where ${schema.syncRuns.outcome} <> 'served')::int`,
+        failed: sql<number>`count(*) filter (where ${schema.syncRuns.outcome} not in ('served', 'noBundle'))::int`,
         lastAt: sql<string>`max(${schema.syncRuns.receivedAt})`,
       })
       .from(schema.syncRuns)
@@ -517,10 +524,18 @@ export class ConfigBundleService {
       firstAt: toIsoOrNull(totals?.firstAt),
       lastAt: toIsoOrNull(totals?.lastAt),
       served: totals?.served ?? 0,
-      failed: total - (totals?.served ?? 0),
+      unconfigured: totals?.unconfigured ?? 0,
+      // Genuine failures only — a vessel office cannot identify, or any
+      // outcome added later. 'noBundle' is reported separately above.
+      failed: total - (totals?.served ?? 0) - (totals?.unconfigured ?? 0),
       // Rounded to a whole percent: this is a health indicator on a
       // dashboard, not a statistic anyone reconciles to three decimals.
-      successRate: total === 0 ? null : Math.round(((totals?.served ?? 0) / total) * 100),
+      // Measured against the check-ins that could have succeeded, so a
+      // fleet with nothing assigned yet reports no rate rather than 0%.
+      successRate:
+        total - (totals?.unconfigured ?? 0) === 0
+          ? null
+          : Math.round(((totals?.served ?? 0) / (total - (totals?.unconfigured ?? 0))) * 100),
       byOutcome: byOutcomeRows,
       perVessel: perVessel.map((v) => ({
         ...v,

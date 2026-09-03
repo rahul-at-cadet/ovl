@@ -118,18 +118,33 @@ describe('syncHistory rows', () => {
 });
 
 describe('syncMetrics', () => {
-  it('derives failed and successRate from the served count', async () => {
-    const { db } = makeDb([{ total: 10, vessels: 3, firstAt: 'a', lastAt: 'b', served: 7 }]);
+  it('separates genuine failures from check-ins with no bundle assigned', async () => {
+    // 'noBundle' means office answered perfectly and no assignment covers
+    // the vessel — a configuration gap, not a fault. Counting it as a
+    // failure reported a healthy fleet as broken.
+    const { db } = makeDb([{ total: 10, vessels: 3, firstAt: 'a', lastAt: 'b', served: 6, unconfigured: 3 }]);
     const svc = new ConfigBundleService(db);
     const m = await svc.syncMetrics();
-    expect(m.failed).toBe(3);
-    expect(m.successRate).toBe(70);
+    expect(m.served).toBe(6);
+    expect(m.unconfigured).toBe(3);
+    expect(m.failed).toBe(1);
+    // Rated against the check-ins that could have succeeded.
+    expect(m.successRate).toBe(86);
+  });
+
+  it('reports no success rate when every check-in was unconfigured', async () => {
+    // The case a fresh install actually produces: a vessel enrolled and
+    // syncing happily before anyone has published a bundle. Reporting 0%
+    // told the operator the fleet was down when nothing was set up yet.
+    const { db } = makeDb([{ total: 170, vessels: 1, firstAt: 'a', lastAt: 'b', served: 0, unconfigured: 170 }]);
+    const svc = new ConfigBundleService(db);
+    const m = await svc.syncMetrics();
+    expect(m.failed).toBe(0);
+    expect(m.successRate).toBeNull();
   });
 
   it('reports no success rate rather than 0% when nothing matched', async () => {
-    // 0% reads as "everything failed"; the truth is that there is
-    // nothing to rate.
-    const { db } = makeDb([{ total: 0, vessels: 0, firstAt: null, lastAt: null, served: 0 }]);
+    const { db } = makeDb([{ total: 0, vessels: 0, firstAt: null, lastAt: null, served: 0, unconfigured: 0 }]);
     const svc = new ConfigBundleService(db);
     const m = await svc.syncMetrics();
     expect(m.total).toBe(0);

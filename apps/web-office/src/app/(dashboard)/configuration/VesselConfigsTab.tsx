@@ -246,10 +246,15 @@ export function VesselConfigsTab() {
                 value={metrics.successRate === null ? '—' : `${metrics.successRate}%`}
                 tone={metrics.successRate === null ? undefined : metrics.successRate >= 95 ? 'ok' : 'warn'}
               />
+              {/* Two tiles, not one. A check-in with no bundle assigned is
+                  a configuration gap fixed in Assignments; a failed one is
+                  a vessel office cannot identify. Showing them together as
+                  "Failed" reported a healthy but unconfigured fleet as
+                  entirely broken. */}
               <Metric
-                label="Failed"
-                value={metrics.failed.toLocaleString()}
-                tone={metrics.failed > 0 ? 'warn' : undefined}
+                label={metrics.failed > 0 ? 'Failed' : 'No bundle'}
+                value={(metrics.failed > 0 ? metrics.failed : metrics.unconfigured).toLocaleString()}
+                tone={metrics.failed > 0 ? 'warn' : metrics.unconfigured > 0 ? 'warn' : undefined}
               />
             </div>
           ) : null}
