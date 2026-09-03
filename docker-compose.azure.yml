@@ -150,13 +150,21 @@ services:
   # the API). Stop that host nginx before bringing this up, or it will hold
   # port 8081:  sudo systemctl disable --now nginx
   #
-  #   office: http://<host>:8081     vessel: http://<host>:8082
+  #   office: http://<host>:8081   vessel (Node): http://<host>:8444
+  #   vessel (Go, still on the host): http://<host>:8443
   nginx:
     image: nginx:1.27-alpine
     restart: unless-stopped
     ports:
       - "8081:8081"
-      - "8082:8082"
+      # 8443 and 8444 were the host nginx's vessel ports; keeping them means
+      # existing links and bookmarks do not break when it is retired.
+      - "8443:8443"
+      - "8444:8444"
+    extra_hosts:
+      # 8443 proxies to the Go vessel binary, which runs natively on the VM
+      # rather than in this compose network.
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
